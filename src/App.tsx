@@ -201,14 +201,7 @@ export default function App() {
                   className="absolute inset-0 opacity-80 hover:opacity-100 transition-opacity"
                   title="AV Calendar"
                 ></iframe>
-                
-                {/* Text ito incase hindi pa nailalagay ang totoong calendar link */}
-                <div className="text-center p-4 opacity-20 pointer-events-none">
-                  <p className="text-sm font-bold text-slate-400">Replace iframe src<br/>with your Google Calendar</p>
-                </div>
-              </div>
-            </div>
-
+      
             {/* Pending Section */}
             <div>
               <h2 className="text-sm font-bold text-slate-400 mb-4 tracking-widest border-l-4 border-amber-500 pl-3">PENDING QUEUE</h2>
