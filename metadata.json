@@ -1,0 +1,6 @@
+{
+  "name": "Productivity & Monitoring Dashboard",
+  "description": "A sleek, professional-grade task management tool and monitoring dashboard featuring live metric streams, focus audio synthesis, and analytics visualization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
