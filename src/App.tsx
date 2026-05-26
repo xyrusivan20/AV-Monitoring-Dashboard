@@ -248,7 +248,7 @@ export default function App() {
       <div className="print-only hidden font-serif p-8 text-black bg-white text-base">
         <div className="text-center mb-8 border-b-2 border-black pb-4">
           <h1 className="text-2xl font-bold uppercase tracking-wide">AV PRODUCTION SERVICES COVERAGE REPORT</h1>
-          <p className="text-sm tracking-widest uppercase mt-1">DOST-STII Production Command Center</p>
+          <p className="text-sm tracking-widest uppercase mt-1">Total Coverage Catered</p>
           <p className="text-xs italic mt-1">Official Reference Document for IPCR / SPMS Attachment</p>
         </div>
 
