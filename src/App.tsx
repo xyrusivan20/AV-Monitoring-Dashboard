@@ -187,10 +187,7 @@ export default function App() {
               <h2 className="text-sm font-bold text-slate-400 mb-4 tracking-widest border-l-4 border-indigo-500 pl-3">AV CALENDAR</h2>
               <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden h-[300px] relative flex items-center justify-center group">
                 
-                {/* PAANO ILAGAY ANG GOOGLE CALENDAR:
-                  1. Palitan ang <iframe> sa ibaba ng Embed Code mula sa Google Calendar ninyo.
-                  2. Siguraduhing naka-set sa "Public" ang Google Calendar (o shared sa email na nagbubukas nito).
-                */}
+    
                 <iframe 
                   src="https://calendar.google.com/calendar/embed?src=av%40stii.dost.gov.ph&ctz=Asia%2FSingapore" 
                   style={{ border: 0 }} 
