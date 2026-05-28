@@ -18,8 +18,9 @@ export default function App() {
   // SCRIPT_URL MO
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec";
   
-  // LINK NG PRE-ARCHIVAL SHEET NINYO
-  const PRE_ARCHIVAL_LINK = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID_HERE";
+  // MGA LINKS
+  const PRE_ARCHIVAL_LINK = "https://docs.google.com/spreadsheets/d/1Q2H3AelKocMLImvjkXpy9j1z89qWYYok0-BPj68QPCE/edit?gid=0#gid=0";
+  const DMC_MONITORING_LINK = "https://docs.google.com/spreadsheets/d/1DmfloCwW90g5Rru4-l1N5DSbqyLGbga6OkklX_w1Skc/edit?gid=32561347#gid=32561347"; // DITO MO ILAGAY YUNG LINK PARA SA DMC IRAD
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -63,8 +64,8 @@ export default function App() {
   const officialDetails: Record<string, { fullName: string, designation: string }> = {
     'Xyrus': { fullName: 'Xyrus Ivan B. De Gracia', designation: 'Audio Visual Aides Technician IV' },
     'Marx': { fullName: 'Marx Lenin G. Halili', designation: 'Science Research Specialist II' },
-    'Reiner': { fullName: 'Reiner Zagada', designation: 'Audio Visual Aides Technician III' },
-    'Pat': { fullName: 'Patrick James Lee Alfonso', designation: 'Photographer II' },
+    'Reiner': { fullName: 'Reiner M. Zagada', designation: 'Audio Visual Aides Technician III' },
+    'Pat': { fullName: 'Patrick James Lee C. Alfonso', designation: 'Photographer II' },
     'Lotus': { fullName: 'Ma. Lotuslei P. Dimagiba', designation: 'Supervising SRS' }
   };
   
@@ -89,10 +90,8 @@ export default function App() {
     return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳ PENDING</span>;
   };
 
-  // Fixed IPCR Filtering Logic
   const getIPCRRecords = () => {
     if (selectedIPCRPersonnel === 'Lotus') {
-      // Bibilangin lahat ng gawa ng team na na-transfer, na-check, o na-archive na
       return coverages.filter(c => {
         const s = (c.status || '').toLowerCase();
         return s.includes('check') || 
@@ -103,7 +102,6 @@ export default function App() {
                s.includes('100%');
       });
     }
-    // Kung hindi si Lotus, bibilangin lang yung task ng napiling tao
     return coverages.filter(c => (c.personnel || '').toLowerCase().includes(selectedIPCRPersonnel.toLowerCase()));
   };
 
@@ -128,9 +126,15 @@ export default function App() {
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
               <span className="text-xs text-slate-400 font-mono">LIVE UPDATE: {lastUpdated}</span>
             </div>
-            <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-slate-700 shadow-md">
-              📁 Access Pre-Archival Sheets
-            </a>
+            {/* DITO PINAGTABI YUNG DALAWANG LINKS */}
+            <div className="flex items-center gap-2">
+              <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-slate-700 shadow-md">
+                📁 Pre-Archival
+              </a>
+              <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-emerald-700 shadow-md">
+                📊 DMC Monitoring IRAD
+              </a>
+            </div>
           </div>
         </header>
 
@@ -183,11 +187,26 @@ export default function App() {
                   <div key={idx} className="bg-slate-900 border border-slate-800 rounded-lg p-5 flex flex-col md:flex-row justify-between gap-4 hover:bg-slate-800/60 transition-colors">
                     <div className="flex-1">
                       <h3 className="text-base font-bold text-slate-100 mb-2 leading-snug">{cov.details || "Untitled Coverage"}</h3>
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono mb-3">
                         <span className="bg-slate-800 text-slate-200 px-2 py-0.5 rounded uppercase font-bold tracking-wider">{cov.personnel}</span>
                         <span className="text-slate-600">•</span>
                         <span>{cov.date.split(' ')[0]}</span>
                       </div>
+
+                      {/* BINALIK KO DITO YUNG GDRIVE AT SOCIAL MEDIA LINKS */}
+                      <div className="flex items-center gap-4 mt-2">
+                        {cov.gdrive && (
+                          <a href={cov.gdrive} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors">
+                            📂 GDrive
+                          </a>
+                        )}
+                        {cov.socialMediaLink && (
+                          <a href={cov.socialMediaLink} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors">
+                            🌐 Social Media
+                          </a>
+                        )}
+                      </div>
+
                     </div>
                     <div className="flex flex-col items-start md:items-end justify-center gap-3">
                       {getStatusBadge(cov.status)}
@@ -257,14 +276,14 @@ export default function App() {
         </main>
       </div>
 
-      {/* --- OFFICIAL PRINT-ONLY SHEET (LALABAS LANG SA PAPEL O PDF) --- */}
+      {/* --- OFFICIAL PRINT-ONLY SHEET --- */}
       <div className="print-only hidden font-serif p-8 text-black bg-white text-base">
         <div className="text-center mb-8 border-b-2 border-black pb-4">
           <h1 className="text-2xl font-bold uppercase tracking-wide">
             {selectedIPCRPersonnel === 'Lotus' ? 'SUPERVISORY VERIFICATION REPORT' : 'AV PRODUCTION SERVICES COVERAGE REPORT'}
           </h1>
-          <p className="text-sm tracking-widest uppercase mt-1">DOST-STII Production Command Center</p>
-          <p className="text-xs italic mt-1">Official Reference Document for IPCR / SPMS Attachment</p>
+          <p className="text-sm tracking-widest uppercase mt-1">AV COVERAGE AND DMC VERIFICATION</p>
+          <p className="text-xs italic mt-1">Official Reference Document for IPCR </p>
         </div>
 
         <div className="mb-6">
