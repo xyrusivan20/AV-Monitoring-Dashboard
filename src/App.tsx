@@ -87,7 +87,7 @@ export default function App() {
     if (s.includes('supervisor') || s.includes('check')) {
       return <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-[10px] font-bold border border-blue-500/30">👀 CHECKED</span>;
     }
-    return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳ PENDING</span>;
+    return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳ UPCOMING</</span>;
   };
 
   const getIPCRRecords = () => {
