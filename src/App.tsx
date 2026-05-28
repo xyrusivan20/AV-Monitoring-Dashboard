@@ -35,7 +35,7 @@ export default function App() {
           personnel: row['Assigned Personnel'] || 'Unassigned',
           gdrive: row['GDrive Link'] || '',
           socialMediaLink: row['Social Media Link'] || '',
-          status: row['DMC Status'] || 'Upcoming Event',
+          status: row['DMC Status'] || 'Upcoming',
           date: row['Date Uploaded'] || new Date().toISOString().split('T')[0],
         }))
         .reverse(); 
@@ -87,7 +87,7 @@ export default function App() {
     if (s.includes('supervisor') || s.includes('check')) {
       return <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-[10px] font-bold border border-blue-500/30">👀 CHECKED</span>;
     }
-    return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳ UPCOMING</</span>;
+    return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳Upcoming</</span>;
   };
 
   const getIPCRRecords = () => {
