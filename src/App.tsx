@@ -35,7 +35,7 @@ export default function App() {
           personnel: row['Assigned Personnel'] || 'Unassigned',
           gdrive: row['GDrive Link'] || '',
           socialMediaLink: row['Social Media Link'] || '',
-          status: row['DMC Status'] || 'Pending',
+          status: row['DMC Status'] || 'Upcoming Event',
           date: row['Date Uploaded'] || new Date().toISOString().split('T')[0],
         }))
         .reverse(); 
