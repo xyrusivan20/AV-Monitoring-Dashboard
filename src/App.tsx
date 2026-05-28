@@ -18,7 +18,7 @@ export default function App() {
   // SCRIPT_URL MO
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec";
   
-  // LINK NG PRE-ARCHIVAL SHEET NINYO (I-replace ang link na ito)
+  // LINK NG PRE-ARCHIVAL SHEET NINYO
   const PRE_ARCHIVAL_LINK = "https://docs.google.com/spreadsheets/d/YOUR_SHEET_ID_HERE";
 
   const fetchTasks = useCallback(async () => {
@@ -80,7 +80,7 @@ export default function App() {
     if (s.includes('upcoming')) {
       return <span className="px-3 py-1 bg-pink-500/20 text-pink-400 rounded-full text-[10px] font-bold border border-pink-500/30">📅 UPCOMING</span>;
     }
-    if (s.includes('100%') || s.includes('dmc nas')) {
+    if (s.includes('100%') || s.includes('dmc nas') || s.includes('transfer') || s.includes('completed')) {
       return <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-[10px] font-bold border border-emerald-500/30">✔ DMC TRANSFERRED</span>;
     }
     if (s.includes('supervisor') || s.includes('check')) {
@@ -89,13 +89,24 @@ export default function App() {
     return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳ PENDING</span>;
   };
 
-  // IPCR Filtering Logic (Special logic for Ma'am Lotus to count 'Checked' statuses)
+  // Fixed IPCR Filtering Logic
   const getIPCRRecords = () => {
     if (selectedIPCRPersonnel === 'Lotus') {
-      return coverages.filter(c => c.status.toLowerCase().includes('check') || c.status.toLowerCase().includes('archived'));
+      // Bibilangin lahat ng gawa ng team na na-transfer, na-check, o na-archive na
+      return coverages.filter(c => {
+        const s = (c.status || '').toLowerCase();
+        return s.includes('check') || 
+               s.includes('transfer') || 
+               s.includes('completed') || 
+               s.includes('dmc') || 
+               s.includes('archive') || 
+               s.includes('100%');
+      });
     }
-    return coverages.filter(c => c.personnel.toLowerCase().includes(selectedIPCRPersonnel.toLowerCase()));
+    // Kung hindi si Lotus, bibilangin lang yung task ng napiling tao
+    return coverages.filter(c => (c.personnel || '').toLowerCase().includes(selectedIPCRPersonnel.toLowerCase()));
   };
+
   const ipcrRecords = getIPCRRecords();
 
   return (
@@ -117,7 +128,6 @@ export default function App() {
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
               <span className="text-xs text-slate-400 font-mono">LIVE UPDATE: {lastUpdated}</span>
             </div>
-            {/* Pre-Archival Button */}
             <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-slate-700 shadow-md">
               📁 Access Pre-Archival Sheets
             </a>
@@ -225,6 +235,23 @@ export default function App() {
                   </button>
                 </div>
               </div>
+
+              {/* Box Preview on Web */}
+              <div className="bg-slate-950 border border-slate-800 rounded-lg p-5 font-mono text-sm max-h-[400px] overflow-y-auto custom-scrollbar">
+                <p className="text-emerald-400 font-bold border-b border-slate-800 pb-2 mb-3">📄 WEB PREVIEW (Ito ang itsura kapag na-print):</p>
+                <div className="text-slate-300 space-y-1">
+                  <p className="text-base font-bold text-white uppercase">
+                    {officialDetails[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel} - TOTAL: {ipcrRecords.length} {selectedIPCRPersonnel === 'Lotus' ? 'VERIFIED/CHECKED' : 'COVERAGES CATERED'}
+                  </p>
+                  <p className="text-slate-600">--------------------------------------------------</p>
+                  {ipcrRecords.map((cov, idx) => (
+                    <p key={idx} className="whitespace-pre-wrap leading-relaxed">
+                      <span className="text-emerald-500 font-bold">{idx + 1}.</span> [{cov.date.split(' ')[0]}] - {cov.details} | <span className="text-slate-500">[{cov.status.toUpperCase()}]</span>
+                    </p>
+                  ))}
+                  {ipcrRecords.length === 0 && <p className="text-slate-500 italic">Walang nakitang records sa taong ito.</p>}
+                </div>
+              </div>
             </div>
           </section>
         </main>
@@ -244,7 +271,7 @@ export default function App() {
           <p className="text-lg font-bold uppercase">NAME: <span className="underline">{officialDetails[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel}</span></p>
           <p className="text-md font-bold uppercase">POSITION: {officialDetails[selectedIPCRPersonnel]?.designation}</p>
           <p className="text-lg font-bold uppercase mt-3">
-            {selectedIPCRPersonnel === 'Lotus' ? 'TOTAL VERIFIED / CHECKED:' : 'TOTAL CATERED OPERATIONS:'} <span className="underline">{ipcrRecords.length} COVERAGES</span>
+            {selectedIPCRPersonnel === 'Lotus' ? 'TOTAL VERIFIED / CHECKED:' : 'TOTAL CATERED OPERATIONS:'} <span className="underline">{ipcrRecords.length} RECORDS</span>
           </p>
         </div>
 
@@ -254,7 +281,7 @@ export default function App() {
               <tr className="bg-gray-100 border-b border-black text-sm font-bold">
                 <th className="p-3 border-r border-black w-12 text-center">#</th>
                 <th className="p-3 border-r border-black w-32">DATE</th>
-                <th className="p-3 border-r border-black w-32">STATUS</th>
+                <th className="p-3 border-r border-black w-40">STATUS</th>
                 <th className="p-3">COVERAGE PARTICULARS & DETAILS</th>
               </tr>
             </thead>
