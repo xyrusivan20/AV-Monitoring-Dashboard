@@ -136,10 +136,10 @@ export default function App() {
                 className="h-25 w-auto drop-shadow-md" 
               /> 
             </div>
-            <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight uppercase drop-shadow-sm">
+            <h1 className="text-5xl md:text-6xl font-black text-white tracking-tight uppercase drop-shadow-sm mb-1">
               AV <span className="text-[#00aeef] drop-shadow-[0_0_8px_rgba(0,174,239,0.4)]"> Nexus</span>
             </h1>
-            <p className="text-zinc-400 text-sm mt-1 uppercase tracking-widest font-semibold">
+            <p className="text-zinc-400 text-xs mt-1 uppercase tracking-widest font-semibold">
               AV Coverage and DMC Monitoring Tool
             </p>
           </div>
