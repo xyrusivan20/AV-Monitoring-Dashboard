@@ -136,11 +136,11 @@ export default function App() {
   />
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
               AV Coverage <span className="text-emerald-500">Monitoring</span>
+                 </div>
             </h1>
             <p className="text-slate-400 text-sm mt-1 uppercase tracking-widest font-semibold">
               AV Coverage and DMC Monitoring Tool
             </p>
-          </div>
             </div>
           <div className="flex flex-col items-end gap-3">
             <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-lg border border-slate-800 shadow-inner">
