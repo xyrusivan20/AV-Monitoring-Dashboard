@@ -137,7 +137,7 @@ export default function App() {
               /> 
             </div>
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight uppercase drop-shadow-sm">
-              AV Coverage <span className="text-[#00aeef] drop-shadow-[0_0_8px_rgba(0,174,239,0.4)]">Monitoring</span>
+              AV <span className="text-[#00aeef] drop-shadow-[0_0_8px_rgba(0,174,239,0.4)]"> Nexus</span>
             </h1>
             <p className="text-zinc-400 text-sm mt-1 uppercase tracking-widest font-semibold">
               AV Coverage and DMC Monitoring Tool
