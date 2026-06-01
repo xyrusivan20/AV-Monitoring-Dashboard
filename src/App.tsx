@@ -73,27 +73,40 @@ export default function App() {
     return coverages.find(c => c.personnel.toLowerCase().includes(name.toLowerCase()));
   };
 
-  const getStatusBadge = (status: string) => {
+ const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
+    
+    // 1. Haharangin muna natin kapag may salitang "not yet" para maging PENDING
+    if (s.includes('not yet') || s.includes('not transferred')) {
+      return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳ PENDING</span>;
+    }
+    
+    // 2. Kapag pumasa, saka niya iche-check yung iba
     if (s.includes('100% archived')) {
       return <span className="px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-[10px] font-bold border border-purple-500/30">🌟 100% ARCHIVED</span>;
     }
     if (s.includes('upcoming')) {
       return <span className="px-3 py-1 bg-pink-500/20 text-pink-400 rounded-full text-[10px] font-bold border border-pink-500/30">📅 UPCOMING</span>;
     }
-    if (s.includes('100%') || s.includes('dmc nas') || s.includes('transfer') || s.includes('completed')) {
+    if (s.includes('100%') || s.includes('dmc nas') || s.includes('transfer completed') || s.includes('completed')) {
       return <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-[10px] font-bold border border-emerald-500/30">✔ DMC TRANSFERRED</span>;
     }
     if (s.includes('supervisor') || s.includes('check')) {
       return <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-[10px] font-bold border border-blue-500/30">👀 CHECKED</span>;
     }
-    return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳Upcoming</span>;
+    
+    return <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-[10px] font-bold border border-slate-600">⏳ PENDING</span>;
   };
 
+  // Na-update na rin ito para hindi isama sa bilang ni Ma'am Lotus ang "Not yet transferred"
   const getIPCRRecords = () => {
     if (selectedIPCRPersonnel === 'Lotus') {
       return coverages.filter(c => {
         const s = (c.status || '').toLowerCase();
+        
+        // Ibabawas sa bilang kapag "not yet"
+        if (s.includes('not yet') || s.includes('not transferred')) return false;
+
         return s.includes('check') || 
                s.includes('transfer') || 
                s.includes('completed') || 
