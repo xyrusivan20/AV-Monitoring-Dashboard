@@ -54,7 +54,7 @@ export default function App() {
   }, [fetchTasks]);
 
   const teamMembers = [
-    { name: 'Xyrus', image: '/058a9763.jpg' },
+    { name: 'Xyrus', image: '/058A9763.jpg' },
     { name: 'Marx', image: 'https://ui-avatars.com/api/?name=MX&background=3b82f6&color=fff&size=128' },
     { name: 'Reiner', image: 'https://ui-avatars.com/api/?name=RZ&background=f59e0b&color=fff&size=128' },
     { name: 'Pat', image: 'https://ui-avatars.com/api/?name=PJ&background=8b5cf6&color=fff&size=128' }
