@@ -13,7 +13,7 @@ body {
   
   /* Ang Magic Code: 70% opacity dark overlay (0.7) + background image mo */
  background-color: #000000; 
-  background-image: linear-gradient(rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.85)), url('/bg.jpg');
+  background-image: linear-gradient(rgba(0, 0, 0, 0.80), rgba(0, 0, 0, 0.80)), url('/bg.jpg');
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
