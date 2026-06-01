@@ -128,7 +128,7 @@ export default function App() {
         <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-800 pb-6 gap-4">
           <div>
         
-<div className="mb-8 flex items-center gap-4">
+<div className="mb-8 flex items-center gap-2">
   <img 
     src="/stii.png" 
     alt="Official Logo" 
