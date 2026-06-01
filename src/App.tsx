@@ -121,7 +121,7 @@ export default function App() {
   const ipcrRecords = getIPCRRecords();
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 md:p-8 font-sans selection:bg-emerald-500/30">
+    <div className="min-h-screen text-slate-200 p-4 md:p-8 font-sans selection:bg-emerald-500/30">
       
       {/* --- DASHBOARD VIEW (NO-PRINT AREA) --- */}
       <div className="no-print space-y-8">
