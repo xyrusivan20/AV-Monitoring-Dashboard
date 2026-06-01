@@ -127,6 +127,22 @@ export default function App() {
       <div className="no-print space-y-8">
         <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-800 pb-6 gap-4">
           <div>
+        
+<div className="mb-8 flex items-center gap-4">
+  <img 
+    src="/stii.png" 
+    alt="Official Logo" 
+    className="h-10 w-auto drop-shadow-md" 
+  />
+  <div>
+    <h1 className="text-3xl font-bold tracking-tight text-slate-100">
+      AV Nexus
+    </h1>
+    <p className="text-sm text-slate-400">
+      Coverage and Monitoring Dashboard
+    </p>
+  </div>
+</div>
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
               AV Coverage <span className="text-emerald-500">Monitoring</span>
             </h1>
