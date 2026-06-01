@@ -140,7 +140,7 @@ export default function App() {
               AV <span className="text-[#00aeef] drop-shadow-[0_0_8px_rgba(0,174,239,0.4)]"> Nexus</span>
             </h1>
             <p className="text-zinc-400 text-xs mt-1 uppercase tracking-widest font-semibold">
-              AV Coverage and DMC Monitoring Tool
+              Coverage and DMC Monitoring Dashboard
             </p>
           </div>
           <div className="flex flex-col items-end gap-3">
