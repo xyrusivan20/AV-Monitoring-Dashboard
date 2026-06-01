@@ -141,6 +141,7 @@ export default function App() {
               AV Coverage and DMC Monitoring Tool
             </p>
           </div>
+            </div>
           <div className="flex flex-col items-end gap-3">
             <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-lg border border-slate-800 shadow-inner">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
@@ -154,7 +155,6 @@ export default function App() {
               <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-emerald-700 shadow-md">
                 📊 DMC Monitoring IRAD
               </a>
-              </div>
             </div>
           </div>
         </header>
