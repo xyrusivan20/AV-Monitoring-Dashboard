@@ -12,7 +12,7 @@ body {
   color: #f8fafc; /* Light text color para bumagay sa dark background */
   
   /* Ang Magic Code: 70% opacity dark overlay (0.7) + background image mo */
-  background-color: #0f172a; 
+  background-color: #000000; 
   background-image: linear-gradient(rgba(15, 23, 42, 0.7), rgba(15, 23, 42, 0.7)), url('/bg.jpg');
   background-size: cover;
   background-position: center;
