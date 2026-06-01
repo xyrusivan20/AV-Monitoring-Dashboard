@@ -134,6 +134,7 @@ export default function App() {
     alt="Official Logo" 
     className="h-15 w-auto drop-shadow-md" 
   />
+</div>
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
               AV Coverage <span className="text-emerald-500">Monitoring</span>
             </h1>
