@@ -134,7 +134,6 @@ export default function App() {
     alt="Official Logo" 
     className="h-15 w-auto drop-shadow-md" 
   />
-</div>
             <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight uppercase">
               AV Coverage <span className="text-emerald-500">Monitoring</span>
             </h1>
@@ -155,6 +154,7 @@ export default function App() {
               <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors border border-emerald-700 shadow-md">
                 📊 DMC Monitoring IRAD
               </a>
+              </div>
             </div>
           </div>
         </header>
