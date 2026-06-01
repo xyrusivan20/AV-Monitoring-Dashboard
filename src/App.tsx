@@ -54,7 +54,7 @@ export default function App() {
   }, [fetchTasks]);
 
   const teamMembers = [
-    { name: 'Xyrus', image: 'https://lh3.googleusercontent.com/d/1b2XpaQmNrFDqJnF0w7M6exvHy8a5EbHD' },
+    { name: 'Xyrus', image: '/058a9763.jpg' },
     { name: 'Marx', image: 'https://ui-avatars.com/api/?name=MX&background=3b82f6&color=fff&size=128' },
     { name: 'Reiner', image: 'https://ui-avatars.com/api/?name=RZ&background=f59e0b&color=fff&size=128' },
     { name: 'Pat', image: 'https://ui-avatars.com/api/?name=PJ&background=8b5cf6&color=fff&size=128' }
