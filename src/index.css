@@ -6,10 +6,24 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Custom scrollbar to keep it sleek and modern like a professional monitoring tool */
+/* Base resets & Background Image Setup */
+body {
+  font-family: var(--font-sans);
+  color: #f8fafc; /* Light text color para bumagay sa dark background */
+  
+  /* Ang Magic Code: 70% opacity dark overlay (0.7) + background image mo */
+  background-color: #0f172a; 
+  background-image: linear-gradient(rgba(15, 23, 42, 0.7), rgba(15, 23, 42, 0.7)), url('/bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* Custom scrollbar - Nilinis at pinag-isa na lang natin */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -17,38 +31,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
-}
-
-/* Base resets & Bento variables */
-body {
-  background-color: #f1f5f9;
-  color: #0f172a;
-  font-family: var(--font-sans);
-}
-
-/* Custom scrollbar to keep it sleek and modern like a professional monitoring tool */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: rgba(148, 163, 184, 0.3);
   border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: rgba(148, 163, 184, 0.6);
 }
 
 .glow-teal {
@@ -59,15 +47,17 @@ body {
   box-shadow: 0 4px 20px -2px rgba(139, 92, 246, 0.1);
 }
 
+/* Glassmorphism upgrade para sa mga cards natin */
 .bento-card-style {
-  background-color: #ffffff;
-  border: 1px solid #e2e8f0;
+  background-color: rgba(255, 255, 255, 0.92); /* 92% solid white, 8% transparent */
+  backdrop-filter: blur(12px); /* Frosted glass effect */
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 24px;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .bento-card-style:hover {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.15), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px); /* Aangat nang konti pag tinapatan ng mouse */
 }
-
