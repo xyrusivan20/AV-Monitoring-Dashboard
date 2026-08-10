@@ -33,7 +33,7 @@ interface SystemApp {
 /* ---------------------------------------------------------------- CONFIG -- */
 
 const SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec';
+  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec';
 
 const PRE_ARCHIVAL_LINK =
   'https://docs.google.com/spreadsheets/d/1Q2H3AelKocMLImvjkXpy9j1z89qWYYok0-BPj68QPCE/edit?gid=0#gid=0';
@@ -131,6 +131,82 @@ const STATUS_META: Record<
 
 const STATUS_ORDER: StatusKey[] = ['upcoming', 'pending', 'checked', 'transferred', 'archived'];
 
+/* ---------------------------------------------------- PRODUCTION STREAM -- */
+
+type StageKey = 'assigned' | 'shooting' | 'editing' | 'review' | 'approved' | 'published';
+
+interface Output {
+  id: string;
+  event: string;
+  title: string;
+  type: string;
+  runtime: string;
+  seconds: number;
+  personnel: string;
+  role: string;
+  requestedBy: string;
+  stage: StageKey;
+  stageRaw: string;
+  platform: string;
+  link: string;
+  revisions: number;
+  remarks: string;
+  assigned: Date | null;
+  target: Date | null;
+  delivered: Date | null;
+}
+
+const STAGE_ORDER: StageKey[] = ['assigned', 'shooting', 'editing', 'review', 'approved', 'published'];
+
+const STAGE_META: Record<StageKey, { label: string; short: string; hex: string; chip: string }> = {
+  assigned: {
+    label: 'Assigned',
+    short: 'QUEUE',
+    hex: '#71717a',
+    chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700',
+  },
+  shooting: {
+    label: 'Shooting',
+    short: 'FIELD',
+    hex: '#ef4444',
+    chip: 'bg-red-500/10 text-red-400 border-red-500/30',
+  },
+  editing: {
+    label: 'Editing',
+    short: 'POST',
+    hex: '#f59e0b',
+    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+  },
+  review: {
+    label: 'For Review',
+    short: 'REVIEW',
+    hex: '#a855f7',
+    chip: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
+  },
+  approved: {
+    label: 'Approved',
+    short: 'CLEARED',
+    hex: '#00aeef',
+    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
+  },
+  published: {
+    label: 'Published',
+    short: 'ON AIR',
+    hex: '#22c55e',
+    chip: 'bg-green-500/10 text-green-400 border-green-500/30',
+  },
+};
+
+const OUTPUT_TYPES = [
+  'Event Recap', 'Reel / Short', 'Documentary', 'AVP', 'Livestream',
+  'Motion Graphics', 'Interview / Soundbite', 'Teaser', 'Photo Set', 'Others',
+];
+const OUTPUT_ROLES = [
+  'Shooter / Cam Op', 'Editor', 'Colorist', 'Motion Artist',
+  'Audio', 'Livestream Tech', 'Director / DP', 'Script / Storyboard',
+];
+const OUTPUT_PLATFORMS = ['Facebook', 'YouTube', 'DOSTv', 'Event Loop', 'Internal', 'TikTok', 'Website'];
+
 /* --------------------------------------------------------------- HELPERS -- */
 
 function classifyStatus(raw: string): StatusKey {
@@ -147,6 +223,59 @@ function classifyStatus(raw: string): StatusKey {
     return 'transferred';
   if (s.includes('supervisor') || s.includes('check')) return 'checked';
   return 'pending';
+}
+
+function classifyStage(raw: string): StageKey {
+  const s = (raw || '').toLowerCase();
+  if (s.includes('publish') || s.includes('posted') || s.includes('on air')) return 'published';
+  if (s.includes('approve') || s.includes('cleared')) return 'approved';
+  if (s.includes('review') || s.includes('revis')) return 'review';
+  if (s.includes('edit') || s.includes('ingest') || s.includes('post')) return 'editing';
+  if (s.includes('shoot') || s.includes('field') || s.includes('taping')) return 'shooting';
+  return 'assigned';
+}
+
+/** Tumatanggap ng "3:12", "1:04:30", "3m", "45s" o bare number (minuto). */
+function parseRuntime(v: unknown): number {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return Math.round(v * 60);
+  const raw = String(v).trim();
+  if (!raw) return 0;
+  if (raw.includes(':')) {
+    const parts = raw.split(':').map((x) => Number(x.trim()));
+    if (parts.every((n) => !isNaN(n))) {
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+    }
+  }
+  const sec = raw.match(/^(\d+(?:\.\d+)?)\s*s(?:ec|ecs|econds)?$/i);
+  if (sec) return Math.round(Number(sec[1]));
+  const min = raw.match(/^(\d+(?:\.\d+)?)\s*(?:m|min|mins|minutes)?$/i);
+  if (min) return Math.round(Number(min[1]) * 60);
+  return 0;
+}
+
+function fmtRuntime(total: number): string {
+  if (!total) return '—';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = Math.round(total % 60);
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+function deliveredOnTime(o: Output): boolean | null {
+  if (!o.delivered || !o.target) return null;
+  return o.delivered.getTime() <= o.target.getTime();
+}
+
+function isOverdue(o: Output): boolean {
+  if (o.stage === 'approved' || o.stage === 'published') return false;
+  if (!o.target) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return o.target.getTime() < today.getTime();
 }
 
 function parseDate(v: unknown): Date | null {
@@ -447,6 +576,393 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
           ))
         )}
       </svg>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------- PRODUCTION BOARD -- */
+
+function StageBadge({ stage }: { stage: StageKey }) {
+  const m = STAGE_META[stage];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-wider ${m.chip}`}
+    >
+      {m.short}
+    </span>
+  );
+}
+
+function OutputCard({
+  o,
+  onAdvance,
+  busy,
+}: {
+  o: Output;
+  onAdvance: (o: Output) => void;
+  busy: boolean;
+}) {
+  const overdue = isOverdue(o);
+  const atEnd = o.stage === 'published';
+  return (
+    <div
+      className="group rounded-lg border border-zinc-800 bg-black/50 p-3 transition-colors hover:border-zinc-700"
+      style={overdue ? { borderColor: 'rgba(239,68,68,0.45)' } : undefined}
+    >
+      <p className="mb-1.5 line-clamp-2 text-xs font-semibold leading-snug text-zinc-100">
+        {o.title || 'Untitled output'}
+      </p>
+      {o.event && <p className="mb-2 truncate text-[10px] text-zinc-600">{o.event}</p>}
+
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-300">
+          {o.personnel || '—'}
+        </span>
+        {o.type && <span className="text-[9px] text-zinc-500">{o.type}</span>}
+        {o.seconds > 0 && (
+          <span className="font-mono text-[9px] text-zinc-500">{fmtRuntime(o.seconds)}</span>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 border-t border-zinc-900 pt-2">
+        <span
+          className={`font-mono text-[9px] ${overdue ? 'font-bold text-red-400' : 'text-zinc-600'}`}
+        >
+          {o.target ? `${overdue ? 'OVERDUE ' : 'due '}${fmtDate(o.target)}` : o.id}
+        </span>
+        <div className="flex items-center gap-1.5">
+          {o.revisions > 0 && (
+            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] text-amber-400">
+              R{o.revisions}
+            </span>
+          )}
+          {o.link && (
+            <a
+              href={o.link}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] text-[#00aeef] hover:text-white"
+              title="Open output"
+            >
+              ↗
+            </a>
+          )}
+          {!atEnd && (
+            <button
+              onClick={() => onAdvance(o)}
+              disabled={busy}
+              title={`Move to ${STAGE_META[STAGE_ORDER[STAGE_ORDER.indexOf(o.stage) + 1]].label}`}
+              className="rounded border border-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500 opacity-0 transition-all hover:border-[#00aeef]/50 hover:text-[#00aeef] group-hover:opacity-100 disabled:opacity-40"
+            >
+              {busy ? '…' : '→'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductionBoard({
+  outputs,
+  onAdvance,
+  busyId,
+}: {
+  outputs: Output[];
+  onAdvance: (o: Output) => void;
+  busyId: string | null;
+}) {
+  return (
+    <div className="custom-scrollbar overflow-x-auto pb-2">
+      <div className="flex min-w-[900px] gap-3">
+        {STAGE_ORDER.map((stage) => {
+          const lane = outputs.filter((o) => o.stage === stage);
+          const meta = STAGE_META[stage];
+          return (
+            <div key={stage} className="flex-1 rounded-xl border border-zinc-800 bg-[#09090b]/60 p-3">
+              <div className="mb-3 flex items-center justify-between border-b border-zinc-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.hex }} />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                    {meta.label}
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-zinc-600">{lane.length}</span>
+              </div>
+              <div className="space-y-2">
+                {lane.map((o) => (
+                  <OutputCard key={o.id} o={o} onAdvance={onAdvance} busy={busyId === o.id} />
+                ))}
+                {lane.length === 0 && (
+                  <p className="py-6 text-center text-[10px] italic text-zinc-700">walang laman</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProductionScoreboard({ outputs, people }: { outputs: Output[]; people: string[] }) {
+  const rows = people.map((name) => {
+    const mine = outputs.filter((o) => (o.personnel || '').toLowerCase().includes(name.toLowerCase()));
+    const done = mine.filter((o) => o.stage === 'approved' || o.stage === 'published');
+    const rated = mine.map(deliveredOnTime).filter((v) => v !== null) as boolean[];
+    const onTime = rated.length ? Math.round((rated.filter(Boolean).length / rated.length) * 100) : null;
+    const revs = mine.length
+      ? (mine.reduce((a, o) => a + (o.revisions || 0), 0) / mine.length).toFixed(1)
+      : '0.0';
+    return {
+      name,
+      total: mine.length,
+      done: done.length,
+      wip: mine.length - done.length,
+      seconds: mine.reduce((a, o) => a + o.seconds, 0),
+      onTime,
+      revs,
+    };
+  });
+
+  return (
+    <div className="overflow-x-auto custom-scrollbar">
+      <table className="w-full min-w-[560px] text-left text-xs">
+        <thead>
+          <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-widest text-zinc-600">
+            <th className="pb-2 pr-3 font-bold">Personnel</th>
+            <th className="pb-2 pr-3 text-right font-bold">Outputs</th>
+            <th className="pb-2 pr-3 text-right font-bold">Delivered</th>
+            <th className="pb-2 pr-3 text-right font-bold">In progress</th>
+            <th className="pb-2 pr-3 text-right font-bold">Runtime</th>
+            <th className="pb-2 pr-3 text-right font-bold">On time</th>
+            <th className="pb-2 text-right font-bold">Avg rev</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.name} className="border-b border-zinc-900 last:border-0">
+              <td className="py-2.5 pr-3 font-bold uppercase tracking-wider text-zinc-200">{r.name}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-white tabular-nums">{r.total}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-green-400 tabular-nums">{r.done}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-amber-400 tabular-nums">{r.wip}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-zinc-400 tabular-nums">
+                {fmtRuntime(r.seconds)}
+              </td>
+              <td className="py-2.5 pr-3 text-right font-mono tabular-nums">
+                {r.onTime === null ? (
+                  <span className="text-zinc-700">—</span>
+                ) : (
+                  <span className={r.onTime >= 90 ? 'text-green-400' : r.onTime >= 70 ? 'text-amber-400' : 'text-red-400'}>
+                    {r.onTime}%
+                  </span>
+                )}
+              </td>
+              <td className="py-2.5 text-right font-mono text-zinc-400 tabular-nums">{r.revs}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function QuickLogModal({
+  onClose,
+  onSubmit,
+  submitting,
+}: {
+  onClose: () => void;
+  onSubmit: (payload: Record<string, string | number>) => void;
+  submitting: boolean;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [f, setF] = useState({
+    title: '',
+    event: '',
+    type: OUTPUT_TYPES[0],
+    runtime: '',
+    personnel: 'Marx',
+    role: OUTPUT_ROLES[1],
+    requestedBy: '',
+    dateAssigned: today,
+    target: '',
+    stage: STAGE_META.assigned.label,
+    platform: OUTPUT_PLATFORMS[0],
+    link: '',
+    remarks: '',
+  });
+  const set = (k: string, v: string) => setF((prev) => ({ ...prev, [k]: v }));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const field =
+    'w-full rounded-lg border border-zinc-800 bg-black/60 px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
+  const lab = 'mb-1 block text-[10px] font-bold uppercase tracking-widest text-zinc-500';
+
+  return (
+    <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
+      <div className="fixed inset-0 bg-black/85 backdrop-blur-sm animate-fadein" onClick={onClose} />
+      <div className="relative w-full max-w-2xl rounded-2xl border border-zinc-800 bg-[#0a0a0c] shadow-[0_30px_90px_-15px_rgba(0,0,0,0.9)] animate-riseup">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+          <div>
+            <h3 className="text-base font-bold uppercase tracking-wide text-white">Log a video output</h3>
+            <p className="text-[11px] text-zinc-500">
+              Para sa trabahong hindi dumadaan sa DMC — shoot, edit, reel, livestream.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label className={lab}>Output title</label>
+            <input
+              className={field}
+              value={f.title}
+              onChange={(e) => set('title', e.target.value)}
+              placeholder="NSTW 2026 Day 1 Recap"
+              autoFocus
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className={lab}>Event / source coverage</label>
+            <input
+              className={field}
+              value={f.event}
+              onChange={(e) => set('event', e.target.value)}
+              placeholder="NSTW 2026 — Day 1"
+            />
+          </div>
+          <div>
+            <label className={lab}>Output type</label>
+            <select className={field} value={f.type} onChange={(e) => set('type', e.target.value)}>
+              {OUTPUT_TYPES.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={lab}>Runtime (mm:ss)</label>
+            <input
+              className={field}
+              value={f.runtime}
+              onChange={(e) => set('runtime', e.target.value)}
+              placeholder="3:12"
+            />
+          </div>
+          <div>
+            <label className={lab}>Personnel</label>
+            <select
+              className={field}
+              value={f.personnel}
+              onChange={(e) => set('personnel', e.target.value)}
+            >
+              {['Marx', 'Reiner', 'Xyrus', 'Pat', 'Team'].map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={lab}>Role</label>
+            <select className={field} value={f.role} onChange={(e) => set('role', e.target.value)}>
+              {OUTPUT_ROLES.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={lab}>Date assigned</label>
+            <input
+              type="date"
+              className={field}
+              value={f.dateAssigned}
+              onChange={(e) => set('dateAssigned', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className={lab}>Target date</label>
+            <input
+              type="date"
+              className={field}
+              value={f.target}
+              onChange={(e) => set('target', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className={lab}>Stage</label>
+            <select className={field} value={f.stage} onChange={(e) => set('stage', e.target.value)}>
+              {STAGE_ORDER.map((k) => (
+                <option key={k}>{STAGE_META[k].label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={lab}>Platform</label>
+            <select
+              className={field}
+              value={f.platform}
+              onChange={(e) => set('platform', e.target.value)}
+            >
+              {OUTPUT_PLATFORMS.map((pl) => (
+                <option key={pl}>{pl}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={lab}>Requested by</label>
+            <input
+              className={field}
+              value={f.requestedBy}
+              onChange={(e) => set('requestedBy', e.target.value)}
+              placeholder="CRPD / PCAARRD / etc."
+            />
+          </div>
+          <div>
+            <label className={lab}>Output link</label>
+            <input
+              className={field}
+              value={f.link}
+              onChange={(e) => set('link', e.target.value)}
+              placeholder="https://…"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className={lab}>Remarks</label>
+            <input
+              className={field}
+              value={f.remarks}
+              onChange={(e) => set('remarks', e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
+          <p className="text-[10px] text-zinc-600">Direktang isusulat sa Production Log sheet.</p>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-zinc-800 px-4 py-2 text-sm font-bold text-zinc-400 hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!f.title.trim() || submitting}
+              onClick={() => onSubmit(f)}
+              className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {submitting ? 'Saving…' : 'Save output'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -829,6 +1345,13 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState<'ALL' | StatusKey>('ALL');
   const [visibleCount, setVisibleCount] = useState(8);
 
+  const [outputs, setOutputs] = useState<Output[]>([]);
+  const [prodReady, setProdReady] = useState<'unknown' | 'ok' | 'missing'>('unknown');
+  const [logOpen, setLogOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [prodPerson, setProdPerson] = useState('ALL');
+
   const [openApp, setOpenApp] = useState<SystemApp | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [drawerPerson, setDrawerPerson] = useState<{ name: string; image: string } | null>(null);
@@ -837,6 +1360,7 @@ export default function App() {
   const seenIds = useRef<Set<string>>(new Set());
   const bootedRef = useRef(false);
   const ipcrRef = useRef<HTMLDivElement>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
   const recordsRef = useRef<HTMLDivElement>(null);
 
   const toast = useCallback((text: string, tone = 'info') => {
@@ -904,9 +1428,108 @@ export default function App() {
     [toast]
   );
 
+  const fetchProduction = useCallback(async () => {
+    try {
+      const res = await fetch(`${SCRIPT_URL}?sheet=production`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error('unexpected shape');
+
+      // Luma pang Apps Script? Coverage rows ang babalik — walang Output ID.
+      if (data.length > 0 && !('Output ID' in data[0]) && !('Output Title' in data[0])) {
+        setProdReady('missing');
+        return;
+      }
+
+      const mapped: Output[] = data
+        .filter((r: any) => r['Output Title'] || r['Output ID'])
+        .map((r: any) => {
+          const runtime = String(r['Runtime'] ?? '');
+          const stageRaw = String(r['Stage'] || 'Assigned');
+          return {
+            id: String(r['Output ID'] || r['Output Title'] || Math.random()),
+            event: String(r['Event / Coverage'] || ''),
+            title: String(r['Output Title'] || ''),
+            type: String(r['Output Type'] || ''),
+            runtime,
+            seconds: parseRuntime(runtime),
+            personnel: String(r['Personnel'] || 'Unassigned'),
+            role: String(r['Role'] || ''),
+            requestedBy: String(r['Requested By'] || ''),
+            stage: classifyStage(stageRaw),
+            stageRaw,
+            platform: String(r['Platform'] || ''),
+            link: String(r['Output Link'] || ''),
+            revisions: Number(r['Revisions'] || 0) || 0,
+            remarks: String(r['Remarks'] || ''),
+            assigned: parseDate(r['Date Assigned']),
+            target: parseDate(r['Target Date']),
+            delivered: parseDate(r['Date Delivered']),
+          };
+        })
+        .reverse();
+
+      setOutputs(mapped);
+      setProdReady('ok');
+    } catch {
+      setProdReady('missing');
+    }
+  }, []);
+
+  const submitOutput = useCallback(
+    async (payload: Record<string, string | number>) => {
+      setSubmitting(true);
+      try {
+        await fetch(SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'addOutput', payload }),
+        });
+        toast('Output saved sa Production Log', 'ok');
+      } catch {
+        toast('Naipadala — sine-sync ko na ang board', 'info');
+      } finally {
+        setSubmitting(false);
+        setLogOpen(false);
+        setTimeout(() => fetchProduction(), 1400);
+      }
+    },
+    [fetchProduction, toast]
+  );
+
+  const advanceStage = useCallback(
+    async (o: Output) => {
+      const i = STAGE_ORDER.indexOf(o.stage);
+      const next = STAGE_ORDER[Math.min(STAGE_ORDER.length - 1, i + 1)];
+      if (next === o.stage) return;
+      setBusyId(o.id);
+      setOutputs((prev) =>
+        prev.map((x) => (x.id === o.id ? { ...x, stage: next, stageRaw: STAGE_META[next].label } : x))
+      );
+      try {
+        await fetch(SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'updateStage', id: o.id, stage: STAGE_META[next].label }),
+        });
+      } catch {
+        /* optimistic — ire-reconcile ng refetch sa baba */
+      }
+      setTimeout(() => {
+        fetchProduction();
+        setBusyId(null);
+      }, 1400);
+    },
+    [fetchProduction]
+  );
+
   useEffect(() => {
     fetchTasks();
-    const interval = setInterval(() => fetchTasks(), 30000);
+    fetchProduction();
+    const interval = setInterval(() => {
+      fetchTasks();
+      fetchProduction();
+    }, 30000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -940,6 +1563,28 @@ export default function App() {
         ).length,
       })).sort((a, b) => b.count - a.count),
     [coverages]
+  );
+
+  const prodSummary = useMemo(() => {
+    const live = outputs.filter((o) => o.stage !== 'published' && o.stage !== 'approved');
+    const done = outputs.filter((o) => o.stage === 'published' || o.stage === 'approved');
+    const rated = outputs.map(deliveredOnTime).filter((v) => v !== null) as boolean[];
+    return {
+      total: outputs.length,
+      live: live.length,
+      done: done.length,
+      overdue: outputs.filter(isOverdue).length,
+      seconds: outputs.reduce((a, o) => a + o.seconds, 0),
+      onTime: rated.length ? Math.round((rated.filter(Boolean).length / rated.length) * 100) : null,
+    };
+  }, [outputs]);
+
+  const boardOutputs = useMemo(
+    () =>
+      prodPerson === 'ALL'
+        ? outputs
+        : outputs.filter((o) => (o.personnel || '').toLowerCase().includes(prodPerson.toLowerCase())),
+    [outputs, prodPerson]
   );
 
   const years = useMemo(() => {
@@ -994,6 +1639,42 @@ export default function App() {
     });
   }, [coverages, selectedIPCRPersonnel, ipcrYear]);
 
+  const ipcrOutputs = useMemo(() => {
+    let base: Output[];
+    if (selectedIPCRPersonnel === 'Lotus') {
+      base = outputs.filter((o) => o.stage === 'approved' || o.stage === 'published');
+    } else {
+      base = outputs.filter((o) =>
+        (o.personnel || '').toLowerCase().includes(selectedIPCRPersonnel.toLowerCase())
+      );
+    }
+    if (ipcrYear !== 'ALL') {
+      base = base.filter((o) => {
+        const d = o.delivered || o.target || o.assigned;
+        return d && String(d.getFullYear()) === ipcrYear;
+      });
+    }
+    return [...base].sort((a, b) => {
+      const at = (a.delivered || a.target || a.assigned)?.getTime() ?? 0;
+      const bt = (b.delivered || b.target || b.assigned)?.getTime() ?? 0;
+      return at - bt;
+    });
+  }, [outputs, selectedIPCRPersonnel, ipcrYear]);
+
+  const ipcrQQT = useMemo(() => {
+    const rated = ipcrOutputs.map(deliveredOnTime).filter((v) => v !== null) as boolean[];
+    const revs = ipcrOutputs.length
+      ? ipcrOutputs.reduce((a, o) => a + (o.revisions || 0), 0) / ipcrOutputs.length
+      : 0;
+    return {
+      quantity: ipcrRecords.length + ipcrOutputs.length,
+      runtime: ipcrOutputs.reduce((a, o) => a + o.seconds, 0),
+      onTime: rated.length ? Math.round((rated.filter(Boolean).length / rated.length) * 100) : null,
+      avgRev: revs.toFixed(1),
+      cleanPass: ipcrOutputs.filter((o) => (o.revisions || 0) <= 1).length,
+    };
+  }, [ipcrOutputs, ipcrRecords]);
+
   const controlNo = useMemo(() => {
     const initials = (OFFICIAL[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel)
       .split(' ')
@@ -1002,24 +1683,47 @@ export default function App() {
       .replace(/[^A-Z]/g, '')
       .slice(0, 3);
     const y = ipcrYear === 'ALL' ? new Date().getFullYear() : ipcrYear;
-    return `BDMS-AV-${y}-${initials}-${String(ipcrRecords.length).padStart(3, '0')}`;
-  }, [selectedIPCRPersonnel, ipcrYear, ipcrRecords.length]);
+    return `BDMS-AV-${y}-${initials}-${String(ipcrRecords.length + ipcrOutputs.length).padStart(3, '0')}`;
+  }, [selectedIPCRPersonnel, ipcrYear, ipcrRecords.length, ipcrOutputs.length]);
 
   /* ------------------------------------------------------------ ACTIONS -- */
   const scrollTo = (ref: { current: HTMLElement | null }) =>
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const exportCSV = useCallback(() => {
-    const rows = ipcrRecords.map((c, i) => [
-      i + 1,
-      fmtDate(c.dateObj, c.date),
-      c.personnel,
-      c.status,
-      c.details,
-      c.gdrive,
-      c.socialMediaLink,
-    ]);
-    const header = ['#', 'Date', 'Personnel', 'Status', 'Coverage Details', 'GDrive', 'Social Media'];
+    const rows: any[][] = [];
+    ipcrRecords.forEach((c, i) =>
+      rows.push([
+        i + 1,
+        'Field coverage / DMC',
+        fmtDate(c.dateObj, c.date),
+        c.personnel,
+        '',
+        c.status,
+        c.details,
+        '',
+        '',
+        c.gdrive || c.socialMediaLink,
+      ])
+    );
+    ipcrOutputs.forEach((o, i) =>
+      rows.push([
+        ipcrRecords.length + i + 1,
+        'Video production output',
+        fmtDate(o.delivered || o.target || o.assigned),
+        o.personnel,
+        o.role,
+        STAGE_META[o.stage].label,
+        o.title,
+        o.type,
+        o.runtime,
+        o.link,
+      ])
+    );
+    const header = [
+      '#', 'Stream', 'Date', 'Personnel', 'Role', 'Status / Stage',
+      'Particulars', 'Type', 'Runtime', 'Reference link',
+    ];
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\r\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -1030,7 +1734,7 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
     toast('CSV exported', 'ok');
-  }, [ipcrRecords, controlNo, toast]);
+  }, [ipcrRecords, ipcrOutputs, controlNo, toast]);
 
   const printSheet = useCallback(() => {
     setOpenApp(null);
@@ -1086,8 +1790,37 @@ export default function App() {
         label: 'Refresh records now',
         hint: 'Sync',
         group: 'Actions',
-        run: () => fetchTasks(true),
+        run: () => {
+          fetchTasks(true);
+          fetchProduction();
+        },
+      },
+      {
+        id: 'log-output',
+        label: 'Log a video output',
+        hint: 'Production',
+        group: 'Actions',
+        run: () => setLogOpen(true),
+      },
+      {
+        id: 'go-board',
+        label: 'Jump to Production Board',
+        hint: 'Navigate',
+        group: 'Actions',
+        run: () => scrollTo(boardRef),
       }
+    );
+    outputs.slice(0, 40).forEach((o, i) =>
+      list.push({
+        id: `out-${i}`,
+        label: o.title || 'Untitled output',
+        hint: `${STAGE_META[o.stage].short} · ${o.personnel}`,
+        group: 'Production',
+        run: () => {
+          setProdPerson(o.personnel.split(',')[0].trim() || 'ALL');
+          scrollTo(boardRef);
+        },
+      })
     );
     STATUS_ORDER.forEach((k) =>
       list.push({
@@ -1114,7 +1847,7 @@ export default function App() {
       })
     );
     return list;
-  }, [coverages, exportCSV, fetchTasks, printSheet]);
+  }, [coverages, outputs, exportCSV, fetchTasks, fetchProduction, printSheet]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1432,6 +2165,120 @@ export default function App() {
               </div>
             </section>
 
+            {/* ------------------------------------ PRODUCTION BOARD ---- */}
+            <section ref={boardRef}>
+              <SectionHead
+                title="PRODUCTION BOARD"
+                hint="Mga video output na hindi dumadaan sa DMC — dito nabibilang ang shoot, edit at post."
+                right={
+                  <div className="flex items-center gap-2">
+                    <div className="hidden items-center gap-1 md:flex">
+                      {['ALL', 'Marx', 'Reiner', 'Xyrus', 'Pat'].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setProdPerson(n)}
+                          className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                            prodPerson === n
+                              ? 'border-[#00aeef]/50 bg-[#00aeef]/15 text-[#00aeef]'
+                              : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                          }`}
+                        >
+                          {n === 'ALL' ? 'Lahat' : n}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setLogOpen(true)}
+                      className="rounded-lg bg-[#00aeef] px-4 py-2 text-xs font-bold text-black transition-opacity hover:opacity-85"
+                    >
+                      + Log output
+                    </button>
+                  </div>
+                }
+              />
+
+              {prodReady === 'missing' ? (
+                <div className="rounded-xl border border-dashed border-zinc-800 bg-[#09090b]/60 p-8 text-center">
+                  <p className="mb-2 text-sm font-bold text-white">Hindi pa naka-set up ang Production Log</p>
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                    I-paste ang <span className="font-mono text-zinc-300">Code.gs</span> sa Apps Script ng
+                    DMC spreadsheet, i-run ang{' '}
+                    <span className="font-mono text-[#00aeef]">setupProductionSheet()</span>, tapos
+                    i-redeploy ang web app. Awtomatiko nang lalabas dito ang board.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+                    <StatTile
+                      label="Video outputs"
+                      value={prodSummary.total}
+                      sub="Naitalang deliverables"
+                      accent={CYAN}
+                      bar={100}
+                    />
+                    <StatTile
+                      label="In progress"
+                      value={prodSummary.live}
+                      sub="Hindi pa tapos"
+                      accent="#f59e0b"
+                      bar={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
+                    />
+                    <StatTile
+                      label="Delivered"
+                      value={prodSummary.done}
+                      sub={`Total runtime ${fmtRuntime(prodSummary.seconds)}`}
+                      accent="#22c55e"
+                      bar={prodSummary.total ? (prodSummary.done / prodSummary.total) * 100 : 0}
+                    />
+                    <StatTile
+                      label="Overdue"
+                      value={prodSummary.overdue}
+                      sub={
+                        prodSummary.onTime === null
+                          ? 'Walang target dates pa'
+                          : `${prodSummary.onTime}% on-time delivery`
+                      }
+                      accent="#ef4444"
+                      bar={prodSummary.total ? (prodSummary.overdue / prodSummary.total) * 100 : 0}
+                    />
+                  </div>
+
+                  {outputs.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-zinc-800 bg-[#09090b]/60 p-10 text-center">
+                      <p className="mb-1 text-sm text-zinc-300">Walang pa lang naka-log na output.</p>
+                      <p className="mb-4 text-xs text-zinc-600">
+                        Simulan sina Marx at Reiner — kahit shoot day lang, bilang 'yon.
+                      </p>
+                      <button
+                        onClick={() => setLogOpen(true)}
+                        className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black hover:opacity-85"
+                      >
+                        Log the first output
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <ProductionBoard
+                        outputs={boardOutputs}
+                        onAdvance={advanceStage}
+                        busyId={busyId}
+                      />
+                      <div className="mt-4 rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm">
+                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                          Output scoreboard · quantity, timeliness, revisions
+                        </p>
+                        <ProductionScoreboard
+                          outputs={outputs}
+                          people={TEAM.map((t) => t.name)}
+                        />
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </section>
+
             {/* -------------------------------- RECORDS + CALENDAR ------ */}
             <div ref={recordsRef} className="grid grid-cols-1 gap-8 lg:grid-cols-3">
               <section className="lg:col-span-2">
@@ -1709,7 +2556,28 @@ export default function App() {
                       </p>
                     ))}
                     {ipcrRecords.length === 0 && (
-                      <p className="italic text-zinc-600">Walang nakitang records sa piniling panahon.</p>
+                      <p className="italic text-zinc-600">Walang field coverage sa piniling panahon.</p>
+                    )}
+
+                    {ipcrOutputs.length > 0 && (
+                      <>
+                        <p className="mt-4 text-base font-bold uppercase text-white">
+                          PART B — VIDEO PRODUCTION OUTPUTS: {ipcrOutputs.length}
+                        </p>
+                        <p className="text-zinc-700">
+                          --------------------------------------------------
+                        </p>
+                        {ipcrOutputs.map((o, idx) => (
+                          <p key={o.id} className="whitespace-pre-wrap leading-relaxed">
+                            <span className="font-bold text-[#00aeef]">{idx + 1}.</span> [
+                            {fmtDate(o.delivered || o.target || o.assigned)}] — {o.title}{' '}
+                            <span className="text-zinc-600">
+                              [{o.type}{o.seconds ? ` · ${fmtRuntime(o.seconds)}` : ''} · {o.role} ·{' '}
+                              {STAGE_META[o.stage].label.toUpperCase()}]
+                            </span>
+                          </p>
+                        ))}
+                      </>
                     )}
                   </div>
                 </div>
@@ -1753,7 +2621,13 @@ export default function App() {
                 {selectedIPCRPersonnel === 'Lotus'
                   ? 'Total verified / checked:'
                   : 'Total catered operations:'}{' '}
-                <span className="underline">{ipcrRecords.length} records</span>
+                <span className="underline">
+                  {ipcrRecords.length + ipcrOutputs.length} records
+                </span>
+              </p>
+              <p className="text-xs">
+                {ipcrRecords.length} field coverage · {ipcrOutputs.length} production output
+                {ipcrOutputs.length === 1 ? '' : 's'}
               </p>
             </div>
             <div className="text-right text-xs">
@@ -1771,6 +2645,9 @@ export default function App() {
             </div>
           </div>
 
+          <p className="mb-1 text-sm font-bold uppercase">
+            Part A — Field coverage &amp; DMC transfer
+          </p>
           <table className="w-full border-collapse border border-black text-left">
             <thead>
               <tr className="border-b border-black bg-gray-100 text-sm font-bold">
@@ -1811,6 +2688,83 @@ export default function App() {
               )}
             </tbody>
           </table>
+
+          {ipcrOutputs.length > 0 && (
+            <>
+              <p className="mb-1 mt-8 text-sm font-bold uppercase">
+                Part B — Video production outputs (non-DMC)
+              </p>
+              <table className="w-full border-collapse border border-black text-left">
+                <thead>
+                  <tr className="border-b border-black bg-gray-100 text-sm font-bold">
+                    <th className="w-10 border border-black p-2 text-center">#</th>
+                    <th className="w-28 border border-black p-2">Date</th>
+                    <th className="w-32 border border-black p-2">Type</th>
+                    <th className="border border-black p-2">Output title &amp; particulars</th>
+                    <th className="w-20 border border-black p-2">Runtime</th>
+                    <th className="w-32 border border-black p-2">Role</th>
+                    <th className="w-24 border border-black p-2">Stage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ipcrOutputs.map((o, idx) => (
+                    <tr key={o.id} className="avoid-break text-sm">
+                      <td className="border border-black p-2 text-center font-bold">{idx + 1}</td>
+                      <td className="border border-black p-2 font-mono text-xs">
+                        {fmtDate(o.delivered || o.target || o.assigned)}
+                      </td>
+                      <td className="border border-black p-2 text-xs">{o.type || '—'}</td>
+                      <td className="border border-black p-2 leading-relaxed">
+                        {o.title}
+                        {o.event && (
+                          <span className="block text-[10px] italic text-gray-600">{o.event}</span>
+                        )}
+                      </td>
+                      <td className="border border-black p-2 text-center font-mono text-xs">
+                        {o.seconds ? fmtRuntime(o.seconds) : '—'}
+                      </td>
+                      <td className="border border-black p-2 text-xs">{o.role || '—'}</td>
+                      <td className="border border-black p-2 text-[10px] uppercase">
+                        {STAGE_META[o.stage].label}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="avoid-break mt-6 border border-black p-3 text-sm">
+                <p className="mb-2 font-bold uppercase">Performance summary</p>
+                <div className="grid grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <p className="font-bold">Quantity</p>
+                    <p>
+                      {ipcrQQT.quantity} total accomplishments
+                      {ipcrQQT.runtime > 0 && ` · ${fmtRuntime(ipcrQQT.runtime)} of finished material`}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-bold">Quality</p>
+                    <p>
+                      {ipcrQQT.cleanPass} of {ipcrOutputs.length} approved with at most one revision
+                      (avg. {ipcrQQT.avgRev} revisions)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-bold">Timeliness</p>
+                    <p>
+                      {ipcrQQT.onTime === null
+                        ? 'No target dates recorded'
+                        : `${ipcrQQT.onTime}% delivered on or before target date`}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-bold">Source</p>
+                    <p>AV Nexus — DMC Monitoring &amp; Production Log</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="avoid-break mt-12 flex justify-between text-sm">
             <div>
@@ -1866,6 +2820,13 @@ export default function App() {
             ⌘K
           </button>
           <button
+            onClick={() => setLogOpen(true)}
+            title="Log a video output"
+            className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#00aeef]/15 text-lg text-[#00aeef] transition-colors hover:bg-[#00aeef]/30"
+          >
+            +
+          </button>
+          <button
             onClick={printSheet}
             title="Print IPCR"
             className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600/15 text-red-400 transition-colors hover:bg-red-600/30"
@@ -1895,6 +2856,13 @@ export default function App() {
 
       {openApp && <AppWindow app={openApp} onClose={() => setOpenApp(null)} />}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+      {logOpen && (
+        <QuickLogModal
+          onClose={() => setLogOpen(false)}
+          onSubmit={submitOutput}
+          submitting={submitting}
+        />
+      )}
       {drawerPerson && (
         <PersonnelDrawer
           name={drawerPerson.name}
