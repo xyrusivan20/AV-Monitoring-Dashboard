@@ -33,20 +33,23 @@ interface SystemApp {
 /* ---------------------------------------------------------------- CONFIG -- */
 
 const SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec';
+  'https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec';
 
 /**
  * BAGONG production backend — HIWALAY na spreadsheet, hiwalay na script.
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 const PRE_ARCHIVAL_LINK =
   'https://docs.google.com/spreadsheets/d/1Q2H3AelKocMLImvjkXpy9j1z89qWYYok0-BPj68QPCE/edit?gid=0#gid=0';
 const DMC_MONITORING_LINK =
   'https://docs.google.com/spreadsheets/d/1DmfloCwW90g5Rru4-l1N5DSbqyLGbga6OkklX_w1Skc/edit?gid=32561347#gid=32561347';
+
+const CAL_EMBED =
+  'https://calendar.google.com/calendar/embed?src=av%40stii.dost.gov.ph&ctz=Asia%2FSingapore';
 
 const CYAN = '#00aeef';
 
@@ -286,6 +289,44 @@ function isOverdue(o: Output): boolean {
   return o.target.getTime() < today.getTime();
 }
 
+type LatestActivity =
+  | { kind: 'coverage'; cov: Coverage; when: Date | null }
+  | { kind: 'output'; out: Output; when: Date | null };
+
+function pickLatest<T>(items: T[], when: (t: T) => Date | null): T | null {
+  if (!items.length) return null;
+  let best = items[0];
+  let bestT = when(items[0])?.getTime() ?? -Infinity;
+  for (const it of items) {
+    const t = when(it)?.getTime() ?? -Infinity;
+    if (t > bestT) {
+      best = it;
+      bestT = t;
+    }
+  }
+  return best;
+}
+
+/** Pinagsasama ang DMC coverage at production output — kung alin ang mas bago. */
+function latestActivityFor(
+  name: string,
+  coverages: Coverage[],
+  outputs: Output[]
+): LatestActivity | null {
+  const n = name.toLowerCase();
+  const cov = coverages.find((c) => (c.personnel || '').toLowerCase().includes(n)) ?? null;
+  const outs = outputs.filter((o) => (o.personnel || '').toLowerCase().includes(n));
+  const out = pickLatest(outs, (o) => o.delivered || o.assigned || o.target);
+
+  if (!cov && !out) return null;
+  const ct = cov?.dateObj?.getTime() ?? -Infinity;
+  const ow = out ? out.delivered || out.assigned || out.target : null;
+  const ot = ow?.getTime() ?? -Infinity;
+
+  if (out && (!cov || ot >= ct)) return { kind: 'output', out, when: ow };
+  return cov ? { kind: 'coverage', cov, when: cov.dateObj } : null;
+}
+
 function parseDate(v: unknown): Date | null {
   if (!v) return null;
   if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
@@ -478,7 +519,11 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
   );
 }
 
-function WorkloadBars({ data }: { data: { name: string; count: number }[] }) {
+function WorkloadBars({
+  data,
+}: {
+  data: { name: string; cov: number; out: number; count: number }[];
+}) {
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
     <div className="space-y-3">
@@ -488,12 +533,19 @@ function WorkloadBars({ data }: { data: { name: string; count: number }[] }) {
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
               {d.name}
             </span>
-            <span className="font-mono text-xs text-zinc-500 tabular-nums">{d.count}</span>
+            <span className="font-mono text-xs text-zinc-400 tabular-nums">
+              {d.count}
+              <span className="text-zinc-600"> · {d.cov}c / {d.out}v</span>
+            </span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-zinc-900">
+          <div className="flex h-2 overflow-hidden rounded-full bg-zinc-900">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-[#00aeef]/40 to-[#00aeef] transition-all duration-1000"
-              style={{ width: `${(d.count / max) * 100}%` }}
+              className="h-full bg-gradient-to-r from-[#00aeef]/40 to-[#00aeef] transition-all duration-1000"
+              style={{ width: `${(d.cov / max) * 100}%` }}
+            />
+            <div
+              className="h-full bg-gradient-to-r from-amber-500/60 to-amber-400 transition-all duration-1000"
+              style={{ width: `${(d.out / max) * 100}%` }}
             />
           </div>
         </div>
@@ -988,12 +1040,12 @@ function KioskMode({
   coverages: Coverage[];
   outputs: Output[];
   stats: { counts: Record<StatusKey, number>; total: number; thisMonth: number };
-  workload: { name: string; count: number }[];
+  workload: { name: string; count: number; cov: number; out: number }[];
   upNext: Coverage[];
   onClose: () => void;
 }) {
   const SLIDE_MS = 12000;
-  const SLIDES = 4;
+  const SLIDES = 5;
   const [slide, setSlide] = useState(0);
   const [now, setNow] = useState(new Date());
 
@@ -1026,12 +1078,16 @@ function KioskMode({
     };
   }, [onClose]);
 
-  const latestFor = (name: string) =>
-    coverages.find((c) => (c.personnel || '').toLowerCase().includes(name.toLowerCase()));
-
   const cleared = stats.counts.transferred + stats.counts.archived;
   const wip = outputs.filter((o) => o.stage !== 'approved' && o.stage !== 'published').slice(0, 6);
-  const titles = ['AV TEAM STATUS', 'OPERATIONS PULSE', 'PRODUCTION BOARD', 'UP NEXT'];
+  const titles = ['AV TEAM STATUS', 'OPERATIONS PULSE', 'PRODUCTION BOARD', 'UP NEXT', 'AV CALENDAR'];
+
+  const ticker = useMemo(() => {
+    const bits: string[] = [];
+    coverages.slice(0, 6).forEach((c) => bits.push(`${fmtDate(c.dateObj, c.date)} — ${c.details}`));
+    outputs.slice(0, 4).forEach((o) => bits.push(`▶ ${o.title} [${STAGE_META[o.stage].label.toUpperCase()}]`));
+    return bits.length ? bits.join('    •    ') : 'AV NEXUS · DOST-STII · Broadcast & Digital Media Section';
+  }, [coverages, outputs]);
 
   return (
     <div className="no-print fixed inset-0 z-[120] flex flex-col bg-black text-zinc-200">
@@ -1077,8 +1133,8 @@ function KioskMode({
         {slide === 0 && (
           <div className="grid h-full grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
             {TEAM.map((m) => {
-              const latest = latestFor(m.name);
-              const total = workload.find((w) => w.name === m.name)?.count ?? 0;
+              const act = latestActivityFor(m.name, coverages, outputs);
+              const w = workload.find((x) => x.name === m.name);
               return (
                 <div
                   key={m.name}
@@ -1093,20 +1149,22 @@ function KioskMode({
                         {m.name}
                       </p>
                       <p className="font-mono text-xs text-zinc-500">
-                        {total} coverage{total === 1 ? '' : 's'}
+                        {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                       </p>
                     </div>
                   </div>
-                  {latest ? (
+                  {act ? (
                     <>
                       <p className="mb-4 line-clamp-3 flex-1 text-lg leading-snug text-zinc-300">
-                        {latest.details}
+                        {act.kind === 'coverage' ? act.cov.details : act.out.title}
                       </p>
                       <div className="flex items-center justify-between">
-                        <StatusBadge status={latest.status} />
-                        <span className="font-mono text-xs text-zinc-500">
-                          {fmtDate(latest.dateObj)}
-                        </span>
+                        {act.kind === 'coverage' ? (
+                          <StatusBadge status={act.cov.status} />
+                        ) : (
+                          <StageBadge stage={act.out.stage} />
+                        )}
+                        <span className="font-mono text-xs text-zinc-500">{fmtDate(act.when)}</span>
                       </div>
                     </>
                   ) : (
@@ -1245,6 +1303,29 @@ function KioskMode({
             )}
           </div>
         )}
+
+        {slide === 4 && (
+          <div className="h-full overflow-hidden rounded-2xl border border-zinc-800 bg-[#0b0b0d]">
+            <iframe
+              src={`${CAL_EMBED}&mode=AGENDA&showTitle=0&showPrint=0&showTabs=0&showCalendars=0&showTz=0`}
+              title="AV Calendar — kiosk"
+              className="kiosk-cal h-full w-full border-0"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* broadcast ticker */}
+      <div className="flex items-center gap-4 overflow-hidden border-t border-zinc-900 bg-[#050506] px-6 py-2.5 md:px-10">
+        <span className="shrink-0 rounded bg-red-600 px-2 py-0.5 font-mono text-[10px] font-black uppercase tracking-widest text-white">
+          Latest
+        </span>
+        <div className="relative flex-1 overflow-hidden">
+          <div className="kiosk-ticker flex w-max whitespace-nowrap font-mono text-xs text-zinc-400">
+            <span className="pr-24">{ticker}</span>
+            <span className="pr-24">{ticker}</span>
+          </div>
+        </div>
       </div>
 
       {/* bottom: progress + dots */}
@@ -1880,13 +1961,17 @@ export default function App() {
 
   const workload = useMemo(
     () =>
-      TEAM.map((m) => ({
-        name: m.name,
-        count: coverages.filter((c) =>
-          (c.personnel || '').toLowerCase().includes(m.name.toLowerCase())
-        ).length,
-      })).sort((a, b) => b.count - a.count),
-    [coverages]
+      TEAM.map((m) => {
+        const n = m.name.toLowerCase();
+        const cov = coverages.filter((c) =>
+          (c.personnel || '').toLowerCase().includes(n)
+        ).length;
+        const out = outputs.filter((o) =>
+          (o.personnel || '').toLowerCase().includes(n)
+        ).length;
+        return { name: m.name, cov, out, count: cov + out };
+      }).sort((a, b) => b.count - a.count),
+    [coverages, outputs]
   );
 
   const prodSummary = useMemo(() => {
@@ -1931,16 +2016,17 @@ export default function App() {
   useEffect(() => setVisibleCount(8), [query, filterPerson, filterStatus]);
 
   const upNext = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Status-based: lahat ng naka-UPCOMING sa DMC sheet, pinakaluma muna —
+    // kasama ang mga tapos nang i-shoot pero hindi pa na-a-archive.
     return coverages
-      .filter((c) => c.dateObj && c.dateObj >= today)
-      .sort((a, b) => (a.dateObj!.getTime() - b.dateObj!.getTime()))
+      .filter((c) => classifyStatus(c.status) === 'upcoming')
+      .sort((a, b) => {
+        const at = a.dateObj?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bt = b.dateObj?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        return at - bt;
+      })
       .slice(0, 4);
   }, [coverages]);
-
-  const getLatestDeployment = (name: string) =>
-    coverages.find((c) => (c.personnel || '').toLowerCase().includes(name.toLowerCase()));
 
   const ipcrRecords = useMemo(() => {
     let base: Coverage[];
@@ -2401,6 +2487,16 @@ export default function App() {
                     Deployment load
                   </p>
                   <WorkloadBars data={workload} />
+                  <div className="mt-4 flex gap-4 border-t border-zinc-900 pt-3">
+                    <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+                      <span className="h-1.5 w-3 rounded-full bg-[#00aeef]" />
+                      Field coverage (DMC)
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+                      <span className="h-1.5 w-3 rounded-full bg-amber-400" />
+                      Video output
+                    </span>
+                  </div>
                 </div>
                 <div className="rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
@@ -2437,8 +2533,8 @@ export default function App() {
               <SectionHead title="AV TEAM STATUS" hint="Pindutin ang card para sa buong deployment history." />
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {TEAM.map((member) => {
-                  const latest = getLatestDeployment(member.name);
-                  const total = workload.find((w) => w.name === member.name)?.count ?? 0;
+                  const act = latestActivityFor(member.name, coverages, outputs);
+                  const w = workload.find((x) => x.name === member.name);
                   return (
                     <button
                       key={member.name}
@@ -2459,10 +2555,10 @@ export default function App() {
                               {member.name}
                             </h3>
                             <p className="font-mono text-[10px] text-zinc-600">
-                              {total} coverage{total === 1 ? '' : 's'}
+                              {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                             </p>
                           </div>
-                          {latest ? (
+                          {act ? (
                             <span className="relative flex h-3 w-3">
                               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                               <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
@@ -2472,18 +2568,22 @@ export default function App() {
                           )}
                         </div>
                       </div>
-                      {latest ? (
+                      {act ? (
                         <div className="relative z-10">
                           <p
                             className="mb-3 line-clamp-2 text-sm leading-relaxed text-zinc-300"
-                            title={latest.details}
+                            title={act.kind === 'coverage' ? act.cov.details : act.out.title}
                           >
-                            {latest.details}
+                            {act.kind === 'coverage' ? act.cov.details : act.out.title}
                           </p>
                           <div className="flex items-center justify-between">
-                            <StatusBadge status={latest.status} />
+                            {act.kind === 'coverage' ? (
+                              <StatusBadge status={act.cov.status} />
+                            ) : (
+                              <StageBadge stage={act.out.stage} />
+                            )}
                             <span className="font-mono text-[10px] text-zinc-500">
-                              {fmtDate(latest.dateObj, latest.date)}
+                              {fmtDate(act.when)}
                             </span>
                           </div>
                         </div>
@@ -2772,7 +2872,7 @@ export default function App() {
                   <SectionHead title="AV CALENDAR" />
                   <div className="group relative h-[450px] overflow-hidden rounded-xl border border-zinc-800 bg-[#09090b]/80 backdrop-blur-sm">
                     <iframe
-                      src="https://calendar.google.com/calendar/embed?src=av%40stii.dost.gov.ph&ctz=Asia%2FSingapore"
+                      src={CAL_EMBED}
                       style={{ border: 0 }}
                       width="100%"
                       height="100%"
@@ -3245,6 +3345,9 @@ export default function App() {
         @keyframes riseup { from { opacity: 0; transform: translateY(14px) scale(.985) } to { opacity: 1; transform: none } }
         @keyframes slidein { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
         @keyframes kioskbar { from { width: 0 } to { width: 100% } }
+        @keyframes kioskticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+        .kiosk-ticker { animation: kioskticker 45s linear infinite; }
+        .kiosk-cal { filter: invert(0.92) hue-rotate(180deg); }
         .animate-fadein { animation: fadein .2s ease-out }
         .animate-riseup { animation: riseup .28s cubic-bezier(.16,1,.3,1) }
         .animate-slidein { animation: slidein .28s cubic-bezier(.16,1,.3,1) }
