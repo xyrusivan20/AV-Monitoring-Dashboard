@@ -33,7 +33,15 @@ interface SystemApp {
 /* ---------------------------------------------------------------- CONFIG -- */
 
 const SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec';
+  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec ';
+
+/**
+ * BAGONG production backend — HIWALAY na spreadsheet, hiwalay na script.
+ * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
+ * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
+ */
+const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec ';
+const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 const PRE_ARCHIVAL_LINK =
   'https://docs.google.com/spreadsheets/d/1Q2H3AelKocMLImvjkXpy9j1z89qWYYok0-BPj68QPCE/edit?gid=0#gid=0';
@@ -967,6 +975,309 @@ function QuickLogModal({
   );
 }
 
+/* -------------------------------------------------------------- KIOSK ---- */
+
+function KioskMode({
+  coverages,
+  outputs,
+  stats,
+  workload,
+  upNext,
+  onClose,
+}: {
+  coverages: Coverage[];
+  outputs: Output[];
+  stats: { counts: Record<StatusKey, number>; total: number; thisMonth: number };
+  workload: { name: string; count: number }[];
+  upNext: Coverage[];
+  onClose: () => void;
+}) {
+  const SLIDE_MS = 12000;
+  const SLIDES = 4;
+  const [slide, setSlide] = useState(0);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const t = setInterval(() => setSlide((s) => (s + 1) % SLIDES), SLIDE_MS);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowRight') setSlide((s) => (s + 1) % SLIDES);
+      if (e.key === 'ArrowLeft') setSlide((s) => (s + SLIDES - 1) % SLIDES);
+    };
+    window.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    const el = document.documentElement;
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+    };
+  }, [onClose]);
+
+  const latestFor = (name: string) =>
+    coverages.find((c) => (c.personnel || '').toLowerCase().includes(name.toLowerCase()));
+
+  const cleared = stats.counts.transferred + stats.counts.archived;
+  const wip = outputs.filter((o) => o.stage !== 'approved' && o.stage !== 'published').slice(0, 6);
+  const titles = ['AV TEAM STATUS', 'OPERATIONS PULSE', 'PRODUCTION BOARD', 'UP NEXT'];
+
+  return (
+    <div className="no-print fixed inset-0 z-[120] flex flex-col bg-black text-zinc-200">
+      {/* top bar */}
+      <div className="flex items-center justify-between border-b border-zinc-900 px-6 py-4 md:px-10 md:py-6">
+        <div className="flex items-center gap-4">
+          <span className="relative flex h-3.5 w-3.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex h-3.5 w-3.5 rounded-full bg-red-500" />
+          </span>
+          <span className="font-display text-2xl font-black uppercase tracking-tight text-white">
+            AV <span className="text-[#00aeef]">Nexus</span>
+          </span>
+          <span className="ml-2 hidden font-mono text-[11px] uppercase tracking-[0.3em] text-zinc-600 md:block">
+            {titles[slide]}
+          </span>
+        </div>
+        <div className="flex items-center gap-6">
+          <div className="text-right">
+            <p className="font-mono text-2xl font-black text-white tabular-nums md:text-3xl">
+              {now.toLocaleTimeString('en-PH', { hour12: false })}
+            </p>
+            <p className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">
+              {now.toLocaleDateString('en-PH', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md border border-zinc-800 px-3 py-2 text-xs font-bold text-zinc-500 transition-colors hover:text-white"
+          >
+            ✕ Exit
+          </button>
+        </div>
+      </div>
+
+      {/* slide body */}
+      <div key={slide} className="animate-fadein flex-1 overflow-hidden px-6 py-6 md:px-10 md:py-8">
+        {slide === 0 && (
+          <div className="grid h-full grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+            {TEAM.map((m) => {
+              const latest = latestFor(m.name);
+              const total = workload.find((w) => w.name === m.name)?.count ?? 0;
+              return (
+                <div
+                  key={m.name}
+                  className="flex flex-col rounded-2xl border border-zinc-800 bg-[#09090b]/80 p-8"
+                >
+                  <div className="mb-6 flex items-center gap-5">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#00aeef]/50">
+                      <img src={m.image} alt={m.name} className="h-full w-full object-cover" />
+                    </div>
+                    <div>
+                      <p className="text-3xl font-black uppercase tracking-wider text-white">
+                        {m.name}
+                      </p>
+                      <p className="font-mono text-xs text-zinc-500">
+                        {total} coverage{total === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                  </div>
+                  {latest ? (
+                    <>
+                      <p className="mb-4 line-clamp-3 flex-1 text-lg leading-snug text-zinc-300">
+                        {latest.details}
+                      </p>
+                      <div className="flex items-center justify-between">
+                        <StatusBadge status={latest.status} />
+                        <span className="font-mono text-xs text-zinc-500">
+                          {fmtDate(latest.dateObj)}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="flex-1 text-sm italic text-zinc-600">Standby</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {slide === 1 && (
+          <div className="flex h-full flex-col justify-center gap-12">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
+              {[
+                { label: 'Total coverages', v: stats.total, accent: '#00aeef' },
+                { label: 'DMC cleared', v: cleared, accent: '#22c55e' },
+                { label: 'This month', v: stats.thisMonth, accent: '#ef4444' },
+              ].map((x) => (
+                <div
+                  key={x.label}
+                  className="rounded-2xl border border-zinc-800 bg-[#09090b]/80 p-10 text-center"
+                >
+                  <p className="font-mono text-7xl font-black text-white tabular-nums md:text-8xl">
+                    {x.v}
+                  </p>
+                  <p
+                    className="mt-3 text-sm font-bold uppercase tracking-[0.25em]"
+                    style={{ color: x.accent }}
+                  >
+                    {x.label}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="mb-3 flex h-5 w-full overflow-hidden rounded-full bg-zinc-900">
+                {STATUS_ORDER.map((k) =>
+                  stats.counts[k] > 0 && stats.total > 0 ? (
+                    <div
+                      key={k}
+                      style={{
+                        width: `${(stats.counts[k] / stats.total) * 100}%`,
+                        background: STATUS_META[k].hex,
+                      }}
+                    />
+                  ) : null
+                )}
+              </div>
+              <div className="flex flex-wrap justify-center gap-6">
+                {STATUS_ORDER.map((k) => (
+                  <span key={k} className="flex items-center gap-2 text-sm text-zinc-400">
+                    <span
+                      className="h-2.5 w-2.5 rounded-sm"
+                      style={{ background: STATUS_META[k].hex }}
+                    />
+                    {STATUS_META[k].label} ·{' '}
+                    <span className="font-mono text-white">{stats.counts[k]}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {slide === 2 && (
+          <div className="flex h-full flex-col gap-8">
+            <div className="grid grid-cols-3 gap-4 md:grid-cols-6">
+              {STAGE_ORDER.map((k) => (
+                <div
+                  key={k}
+                  className="rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 text-center"
+                >
+                  <p className="font-mono text-4xl font-black text-white tabular-nums md:text-5xl">
+                    {outputs.filter((o) => o.stage === k).length}
+                  </p>
+                  <p
+                    className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em]"
+                    style={{ color: STAGE_META[k].hex }}
+                  >
+                    {STAGE_META[k].label}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="flex-1 space-y-3 overflow-hidden">
+              {wip.map((o) => (
+                <div
+                  key={o.id}
+                  className="flex items-center justify-between gap-6 rounded-xl border border-zinc-800 bg-[#09090b]/80 px-6 py-4"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-bold text-zinc-100">{o.title}</p>
+                    <p className="font-mono text-xs text-zinc-500">
+                      {o.personnel} · {o.role || o.type}
+                      {o.target ? ` · due ${fmtDate(o.target)}` : ''}
+                    </p>
+                  </div>
+                  <StageBadge stage={o.stage} />
+                </div>
+              ))}
+              {wip.length === 0 && (
+                <p className="pt-16 text-center text-lg italic text-zinc-600">
+                  Walang in-progress na output. Malinis ang post-production queue.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {slide === 3 && (
+          <div className="flex h-full flex-col justify-center gap-6">
+            {upNext.map((c, i) => (
+              <div
+                key={i}
+                className="flex flex-col items-start gap-3 rounded-2xl border-l-4 border-red-500 bg-[#09090b]/80 px-8 py-6 md:flex-row md:items-center md:gap-8"
+              >
+                <div className="w-44 shrink-0">
+                  <p className="font-mono text-2xl font-black text-white">{fmtDate(c.dateObj)}</p>
+                  <p className="text-xs uppercase tracking-widest text-red-400">
+                    {relativeDay(c.dateObj) || 'Scheduled'}
+                  </p>
+                </div>
+                <p className="flex-1 text-xl font-bold leading-snug text-zinc-200 md:text-2xl">
+                  {c.details}
+                </p>
+                <span className="rounded bg-zinc-800 px-3 py-1 font-mono text-sm font-bold uppercase tracking-wider text-zinc-300">
+                  {c.personnel}
+                </span>
+              </div>
+            ))}
+            {upNext.length === 0 && (
+              <p className="text-center text-2xl italic text-zinc-600">
+                Walang naka-schedule. Malinis ang board.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* bottom: progress + dots */}
+      <div className="border-t border-zinc-900 px-6 py-4 md:px-10 md:py-5">
+        <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-zinc-900">
+          <div
+            key={slide}
+            className="h-full bg-[#00aeef]"
+            style={{ animation: `kioskbar ${SLIDE_MS}ms linear forwards` }}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-700">
+            DOST-STII · Broadcast &amp; Digital Media Section
+          </p>
+          <div className="flex gap-2">
+            {titles.map((t, i) => (
+              <button
+                key={t}
+                onClick={() => setSlide(i)}
+                aria-label={t}
+                className={`h-2 rounded-full transition-all ${
+                  i === slide ? 'w-8 bg-[#00aeef]' : 'w-2 bg-zinc-800 hover:bg-zinc-700'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* --------------------------------------------------------- SYSTEM WINDOW -- */
 
 function AppWindow({
@@ -1348,6 +1659,7 @@ export default function App() {
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [prodReady, setProdReady] = useState<'unknown' | 'ok' | 'missing'>('unknown');
   const [logOpen, setLogOpen] = useState(false);
+  const [kioskOn, setKioskOn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [prodPerson, setProdPerson] = useState('ALL');
@@ -1430,7 +1742,11 @@ export default function App() {
 
   const fetchProduction = useCallback(async () => {
     try {
-      const res = await fetch(`${SCRIPT_URL}?sheet=production`, { cache: 'no-store' });
+      if (!PROD_CONFIGURED) {
+        setProdReady('missing');
+        return;
+      }
+      const res = await fetch(PROD_SCRIPT_URL, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error('unexpected shape');
@@ -1478,9 +1794,13 @@ export default function App() {
 
   const submitOutput = useCallback(
     async (payload: Record<string, string | number>) => {
+      if (!PROD_CONFIGURED) {
+        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx bago makapag-log.', 'err');
+        return;
+      }
       setSubmitting(true);
       try {
-        await fetch(SCRIPT_URL, {
+        await fetch(PROD_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'addOutput', payload }),
@@ -1502,12 +1822,16 @@ export default function App() {
       const i = STAGE_ORDER.indexOf(o.stage);
       const next = STAGE_ORDER[Math.min(STAGE_ORDER.length - 1, i + 1)];
       if (next === o.stage) return;
+      if (!PROD_CONFIGURED) {
+        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        return;
+      }
       setBusyId(o.id);
       setOutputs((prev) =>
         prev.map((x) => (x.id === o.id ? { ...x, stage: next, stageRaw: STAGE_META[next].label } : x))
       );
       try {
-        await fetch(SCRIPT_URL, {
+        await fetch(PROD_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'updateStage', id: o.id, stage: STAGE_META[next].label }),
@@ -1520,7 +1844,7 @@ export default function App() {
         setBusyId(null);
       }, 1400);
     },
-    [fetchProduction]
+    [fetchProduction, toast]
   );
 
   useEffect(() => {
@@ -1808,6 +2132,13 @@ export default function App() {
         hint: 'Navigate',
         group: 'Actions',
         run: () => scrollTo(boardRef),
+      },
+      {
+        id: 'kiosk',
+        label: 'Start kiosk mode (office monitor)',
+        hint: 'Display',
+        group: 'Actions',
+        run: () => setKioskOn(true),
       }
     );
     outputs.slice(0, 40).forEach((o, i) =>
@@ -2201,10 +2532,14 @@ export default function App() {
                 <div className="rounded-xl border border-dashed border-zinc-800 bg-[#09090b]/60 p-8 text-center">
                   <p className="mb-2 text-sm font-bold text-white">Hindi pa naka-set up ang Production Log</p>
                   <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
-                    I-paste ang <span className="font-mono text-zinc-300">Code.gs</span> sa Apps Script ng
-                    DMC spreadsheet, i-run ang{' '}
-                    <span className="font-mono text-[#00aeef]">setupProductionSheet()</span>, tapos
-                    i-redeploy ang web app. Awtomatiko nang lalabas dito ang board.
+                    Gumawa ng <span className="text-zinc-300">bagong blangkong spreadsheet</span> (hiwalay
+                    sa DMC/AppSheet), i-paste ang{' '}
+                    <span className="font-mono text-zinc-300">ProductionLog.gs</span> sa Extensions → Apps
+                    Script, i-run ang{' '}
+                    <span className="font-mono text-[#00aeef]">setupProductionSheet()</span>, i-deploy
+                    bilang web app, tapos ilagay ang /exec URL sa{' '}
+                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span> sa App.tsx. Hindi
+                    magagalaw ang AppSheet mo.
                   </p>
                 </div>
               ) : (
@@ -2827,6 +3162,13 @@ export default function App() {
             +
           </button>
           <button
+            onClick={() => setKioskOn(true)}
+            title="Kiosk mode — para sa office monitor"
+            className="flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-800/60 text-lg text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
+          >
+            📺
+          </button>
+          <button
             onClick={printSheet}
             title="Print IPCR"
             className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600/15 text-red-400 transition-colors hover:bg-red-600/30"
@@ -2856,6 +3198,16 @@ export default function App() {
 
       {openApp && <AppWindow app={openApp} onClose={() => setOpenApp(null)} />}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+      {kioskOn && (
+        <KioskMode
+          coverages={coverages}
+          outputs={outputs}
+          stats={stats}
+          workload={workload}
+          upNext={upNext}
+          onClose={() => setKioskOn(false)}
+        />
+      )}
       {logOpen && (
         <QuickLogModal
           onClose={() => setLogOpen(false)}
@@ -2892,6 +3244,7 @@ export default function App() {
         @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
         @keyframes riseup { from { opacity: 0; transform: translateY(14px) scale(.985) } to { opacity: 1; transform: none } }
         @keyframes slidein { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
+        @keyframes kioskbar { from { width: 0 } to { width: 100% } }
         .animate-fadein { animation: fadein .2s ease-out }
         .animate-riseup { animation: riseup .28s cubic-bezier(.16,1,.3,1) }
         .animate-slidein { animation: slidein .28s cubic-bezier(.16,1,.3,1) }
