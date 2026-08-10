@@ -33,14 +33,14 @@ interface SystemApp {
 /* ---------------------------------------------------------------- CONFIG -- */
 
 const SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec';
+  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec';
 
 /**
  * BAGONG production backend — HIWALAY na spreadsheet, hiwalay na script.
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
+const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 const PRE_ARCHIVAL_LINK =
