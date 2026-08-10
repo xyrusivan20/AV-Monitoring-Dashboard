@@ -40,7 +40,7 @@ const SCRIPT_URL =
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec ';
+const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 const PRE_ARCHIVAL_LINK =
