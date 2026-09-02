@@ -40,7 +40,7 @@ const SCRIPT_URL =
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 const PRE_ARCHIVAL_LINK =
@@ -266,7 +266,7 @@ interface ServiceRequest {
   dateApproved: Date | null;
   targetDate: Date | null;
   dateDelivered: Date | null;
-  csm: number; // 0 = wala pang rating; 1–5
+  csm: number; // 0 = not yet rated; 1–5
   link: string;
   remarks: string;
 }
@@ -469,7 +469,7 @@ function daysToTarget(r: ServiceRequest): number | null {
   return workingDaysBetween(ref, target);
 }
 
-type SLAState = 'ontime' | 'breached' | 'atrisk' | 'open' | 'na';
+type SLAState = 'ontime' | 'overdue' | 'atrisk' | 'open' | 'na';
 
 function slaState(r: ServiceRequest): SLAState {
   if (r.status === 'disapproved' || r.status === 'cancelled') return 'na';
@@ -477,18 +477,18 @@ function slaState(r: ServiceRequest): SLAState {
   if (!target) return 'na';
 
   if (r.dateDelivered) {
-    return r.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'breached';
+    return r.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'overdue';
   }
   const left = daysToTarget(r);
   if (left === null) return 'open';
-  if (left < 0) return 'breached';
+  if (left < 0) return 'overdue';
   if (left <= 1) return 'atrisk';
   return 'open';
 }
 
 const SLA_META: Record<SLAState, { label: string; hex: string; chip: string }> = {
   ontime:   { label: 'ON TIME',  hex: '#22c55e', chip: 'bg-green-500/10 text-green-400 border-green-500/30' },
-  breached: { label: 'breached', hex: '#ef4444', chip: 'bg-red-500/10 text-red-400 border-red-500/30' },
+  overdue: { label: 'OVERDUE', hex: '#ef4444', chip: 'bg-red-500/10 text-red-400 border-red-500/30' },
   atrisk:   { label: 'AT RISK',  hex: '#f59e0b', chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
   open:     { label: 'WITHIN',   hex: '#00aeef', chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30' },
   na:       { label: 'N/A',      hex: '#52525b', chip: 'bg-zinc-900/80 text-zinc-500 border-zinc-800' },
@@ -505,14 +505,20 @@ function monthLabel(key: string): string {
 
 
 /* ==========================================================================
-   EVENT LAYER — ang puso ng AV Nexus.
-   Isang event = isang hiling, may listahan ng serbisyong HINILING at
-   listahan ng serbisyong AKTWAL NA NAIBIGAY. Ang agwat sa pagitan ang
-   ebidensiya para sa Audit Item 44.
+   EVENT LAYER — the core of AV Nexus.
+   One event = one request, with a list of services REQUESTED and a
+   list of services ACTUALLY DELIVERED. The gap between them is the
+   evidence for Audit Item 44.
    ========================================================================== */
 
+/**
+ * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3:
+ *   for-approval → Division Chief acts
+ *   approved     → cleared by the Division Chief, awaiting endorsement
+ *   endorsed     → released to the AV Team by the Supervising SRS
+ */
 type ApprovalKey =
-  | 'for-endorsement' | 'endorsed' | 'approved'
+  | 'for-approval' | 'approved' | 'endorsed'
   | 'declined' | 'cancelled' | 'rescheduled';
 
 /** Kinakalkula, hindi ini-input. */
@@ -548,10 +554,11 @@ interface AVEvent {
   csm: number;
   link: string;
   remarks: string;
+  history: string[];
 }
 
 /**
- * Isang tao, maraming papel sa iisang event.
+ * One person, several roles on the same event.
  * Hal.: si Xyrus ay Camera Operator + Coordinator + Editor sa isang coverage —
  * tatlong papel, isang row, tatlong bilang sa IPCR niya.
  */
@@ -614,23 +621,23 @@ const HEAVY_SERVICES = [
 ];
 
 const APPROVAL_ORDER: ApprovalKey[] = [
-  'for-endorsement', 'endorsed', 'approved', 'declined', 'rescheduled', 'cancelled',
+  'for-approval', 'approved', 'endorsed', 'declined', 'rescheduled', 'cancelled',
 ];
 
 const APPROVAL_META: Record<
   ApprovalKey,
   { label: string; short: string; hex: string; chip: string; live: boolean }
 > = {
-  'for-endorsement': {
-    label: 'For endorsement', short: 'FOR SRS', hex: '#a1a1aa',
+  'for-approval': {
+    label: 'For approval', short: 'FOR DC', hex: '#a1a1aa',
     chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700', live: true,
   },
-  endorsed: {
-    label: 'Endorsed', short: 'FOR DC', hex: '#f59e0b',
+  approved: {
+    label: 'Approved', short: 'FOR SRS', hex: '#f59e0b',
     chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', live: true,
   },
-  approved: {
-    label: 'Approved', short: 'APPROVED', hex: '#00aeef',
+  endorsed: {
+    label: 'Endorsed', short: 'CLEARED', hex: '#00aeef',
     chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', live: true,
   },
   declined: {
@@ -676,7 +683,7 @@ const FULFIL_META: Record<
 const PIPELINE_STEPS: { key: PipelineKey; label: string; short: string; detail: string }[] = [
   {
     key: 'coordination', label: 'Coordination', short: 'COORD',
-    detail: 'Pre-production at coordination meeting sa kliyente',
+    detail: 'Pre-production and client coordination meeting',
   },
   {
     key: 'documents', label: 'Office documents', short: 'DOCS',
@@ -684,11 +691,11 @@ const PIPELINE_STEPS: { key: PipelineKey; label: string; short: string; detail: 
   },
   {
     key: 'deliverables', label: 'Deliverables', short: 'DELIV',
-    detail: 'Aktwal na shoot, edit at paghahatid sa kliyente',
+    detail: 'Shoot, edit and delivery to the client',
   },
   {
     key: 'archiving', label: 'Archiving', short: 'DMC',
-    detail: 'Transfer sa DMC NAS at pre-archival record',
+    detail: 'Transfer to DMC NAS and pre-archival record',
   },
 ];
 
@@ -709,7 +716,7 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
   if (ev.approval === 'declined') status = 'disapproved';
   else if (ev.approval === 'cancelled') status = 'cancelled';
   else if (ev.approval === 'rescheduled') status = 'rescheduled';
-  else if (ev.approval !== 'approved') status = 'pending';
+  else if (!isAuthorised(ev)) status = 'pending';
   else if (ev.dateDelivered) status = 'completed';
   else status = 'ongoing';
 
@@ -742,14 +749,31 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
   };
 }
 
+/**
+ * Cleared by the Division Chief. This is the substantive authorisation, so it
+ * unlocks the delivery pipeline and counts in the service metrics.
+ * Records created before the SRS endorsement step existed sit at 'approved',
+ * so both states must count here.
+ */
+function isAuthorised(ev: AVEvent): boolean {
+  return ev.approval === 'approved' || ev.approval === 'endorsed';
+}
+
+/** Still needs a signature from either the Division Chief or the SRS. */
+function awaitingAction(ev: AVEvent): boolean {
+  return APPROVAL_META[ev.approval].live && ev.approval !== 'endorsed';
+}
+
 function classifyApproval(raw: string): ApprovalKey {
   const s = (raw || '').toLowerCase();
   if (s.includes('declin') || s.includes('disapprove') || s.includes('reject')) return 'declined';
   if (s.includes('cancel')) return 'cancelled';
   if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
-  if (s.includes('approved')) return 'approved';
+  // "For approval" must be tested before "approved" — it contains the word.
+  if (s.includes('for approval') || s.includes('for endorsement')) return 'for-approval';
   if (s.includes('endorsed')) return 'endorsed';
-  return 'for-endorsement';
+  if (s.includes('approved')) return 'approved';
+  return 'for-approval';
 }
 
 function classifyPipeline(raw: string): PipelineState {
@@ -783,7 +807,7 @@ function serviceExtra(ev: AVEvent): string[] {
 function fulfilment(ev: AVEvent): Fulfilment {
   if (ev.approval === 'declined' || ev.approval === 'cancelled' || ev.approval === 'rescheduled')
     return 'declined';
-  if (ev.approval !== 'approved') return 'pending';
+  if (!isAuthorised(ev)) return 'pending';
   if (ev.requested.length === 0) return 'pending';
   const gap = serviceGap(ev);
   if (gap.length === 0) return 'full';
@@ -815,12 +839,12 @@ function eventSLA(ev: AVEvent): SLAState {
   const target = eventTarget(ev);
   if (!target) return 'na';
   if (ev.dateDelivered) {
-    return ev.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'breached';
+    return ev.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'overdue';
   }
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const left = workingDaysBetween(today, target);
-  if (left < 0) return 'breached';
+  if (left < 0) return 'overdue';
   if (left <= 1) return 'atrisk';
   return 'open';
 }
@@ -838,7 +862,7 @@ function pipelineProgress(ev: AVEvent): number {
 
 /** Ang susunod na hakbang na dapat asikasuhin. */
 function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | null {
-  if (ev.approval !== 'approved') return null;
+  if (!isAuthorised(ev)) return null;
   for (const step of PIPELINE_STEPS) {
     const st = ev.pipeline[step.key];
     if (st === 'not-started' || st === 'in-progress') return { key: step.key, label: step.label };
@@ -1060,7 +1084,25 @@ function StatusBadge({ status, dense = false }: { status: string; dense?: boolea
  */
 function SystemFrame({ app }: { app: SystemApp }) {
   const [loading, setLoading] = useState(app.embeddable);
+  const [blocked, setBlocked] = useState(!app.embeddable);
   const [reloadKey, setReloadKey] = useState(0);
+
+  // Kapag hindi tumawag ang onLoad sa loob ng ilang segundo, ang site ay
+  // malamang na humaharang ng pag-embed (X-Frame-Options / CSP).
+  useEffect(() => {
+    if (!app.embeddable) return;
+    setLoading(true);
+    setBlocked(false);
+    const t = setTimeout(() => {
+      setLoading((wasLoading) => {
+        if (wasLoading) setBlocked(true);
+        return false;
+      });
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [app.embeddable, app.url, reloadKey]);
+
+  const showFallback = blocked || !app.embeddable;
 
   return (
     <section>
@@ -1071,10 +1113,7 @@ function SystemFrame({ app }: { app: SystemApp }) {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button
-            onClick={() => {
-              setLoading(app.embeddable);
-              setReloadKey((k) => k + 1);
-            }}
+            onClick={() => setReloadKey((k) => k + 1)}
             className="rounded border border-zinc-800 px-2.5 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
           >
             Reload
@@ -1083,22 +1122,25 @@ function SystemFrame({ app }: { app: SystemApp }) {
             href={app.url}
             target="_blank"
             rel="noreferrer"
-            className="rounded border border-zinc-800 px-2.5 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+            className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
           >
-            Open in new tab
+            Open site
           </a>
         </div>
       </div>
 
       <div className="relative h-[78vh] min-h-[520px] overflow-hidden rounded-md border border-zinc-800/80 bg-white">
-        {app.embeddable ? (
+        {!showFallback && (
           <>
             <iframe
               key={reloadKey}
               src={app.url}
               title={app.name}
               className="h-full w-full border-0 bg-white"
-              onLoad={() => setLoading(false)}
+              onLoad={() => {
+                setLoading(false);
+                setBlocked(false);
+              }}
             />
             {loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#101012]">
@@ -1110,13 +1152,17 @@ function SystemFrame({ app }: { app: SystemApp }) {
               </div>
             )}
           </>
-        ) : (
+        )}
+
+        {showFallback && (
           <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#101012] px-6 text-center">
             <h3 className="text-[15px] font-medium text-zinc-100">
-              {app.name} runs in its own tab
+              {app.name} cannot be displayed here
             </h3>
-            <p className="max-w-md text-[13px] leading-relaxed text-zinc-500">
-              Hinaharangan ng AppSheet ang pag-embed, kaya hindi siya kayang i-frame dito.
+            <p className="max-w-lg text-[13px] leading-relaxed text-zinc-500">
+              The site sends a header that prevents it from being embedded in another
+              page. Open it in a new tab instead — or, if you own the site, allow this
+              dashboard to frame it (see the note below).
             </p>
             <a
               href={app.url}
@@ -1126,9 +1172,25 @@ function SystemFrame({ app }: { app: SystemApp }) {
             >
               Open {app.name}
             </a>
+            <button
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="text-[12px] text-zinc-600 transition-colors hover:text-zinc-300"
+            >
+              Try embedding again
+            </button>
           </div>
         )}
       </div>
+
+      {showFallback && app.embeddable && (
+        <p className="mt-3 text-[11px] leading-relaxed text-zinc-600">
+          To allow embedding, add a{' '}
+          <span className="font-mono text-zinc-400">vercel.json</span> to that site with a{' '}
+          <span className="font-mono text-zinc-400">Content-Security-Policy</span> header
+          whose <span className="font-mono text-zinc-400">frame-ancestors</span> lists this
+          dashboard&rsquo;s domain, then redeploy.
+        </p>
+      )}
     </section>
   );
 }
@@ -1278,7 +1340,7 @@ function WorkloadBars({
           </div>
         </div>
       ))}
-      {data.length === 0 && <p className="text-xs italic text-zinc-600">Walang data pa.</p>}
+      {data.length === 0 && <p className="text-xs italic text-zinc-600">No data yet.</p>}
     </div>
   );
 }
@@ -1481,7 +1543,7 @@ function ProductionBoard({
                   <OutputCard key={o.id} o={o} onAdvance={onAdvance} busy={busyId === o.id} />
                 ))}
                 {lane.length === 0 && (
-                  <p className="py-6 text-center text-[10px] italic text-zinc-700">walang laman</p>
+                  <p className="py-6 text-center text-[10px] italic text-zinc-700">empty</p>
                 )}
               </div>
             </div>
@@ -1599,7 +1661,7 @@ function QuickLogModal({
           <div>
             <h3 className="text-base font-bold uppercase tracking-wide text-white">Log a video output</h3>
             <p className="text-[11px] text-zinc-500">
-              Para sa trabahong hindi dumadaan sa DMC — shoot, edit, reel, livestream.
+              For work that does not pass through DMC — shoot, edit, reel, livestream.
             </p>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-white">
@@ -1732,7 +1794,7 @@ function QuickLogModal({
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
-          <p className="text-[10px] text-zinc-600">Direktang isusulat sa Production Log sheet.</p>
+          <p className="text-[10px] text-zinc-600">Saved directly to the Production Log.</p>
           <div className="flex gap-2">
             <button
               onClick={onClose}
@@ -1775,10 +1837,10 @@ function SLABadge({ state }: { state: SLAState }) {
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide"
-      style={{ color: state === 'breached' ? m.hex : undefined }}
+      style={{ color: state === 'overdue' ? m.hex : undefined }}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
-      <span className={state === 'breached' ? '' : 'text-zinc-400'}>{m.label}</span>
+      <span className={state === 'overdue' ? '' : 'text-zinc-400'}>{m.label}</span>
     </span>
   );
 }
@@ -1993,7 +2055,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
         </div>
       ) : (
         <p className="py-8 text-center text-xs italic text-zinc-600">
-          Walang request na may petsa pa. Mag-log sa Request Register para mabuo ang chart.
+          No dated requests yet. Log a request to build this chart.
         </p>
       )}
 
@@ -2026,7 +2088,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
     const byStream = (['coverage', 'production'] as Stream[]).map((st) => {
       const mine = requests.filter((r) => r.stream === st);
       const tats = mine.map(actualTAT).filter((v): v is number => v !== null);
-      const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'breached');
+      const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'overdue');
       return {
         stream: st,
         total: mine.length,
@@ -2042,7 +2104,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
     const live = requests.filter((r) => !r.dateDelivered);
     return {
       byStream,
-      breached: requests.filter((r) => slaState(r) === 'breached'),
+      overdue: requests.filter((r) => slaState(r) === 'overdue'),
       atRisk: live.filter((r) => slaState(r) === 'atrisk'),
     };
   }, [requests]);
@@ -2088,10 +2150,10 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
               <div className="mt-2 flex items-center justify-between text-[10px]">
                 <span className={over ? 'font-bold text-red-400' : 'text-zinc-500'}>
                   {x.avg === null
-                    ? 'Wala pang naide-deliver'
+                    ? 'Nothing delivered yet'
                     : over
-                    ? `${(x.avg - x.sla).toFixed(1)} WD lampas sa SLA`
-                    : `${(x.sla - x.avg).toFixed(1)} WD sa loob ng SLA`}
+                    ? `${(x.avg - x.sla).toFixed(1)} WD over standard`
+                    : `${(x.sla - x.avg).toFixed(1)} WD within standard`}
                 </span>
                 <span className="font-mono text-zinc-500">
                   {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
@@ -2102,13 +2164,13 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
         })}
       </div>
 
-      {(stats.breached.length > 0 || stats.atRisk.length > 0) && (
+      {(stats.overdue.length > 0 || stats.atRisk.length > 0) && (
         <div className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-            Attention queue · {stats.breached.length} breached · {stats.atRisk.length} at risk
+            Needs attention · {stats.overdue.length} overdue · {stats.atRisk.length} at risk
           </p>
           <div className="space-y-2">
-            {[...stats.breached, ...stats.atRisk].slice(0, 6).map((r) => {
+            {[...stats.overdue, ...stats.atRisk].slice(0, 6).map((r) => {
               const left = daysToTarget(r);
               return (
                 <div
@@ -2157,9 +2219,9 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
   if (unmet.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center">
-        <p className="text-sm text-zinc-300">Walang non-served request sa panahong ito.</p>
+        <p className="text-sm text-zinc-300">No unserved requests for this period.</p>
         <p className="mt-1 text-xs text-zinc-600">
-          100% ng natanggap ay na-serve o kasalukuyang pinoproseso.
+          All requests received were served or are still in progress.
         </p>
       </div>
     );
@@ -2169,8 +2231,8 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
     <div className="space-y-3">
       {missingReason > 0 && (
         <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
-          {missingReason} non-served request ang walang nakatalang dahilan. Kailangan ito ng
-          Item 40 — punan sa Request Register bago ang audit.
+          {missingReason} unserved request(s) have no recorded reason. Audit Item 40 requires
+          this — fill it in before the audit.
         </div>
       )}
       <div className="overflow-x-auto custom-scrollbar">
@@ -2202,7 +2264,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
                   {r.reason.trim() ? (
                     <span className="text-zinc-300">{r.reason}</span>
                   ) : (
-                    <span className="font-bold text-red-400">Walang nakatalang dahilan</span>
+                    <span className="font-bold text-red-400">No reason on record</span>
                   )}
                 </td>
               </tr>
@@ -2238,59 +2300,59 @@ function ComplianceScorecard({
       {
         item: 'Item 40',
         title: 'Request monitoring & reason for non-service',
-        ask: 'Itala ang declined, delayed at rescheduled na request kasama ang dahilan.',
+        ask: 'Record declined, delayed and rescheduled requests together with the reason.',
         met: tracked > 0 && unmet.length === withReason,
         evidence:
           tracked === 0
-            ? 'Walang request na naitala pa.'
-            : `${tracked} request na-track sa 7 status. ${withReason} sa ${unmet.length} non-served ay may nakatalang dahilan.`,
+            ? 'No requests on record yet.'
+            : `${tracked} requests tracked across 7 statuses. ${withReason} of ${unmet.length} unserved requests have a recorded reason.`,
       },
       {
         item: 'Item 41',
         title: 'Turnaround time & workload monitoring',
-        ask: 'Sukatin ang aktwal na processing time laban sa SLA, at ang workload ng bawat staff.',
+        ask: 'Measure actual processing time against the standard, and the workload of each staff member.',
         met: withTat > 0,
         evidence:
           withTat === 0
-            ? 'Wala pang naide-deliver na request na masusukat.'
+            ? 'No delivered requests yet to measure.'
             : `${withTat} completed request ang may aktwal na TAT laban sa SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
       },
       {
         item: 'Item 44',
         title: 'Demand vs capacity for augmentation',
-        ask: 'Ihambing ang aktwal na demand sa services rendered para makita ang unmet requests.',
+        ask: 'Compare actual demand against services rendered to surface unmet requests.',
         met: tracked > 0,
         evidence: (() => {
-          if (tracked === 0) return 'Walang demand data pa.';
+          if (tracked === 0) return 'No demand data yet.';
           const decided = events.filter(
-            (ev) => ev.approval === 'approved' || !APPROVAL_META[ev.approval].live
+            (ev) => isAuthorised(ev) || !APPROVAL_META[ev.approval].live
           );
           const asked = decided.reduce((a, ev) => a + ev.requested.length, 0);
           const missed = decided.reduce((a, ev) => a + serviceGap(ev).length, 0);
           const base = `Demand ${tracked} · rendered ${served} · unmet ${unmet.length}.`;
           return asked > 0
-            ? `${base} Sa antas ng serbisyo: ${asked} hiniling, ${missed} hindi naibigay — ito ang basehan ng personnel augmentation.`
-            : `${base} Buwanang paghahambing ay nasa Demand vs Capacity panel.`;
+            ? `${base} At service level: ${asked} requested, ${missed} not delivered — the basis for personnel augmentation.`
+            : `${base} The monthly comparison is in the Demand vs Capacity panel.`;
         })(),
       },
       {
         item: 'PM 2.1',
         title: '100% of approved requests executed',
-        ask: 'Lahat ng naaprubahang request ay naipatupad at naihatid.',
+        ask: 'All approved requests are executed and delivered.',
         met: kpi.execution !== null && kpi.execution >= KPI_EXECUTION_TARGET,
         evidence:
           kpi.execution === null
-            ? 'Wala pang naaprubahang request.'
+            ? 'No approved requests yet.'
             : `${kpi.execution}% ng approved requests ay completed.`,
       },
       {
         item: 'PM 2.2',
         title: '93% rated Very Satisfactory or higher',
-        ask: 'CSM rating ng mga na-serve na kliyente.',
+        ask: 'Client satisfaction rating for served requests.',
         met: kpi.csm !== null && kpi.csm >= KPI_CSM_TARGET,
         evidence:
           kpi.csm === null
-            ? 'Wala pang CSM rating na naitala.'
+            ? 'No CSM ratings recorded yet.'
             : `${kpi.csm}% ng ${kpi.rated} rated request ay Very Satisfactory pataas.`,
       },
     ];
@@ -2362,7 +2424,7 @@ function RequestTable({
   if (requests.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center">
-        <p className="text-sm text-zinc-300">Walang tumugmang request.</p>
+        <p className="text-sm text-zinc-300">No matching requests.</p>
       </div>
     );
   }
@@ -2436,7 +2498,7 @@ function RequestTable({
                   <ReqBadge status={r.status} dense />
                   {REQ_META[r.status].unmet && !r.reason.trim() && (
                     <span className="mt-1 block text-[9px] font-bold text-red-400">
-                      walang dahilan
+                      no reason
                     </span>
                   )}
                 </td>
@@ -2463,7 +2525,7 @@ function RequestTable({
 /**
  * Log / update ng ServiceRequest.
  * Item 40: kapag Rescheduled, Disapproved o Cancelled ang status, hindi
- * pwedeng mag-save nang walang dahilan — hindi lang paalala, naka-block talaga.
+ * pwedeng mag-save nang no reason — hindi lang paalala, naka-block talaga.
  */
 function RequestModal({
   existing,
@@ -2690,10 +2752,10 @@ function RequestModal({
                   }`}
                   value={f.reason}
                   onChange={(e) => set('reason', e.target.value)}
-                  placeholder="Hal.: Conflict sa schedule — lahat ng AV personnel naka-deploy sa NSTW."
+                  placeholder="For example: Schedule conflict — all AV personnel deployed to another event."
                 />
                 <p className="mt-1 text-[10px] text-zinc-600">
-                  Audit Item 40: dapat naitatala ang dahilan ng bawat hindi na-serve na request.
+                  Audit Item 40 requires a recorded reason for every unserved request.
                 </p>
               </div>
             )}
@@ -2750,8 +2812,8 @@ function RequestModal({
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
           <p className="text-[10px] text-zinc-600">
             {reasonMissing
-              ? 'Punan ang dahilan bago mag-save.'
-              : 'Direktang isusulat sa Request Register sheet.'}
+              ? 'A reason is required before saving.'
+              : 'Saved directly to the Request Register.'}
           </p>
           <div className="flex gap-2">
             <button
@@ -2821,14 +2883,14 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
         {ev.requested.map((svc) => (
           <span
             key={svc}
-            title="Hiniling — naghihintay pa ng approval"
+            title="Requested — awaiting approval"
             className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium text-zinc-300"
           >
             {svc}
           </span>
         ))}
         {ev.requested.length === 0 && (
-          <span className="text-[10px] italic text-zinc-600">Walang nakatalang serbisyo</span>
+          <span className="text-[10px] italic text-zinc-600">No services listed</span>
         )}
       </div>
     );
@@ -2842,7 +2904,7 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
           return (
             <span
               key={svc}
-              title={missing ? 'Hiniling pero hindi naibigay' : 'Hiniling at naibigay'}
+              title={missing ? 'Requested but not delivered' : 'Requested and delivered'}
               className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${
                 missing
                   ? 'border-red-500/40 bg-red-500/10 text-red-300 line-through decoration-red-500/60'
@@ -2856,26 +2918,26 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
         {extra.map((svc) => (
           <span
             key={svc}
-            title="Naibigay kahit hindi orihinal na hiniling"
+            title="Delivered though not originally requested"
             className="inline-flex items-center gap-1 rounded border border-[#00aeef]/40 bg-[#00aeef]/10 px-2 py-0.5 text-[10px] font-medium text-[#00aeef]"
           >
             + {svc}
           </span>
         ))}
         {ev.requested.length === 0 && (
-          <span className="text-[10px] italic text-zinc-600">Walang nakatalang serbisyo</span>
+          <span className="text-[10px] italic text-zinc-600">No services listed</span>
         )}
       </div>
 
       {gap.length > 0 && (
         <p className="text-[11px] leading-relaxed">
           <span className="font-bold text-red-400">
-            {gap.length} serbisyong hindi naibigay:
+            {gap.length} service{gap.length === 1 ? '' : 's'} not delivered:
           </span>{' '}
           {ev.reason ? (
             <span className="text-zinc-400">{ev.reason}</span>
           ) : (
-            <span className="font-medium text-red-400">Walang nakatalang dahilan</span>
+            <span className="font-medium text-red-400">No reason on record</span>
           )}
         </p>
       )}
@@ -2893,7 +2955,7 @@ function PipelineTrack({
   onStep?: (key: PipelineKey, next: PipelineState) => void;
   compact?: boolean;
 }) {
-  const locked = ev.approval !== 'approved';
+  const locked = !isAuthorised(ev);
   const cycle: PipelineState[] = ['not-started', 'in-progress', 'done', 'na'];
 
   return (
@@ -2912,7 +2974,7 @@ function PipelineTrack({
                 const next = cycle[(cycle.indexOf(st) + 1) % cycle.length];
                 onStep(step.key, next);
               }}
-              title={`${step.label} — ${meta.label}${locked ? ' (naghihintay ng approval)' : ''}\n${step.detail}`}
+              title={`${step.label} — ${meta.label}${locked ? ' (awaiting approval)' : ''}\n${step.detail}`}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${
                 clickable ? 'cursor-pointer hover:border-zinc-600' : 'cursor-default'
               } ${locked ? 'opacity-40' : ''}`}
@@ -2970,7 +3032,7 @@ function EventCard({
               {ev.title || 'Untitled event'}
             </h3>
             <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-600">
-              {ev.id} · {ev.client || 'walang kliyente'}
+              {ev.id} · {ev.client || 'no client'}
               {ev.venue ? ` · ${ev.venue}` : ''}
             </p>
           </button>
@@ -3009,17 +3071,17 @@ function EventCard({
 
         {next && (
           <p className="mt-2 text-[11px] text-zinc-500">
-            Susunod: <span className="font-medium text-[#00aeef]">{next.label}</span>
+            Next: <span className="font-medium text-[#00aeef]">{next.label}</span>
             {nextOwners.length > 0 ? (
               <span className="text-zinc-500"> · {nextOwners.join(', ')}</span>
             ) : (
-              <span className="text-amber-400"> · walang naka-assign sa papel na ito</span>
+              <span className="text-amber-400"> · no one assigned to this role</span>
             )}
           </p>
         )}
-        {APPROVAL_META[ev.approval].live && ev.approval !== 'approved' && (
+        {awaitingAction(ev) && (
           <p className="mt-2 text-[10px] text-amber-400/80">
-            Naghihintay ng {ev.approval === 'endorsed' ? 'Division Chief' : 'Supervising SRS'}
+            Awaiting {ev.approval === 'for-approval' ? 'Division Chief' : 'Supervising SRS'}
           </p>
         )}
       </div>
@@ -3032,9 +3094,9 @@ function EventSummary({ events }: { events: AVEvent[] }) {
   const t = useMemo(() => {
     const base = { total: events.length, approved: 0, declined: 0, waiting: 0, full: 0, partial: 0, none: 0, gapCount: 0, noReason: 0 };
     events.forEach((ev) => {
-      if (ev.approval === 'approved') base.approved += 1;
+      if (isAuthorised(ev)) base.approved += 1;
       if (!APPROVAL_META[ev.approval].live) base.declined += 1;
-      if (APPROVAL_META[ev.approval].live && ev.approval !== 'approved') base.waiting += 1;
+      if (awaitingAction(ev)) base.waiting += 1;
       const f = fulfilment(ev);
       if (f === 'full') base.full += 1;
       if (f === 'partial') base.partial += 1;
@@ -3050,11 +3112,11 @@ function EventSummary({ events }: { events: AVEvent[] }) {
   }, [events]);
 
   const tiles = [
-    { k: 'Total events', v: t.total, c: '#00aeef', s: 'Naitalang request' },
+    { k: 'Total events', v: t.total, c: '#00aeef', s: 'Requests on record' },
     { k: 'Approved', v: t.approved, c: '#22c55e', s: `${t.full} fully served` },
-    { k: 'Limited service', v: t.partial, c: '#f59e0b', s: `${t.gapCount} serbisyong kulang` },
-    { k: 'Declined', v: t.declined, c: '#ef4444', s: 'Hindi na-serve' },
-    { k: 'Awaiting action', v: t.waiting, c: '#a1a1aa', s: 'Nasa SRS o DC' },
+    { k: 'Limited service', v: t.partial, c: '#f59e0b', s: `${t.gapCount} service${t.gapCount === 1 ? '' : 's'} short` },
+    { k: 'Declined', v: t.declined, c: '#ef4444', s: 'Not served' },
+    { k: 'Awaiting action', v: t.waiting, c: '#a1a1aa', s: 'With the approver' },
   ];
 
   return (
@@ -3076,8 +3138,8 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       </div>
       {t.noReason > 0 && (
         <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
-          {t.noReason} event ang may kulang na serbisyo pero walang nakatalang dahilan. Kailangan
-          ito ng Audit Item 40 — buksan ang event at punan ang dahilan.
+          {t.noReason} event(s) have undelivered services with no recorded reason. Audit
+          Item 40 requires this — open the event and add the reason.
         </div>
       )}
     </div>
@@ -3087,7 +3149,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
 /**
  * Buong detalye at pag-edit ng isang event.
  * Dalawang hanay ng checkbox: HINILING at NAIBIGAY. Awtomatikong lumalabas
- * ang agwat, at hindi makaka-save nang walang dahilan kapag may kulang.
+ * ang agwat, at hindi makaka-save nang no reason kapag may kulang.
  */
 function EventModal({
   existing,
@@ -3279,7 +3341,7 @@ function EventModal({
               />
             </div>
             <div>
-              <label className={lab}>End date (kung multi-day)</label>
+              <label className={lab}>End date (if multi-day)</label>
               <input
                 type="date"
                 className={field}
@@ -3318,7 +3380,7 @@ function EventModal({
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <p className={lab}>Hiniling ng kliyente</p>
+                  <p className={lab}>Requested by the client</p>
                   <div className="space-y-1">
                     {SERVICE_CATALOG.map((svc) => (
                       <label
@@ -3370,7 +3432,7 @@ function EventModal({
                 <div className="mt-3 space-y-1 border-t border-zinc-900 pt-3 text-[11px]">
                   {gap.length > 0 && (
                     <p className="text-red-400">
-                      <b>{gap.length} hindi naibigay:</b> {gap.join(', ')}
+                      <b>{gap.length} not delivered:</b> {gap.join(', ')}
                     </p>
                   )}
                   {extra.length > 0 && (
@@ -3413,7 +3475,7 @@ function EventModal({
                   <div>
                     <p className="text-[11px] font-medium text-zinc-400">Crew &amp; roles</p>
                     <p className="text-[11px] text-zinc-600">
-                      Maraming papel kada tao. Bawat papel ay hiwalay na binibilang sa IPCR.
+                      One person may hold several roles. Each role is counted separately in the IPCR.
                     </p>
                   </div>
                   <button
@@ -3491,24 +3553,40 @@ function EventModal({
                     ? `Endorsed by ${existing.endorsedBy}${
                         existing.dateEndorsed ? ` · ${fmtDate(existing.dateEndorsed)}` : ''
                       }`
-                    : 'Hindi pa na-endorso'}
+                    : 'Not yet endorsed'}
                   {' — '}
                   {existing.approvedBy
                     ? `Approved by ${existing.approvedBy}${
                         existing.dateApproved ? ` · ${fmtDate(existing.dateApproved)}` : ''
                       }`
-                    : 'hindi pa naaaprubahan'}
+                    : 'not yet approved'}
                 </p>
+              )}
+
+              {existing && existing.history.length > 0 && (
+                <div className="mt-4 border-t border-zinc-800/80 pt-3">
+                  <p className="mb-2 text-[11px] font-medium text-zinc-400">Change history</p>
+                  <div className="max-h-32 space-y-1 overflow-y-auto custom-scrollbar">
+                    {existing.history
+                      .slice()
+                      .reverse()
+                      .map((line, i) => (
+                        <p key={i} className="font-mono text-[10px] leading-relaxed text-zinc-600">
+                          {line}
+                        </p>
+                      ))}
+                  </div>
+                </div>
               )}
 
               {reasonRequired && (
                 <div className="mt-4 animate-fadein">
                   <label className={lab}>
                     <span className="text-red-400">
-                      Dahilan * —{' '}
+                      Reason * —{' '}
                       {notApproved
-                        ? `kailangan kapag ${APPROVAL_META[approvalKey].label}`
-                        : 'kailangan kapag may serbisyong hindi naibigay'}
+                        ? `required when ${APPROVAL_META[approvalKey].label}`
+                        : 'required when services were not delivered'}
                     </span>
                   </label>
                   <textarea
@@ -3517,7 +3595,7 @@ function EventModal({
                     }`}
                     value={f.reason}
                     onChange={(e) => set('reason', e.target.value)}
-                    placeholder="Hal.: Hybrid livestream hindi naibigay — kulang sa tao, naka-deploy sa ibang DOST event coverage."
+                    placeholder="For example: Hybrid livestream not provided — no available personnel, team deployed to another DOST event."
                   />
                   <p className="mt-1 text-[10px] text-zinc-600">
                     Audit Item 40 at 44: ito ang ebidensiya para sa personnel augmentation.
@@ -3614,7 +3692,7 @@ function EventModal({
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
           <p className="text-[10px] text-zinc-600">
-            {reasonMissing ? 'Punan ang dahilan bago mag-save.' : 'Direktang isusulat sa Events sheet.'}
+            {reasonMissing ? 'A reason is required before saving.' : 'Saved directly to the Events sheet.'}
           </p>
           <div className="flex gap-2">
             <button
@@ -3689,7 +3767,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
   if (rows.length === 0) {
     return (
       <p className="py-8 text-center text-xs italic text-zinc-600">
-        Walang naitalang serbisyo pa. Gumawa ng event para mabuo ang gap analysis.
+        No services recorded yet. Create an event to build the gap analysis.
       </p>
     );
   }
@@ -3749,14 +3827,14 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
       {reasons.length > 0 && (
         <div className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-            Naitalang dahilan ng hindi pagkakabigay
+            Recorded reasons for non-delivery
           </p>
           <div className="space-y-2.5">
             {reasons.map(({ ev, gap }) => (
               <div key={ev.id} className="border-l-2 border-red-500/50 pl-3">
                 <p className="text-xs font-semibold text-zinc-200">{ev.title}</p>
                 <p className="mt-0.5 text-[10px] text-red-400">
-                  Hindi naibigay: {gap.join(', ')}
+                  Not delivered: {gap.join(', ')}
                 </p>
                 <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-400">{ev.reason}</p>
               </div>
@@ -3837,8 +3915,8 @@ function KioskMode({
   const svc = useMemo(() => {
     const served = requests.filter((r) => REQ_META[r.status].served).length;
     const unmet = requests.filter((r) => REQ_META[r.status].unmet).length;
-    const breached = requests.filter((r) => slaState(r) === 'breached').length;
-    return { demand: requests.length, served, unmet, breached };
+    const overdue = requests.filter((r) => slaState(r) === 'overdue').length;
+    return { demand: requests.length, served, unmet, overdue };
   }, [requests]);
 
   const ticker = useMemo(() => {
@@ -4027,7 +4105,7 @@ function KioskMode({
               ))}
               {wip.length === 0 && (
                 <p className="pt-16 text-center text-lg italic text-zinc-600">
-                  Walang in-progress na output. Malinis ang post-production queue.
+                  No outputs in progress.
                 </p>
               )}
             </div>
@@ -4041,7 +4119,7 @@ function KioskMode({
                 { k: 'Service demand', v: svc.demand, c: '#00aeef' },
                 { k: 'Services rendered', v: svc.served, c: '#22c55e' },
                 { k: 'Unmet requests', v: svc.unmet, c: '#ef4444' },
-                { k: 'SLA breaches', v: svc.breached, c: '#f59e0b' },
+                { k: 'Past due', v: svc.overdue, c: '#f59e0b' },
               ].map((x) => (
                 <div
                   key={x.k}
@@ -4130,7 +4208,7 @@ function KioskMode({
             ))}
             {upNext.length === 0 && (
               <p className="text-center text-2xl italic text-zinc-600">
-                Walang naka-schedule. Malinis ang board.
+                Nothing scheduled.
               </p>
             )}
           </div>
@@ -4301,8 +4379,7 @@ function AppWindow({
               </div>
               <h3 className="text-lg font-bold text-white">{app.name} runs in its own tab</h3>
               <p className="max-w-md text-sm leading-relaxed text-zinc-400">
-                AppSheet blocks embedding for security, kaya hindi siya kayang i-frame dito.
-                Buksan mo siya sa bagong tab — babalik ka lang dito pagkatapos.
+                AppSheet blocks embedding, so it cannot be framed here. Open it in a new tab instead.
               </p>
               <a
                 href={app.url}
@@ -4395,7 +4472,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Maghanap ng system, tao, coverage, o aksyon…"
+            placeholder="Search systems, people, records and actions…"
             className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
           />
           <kbd className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
@@ -4440,7 +4517,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
           })}
           {results.length === 0 && (
             <p className="px-5 py-8 text-center text-sm text-zinc-600">
-              Walang tugma. Subukan mo ang pangalan ng coverage o ng tao.
+              No matches. Try an event title or a person's name.
             </p>
           )}
         </div>
@@ -4532,7 +4609,7 @@ function PersonnelDrawer({
               </div>
             ))}
             {records.length === 0 && (
-              <p className="text-sm italic text-zinc-600">Walang naitalang deployment.</p>
+              <p className="text-sm italic text-zinc-600">No deployments on record.</p>
             )}
           </div>
         </div>
@@ -4556,12 +4633,12 @@ type ViewKey =
 
 const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'portfolio',  label: 'Services',   hint: 'Public-facing AV services page' },
-  { key: 'events',     label: 'Events',     hint: 'Approval, serbisyo, pipeline — ang puso' },
-  { key: 'gatepass',   label: 'Gate Pass',  hint: 'Equipment releasing & inventory' },
+  { key: 'events',     label: 'Events',     hint: 'Approval, services and delivery pipeline' },
+  { key: 'gatepass',   label: 'Gate Pass',  hint: 'Equipment releasing and inventory' },
   { key: 'production', label: 'Production', hint: 'Video output board' },
-  { key: 'pulse',      label: 'Archive',    hint: 'DMC records, team, systems' },
-  { key: 'compliance', label: 'Compliance', hint: 'Audit Items 40 / 41 / 44' },
-  { key: 'reports',    label: 'Reports',    hint: 'IPCR / MOV generator' },
+  { key: 'pulse',      label: 'Archive',    hint: 'DMC archive, team and source sheets' },
+  { key: 'compliance', label: 'Compliance', hint: 'Audit Items 40, 41 and 44' },
+  { key: 'reports',    label: 'Reports',    hint: 'IPCR and MOV generator' },
   { key: 'requests',   label: 'Register',   hint: 'Legacy request register' },
 ];
 
@@ -4603,6 +4680,29 @@ export default function App() {
   const [reqStatusFilter, setReqStatusFilter] = useState<'ALL' | ReqStatus>('ALL');
   const [reqStreamFilter, setReqStreamFilter] = useState<'ALL' | Stream>('ALL');
   const [view, setView] = useState<ViewKey>('events');
+
+  /**
+   * Sino ang nagpapatakbo ng dashboard ngayon.
+   * Ito ay ATTRIBUTION, hindi authentication — nagtatala ito kung sino ang
+   * gumawa ng bawat pagbabago, pero walang pumipigil sa isang tao na pumili
+   * ng ibang pangalan. Para sa tunay na account, kailangan ng Google sign-in.
+   */
+  const [actor, setActor] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem('avnexus.actor') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const chooseActor = useCallback((name: string) => {
+    setActor(name);
+    try {
+      window.localStorage.setItem('avnexus.actor', name);
+    } catch {
+      /* private mode — attribution lasts for this session only */
+    }
+  }, []);
 
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [prodReady, setProdReady] = useState<'unknown' | 'ok' | 'missing'>('unknown');
@@ -4679,7 +4779,7 @@ export default function App() {
         if (manual) toast('Records refreshed', 'ok');
       } catch (error: any) {
         setConn('error');
-        setErrMsg(error?.message || 'Hindi maabot ang Apps Script endpoint.');
+        setErrMsg(error?.message || 'Could not reach the Apps Script endpoint.');
         if (manual) toast('Refresh failed — check the Apps Script URL', 'err');
       } finally {
         bootedRef.current = true;
@@ -4760,6 +4860,10 @@ export default function App() {
               csm: parseCSM(r['CSM Rating']),
               link: String(r['Output Link'] || ''),
               remarks: String(r['Remarks'] || ''),
+              history: String(r['Action Log'] || '')
+                .split('\n')
+                .map((x: string) => x.trim())
+                .filter(Boolean),
             } as AVEvent;
           })
           .reverse()
@@ -4849,7 +4953,7 @@ export default function App() {
   const submitOutput = useCallback(
     async (payload: Record<string, string | number>) => {
       if (!PROD_CONFIGURED) {
-        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx bago makapag-log.', 'err');
+        toast('Set PROD_SCRIPT_URL in App.tsx before logging entries.', 'err');
         return;
       }
       setSubmitting(true);
@@ -4859,9 +4963,9 @@ export default function App() {
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({ action: 'addOutput', payload }),
         });
-        toast('Output saved sa Production Log', 'ok');
+        toast('Output saved to the Production Log', 'ok');
       } catch {
-        toast('Naipadala — sine-sync ko na ang board', 'info');
+        toast('Submitted — refreshing the board', 'info');
       } finally {
         setSubmitting(false);
         setLogOpen(false);
@@ -4878,7 +4982,7 @@ export default function App() {
       roster?: { personnel: string; roles: string[]; status: string }[]
     ) => {
       if (!PROD_CONFIGURED) {
-        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
       setSubmitting(true);
@@ -4908,8 +5012,8 @@ export default function App() {
         remarks: form.remarks,
       };
       const body = id
-        ? { action: 'updateEvent', id, patch: payload }
-        : { action: 'addEvent', payload };
+        ? { action: 'updateEvent', id, patch: { ...payload, actor } }
+        : { action: 'addEvent', payload: { ...payload, actor } };
 
       try {
         const res = await fetch(PROD_SCRIPT_URL, {
@@ -4934,27 +5038,28 @@ export default function App() {
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'setAssignments',
+              actor,
               eventId,
               rows: roster.filter((r) => r.personnel && r.roles.length),
             }),
           });
         }
-        toast(id ? 'Event updated' : 'Event created — ipinadala sa SRS', 'ok');
+        toast(id ? 'Event updated' : 'Event created — sent to the Division Chief', 'ok');
       } catch {
-        toast('Naipadala — sine-sync ko na ang board', 'info');
+        toast('Submitted — refreshing the board', 'info');
       } finally {
         setSubmitting(false);
         setEvModal({ open: false, editing: null });
         setTimeout(() => fetchProduction(), 1400);
       }
     },
-    [fetchProduction, toast]
+    [fetchProduction, toast, actor]
   );
 
   const notifyApprover = useCallback(
     async (id: string) => {
       if (!PROD_CONFIGURED) {
-        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
       try {
@@ -4965,7 +5070,7 @@ export default function App() {
         });
         toast('Approval email ipinadala', 'ok');
       } catch {
-        toast('Hindi maabot ang backend', 'err');
+        toast('Could not reach the backend', 'err');
       }
     },
     [toast]
@@ -4974,7 +5079,7 @@ export default function App() {
   const stepEvent = useCallback(
     async (ev: AVEvent, key: PipelineKey, next: PipelineState) => {
       if (!PROD_CONFIGURED) {
-        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
       setEvents((prev) =>
@@ -5009,7 +5114,7 @@ export default function App() {
   const submitRequest = useCallback(
     async (form: Record<string, string>, id: string | null) => {
       if (!PROD_CONFIGURED) {
-        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
       setSubmitting(true);
@@ -5036,16 +5141,16 @@ export default function App() {
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(body),
         });
-        toast(id ? 'Request updated' : 'Request logged sa register', 'ok');
+        toast(id ? 'Request updated' : 'Request logged', 'ok');
       } catch {
-        toast('Naipadala — sine-sync ko na ang register', 'info');
+        toast('Submitted — refreshing the register', 'info');
       } finally {
         setSubmitting(false);
         setReqModal({ open: false, editing: null });
         setTimeout(() => fetchProduction(), 1400);
       }
     },
-    [fetchProduction, toast]
+    [fetchProduction, toast, actor]
   );
 
   const advanceStage = useCallback(
@@ -5054,7 +5159,7 @@ export default function App() {
       const next = STAGE_ORDER[Math.min(STAGE_ORDER.length - 1, i + 1)];
       if (next === o.stage) return;
       if (!PROD_CONFIGURED) {
-        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
       setBusyId(o.id);
@@ -5186,7 +5291,7 @@ export default function App() {
   }, [events, evQuery, evApproval, evFulfil]);
 
   const approvalQueue = useMemo(
-    () => events.filter((ev) => APPROVAL_META[ev.approval].live && ev.approval !== 'approved'),
+    () => events.filter(awaitingAction),
     [events]
   );
 
@@ -5373,7 +5478,7 @@ export default function App() {
 
   const ipcrSLA = useMemo(() => {
     const tats = ipcrRequests.map(actualTAT).filter((v): v is number => v !== null);
-    const rated = ipcrRequests.map(slaState).filter((x) => x === 'ontime' || x === 'breached');
+    const rated = ipcrRequests.map(slaState).filter((x) => x === 'ontime' || x === 'overdue');
     const csmRated = ipcrRequests.filter((r) => r.csm > 0);
     return {
       avgTAT: tats.length ? tats.reduce((a, b) => a + b, 0) / tats.length : null,
@@ -5470,7 +5575,12 @@ export default function App() {
         label: `Open ${s.name}`,
         hint: s.tag,
         group: 'Systems',
-        run: () => setOpenApp(s),
+        run: () => {
+          if (s.id === 'portfolio') setView('portfolio');
+          else if (s.id === 'gatepass') setView('gatepass');
+          else window.open(s.url, '_blank');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
       })
     );
     list.push(
@@ -5497,7 +5607,10 @@ export default function App() {
         group: 'Reports',
         run: () => {
           setSelectedIPCRPersonnel(n);
-          scrollTo(ipcrRef);
+          setView('reports');
+          // Ang section ay nasa Reports view lang, kaya hintayin muna itong
+          // ma-render bago mag-scroll — kung hindi, null pa ang ref.
+          setTimeout(() => scrollTo(ipcrRef), 60);
         },
       })
     );
@@ -5649,7 +5762,7 @@ export default function App() {
   const connMeta = stale
     ? {
         dot: 'bg-amber-500',
-        label: `Hindi maabot ang server — ipinapakita ang huling nakuha (${lastUpdated})`,
+        label: `Cannot reach the server — showing the last data received (${lastUpdated})`,
         short: 'Cached',
       }
     : {
@@ -5705,6 +5818,24 @@ export default function App() {
                 >
                   DMC Sheet
                 </a>
+
+                <select
+                  value={actor}
+                  onChange={(e) => chooseActor(e.target.value)}
+                  title="Changes you make are recorded under this name"
+                  className={`rounded border bg-[#101012] px-2.5 py-1.5 text-[12px] focus:border-[#00aeef] focus:outline-none ${
+                    actor
+                      ? 'border-zinc-800 text-zinc-300'
+                      : 'border-amber-600/50 text-amber-400'
+                  }`}
+                >
+                  <option value="">Sign in as…</option>
+                  {Object.keys(OFFICIAL).map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
 
                 <button
                   onClick={() => {
@@ -5767,92 +5898,59 @@ export default function App() {
 
             {conn === 'error' && (
               <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-300">
-                Hindi nakuha ang records — {errMsg}. Naka-cache pa ang huling nakuhang data.
-                Suriin ang deployment ng Apps Script (dapat naka-set sa “Anyone”).
+                Could not load records — {errMsg}. Showing the last data received. Check that the
+                Apps Script web app is deployed with access set to “Anyone”.
               </div>
             )}
 
             {view === 'pulse' && (
             <>
-            {/* ---------------------------------------- SYSTEMS HUB ---- */}
+            {/* ------------------------------------- SOURCE SHEETS ----- */}
             <section>
               <SectionHead
-                title="SYSTEMS HUB"
-                hint="Lahat ng AV-built systems, buksan mo dito nang hindi umaalis sa dashboard."
-                right={
-                  <span className="hidden font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-600 md:block">
-                    {SYSTEMS.length} apps online
-                  </span>
-                }
+                title="Source sheets"
+                hint="The DMC archive is maintained in these Google Sheets."
               />
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                {SYSTEMS.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setOpenApp(s)}
-                    className="group relative flex flex-col overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012] p-5 text-left transition-all duration-300 hover:-translate-y-1"
-                    style={{ boxShadow: 'none' }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.borderColor = `${s.accent}66`;
-                      (e.currentTarget as HTMLElement).style.boxShadow = `0 18px 40px -18px ${s.accent}55`;
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.borderColor = '';
-                      (e.currentTarget as HTMLElement).style.boxShadow = 'none';
-                    }}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {[
+                  {
+                    name: 'DMC Monitoring',
+                    role: 'Master archive of transferred coverage',
+                    url: DMC_MONITORING_LINK,
+                  },
+                  {
+                    name: 'Pre-Archival',
+                    role: 'Staging list before DMC transfer',
+                    url: PRE_ARCHIVAL_LINK,
+                  },
+                ].map((sheet) => (
+                  <a
+                    key={sheet.name}
+                    href={sheet.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group flex items-center justify-between gap-4 rounded-md border border-zinc-800/80 bg-[#101012] px-4 py-3.5 transition-colors hover:border-zinc-700"
                   >
-                    <div
-                      className="absolute inset-x-0 top-0 h-px opacity-0 transition-opacity group-hover:opacity-100"
-                      style={{ background: `linear-gradient(90deg,transparent,${s.accent},transparent)` }}
-                    />
-                    <div className="mb-4 flex items-start justify-between">
-                      <div
-                        className="flex h-11 w-11 items-center justify-center rounded-lg border text-lg"
-                        style={{ borderColor: `${s.accent}44`, color: s.accent, background: `${s.accent}0d` }}
-                      >
-                        {s.glyph}
-                      </div>
-                      <span
-                        className="rounded-full border px-2 py-0.5 font-mono text-[9px] font-bold tracking-[0.1em]"
-                        style={{ borderColor: `${s.accent}33`, color: s.accent }}
-                      >
-                        {s.tag}
-                      </span>
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-zinc-100">{sheet.name}</p>
+                      <p className="truncate text-[11px] text-zinc-600">{sheet.role}</p>
                     </div>
-                    <h3 className="text-lg font-bold leading-tight text-white">{s.name}</h3>
-                    <p className="mt-1 text-xs text-zinc-500">{s.role}</p>
-                    <ul className="mt-4 space-y-1.5">
-                      {s.points.map((p) => (
-                        <li key={p} className="flex items-center gap-2 text-[11px] text-zinc-400">
-                          <span className="h-1 w-1 rounded-full" style={{ background: s.accent }} />
-                          {p}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="mt-5 flex items-center justify-between border-t border-zinc-800 pt-3">
-                      <span className="font-mono text-[10px] text-zinc-600">
-                        {s.url.replace('https://', '').split('/')[0]}
-                      </span>
-                      <span
-                        className="text-[11px] font-bold transition-transform group-hover:translate-x-1"
-                        style={{ color: s.accent }}
-                      >
-                        Open
-                      </span>
-                    </div>
-                  </button>
+                    <span className="shrink-0 text-[12px] text-zinc-600 transition-colors group-hover:text-[#00aeef]">
+                      Open
+                    </span>
+                  </a>
                 ))}
               </div>
             </section>
 
             {/* -------------------------------------- OPERATIONS PULSE -- */}
             <section>
-              <SectionHead title="OPERATIONS PULSE" hint="Buong taon na datos mula sa DMC sheet." />
+              <SectionHead title="OPERATIONS PULSE" hint="Full-year figures from the DMC sheet." />
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatTile
                   label="Total coverages"
                   value={stats.total}
-                  sub="Naitalang operations"
+                  sub="Operations on record"
                   accent={CYAN}
                   bar={100}
                 />
@@ -5866,7 +5964,7 @@ export default function App() {
                 <StatTile
                   label="Pending transfer"
                   value={stats.counts.pending}
-                  sub="Kailangan pang i-upload"
+                  sub="Awaiting upload"
                   accent="#f59e0b"
                   bar={stats.total ? (stats.counts.pending / stats.total) * 100 : 0}
                 />
@@ -5917,7 +6015,7 @@ export default function App() {
                     ))}
                     {upNext.length === 0 && (
                       <p className="text-xs italic text-zinc-600">
-                        Walang naka-schedule. Malinis ang board.
+                        Nothing scheduled.
                       </p>
                     )}
                   </div>
@@ -5934,7 +6032,7 @@ export default function App() {
 
             {/* --------------------------------------- AV TEAM STATUS --- */}
             <section>
-              <SectionHead title="AV TEAM STATUS" hint="Pindutin ang card para sa buong deployment history." />
+              <SectionHead title="AV TEAM STATUS" hint="Select a card to view the full deployment history." />
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {TEAM.map((member) => {
                   const act = latestActivityFor(member.name, coverages, outputs);
@@ -5989,7 +6087,7 @@ export default function App() {
                           </div>
                         </div>
                       ) : (
-                        <p className="mt-6 text-xs italic text-zinc-600">Standby / No active deployment.</p>
+                        <p className="mt-6 text-xs italic text-zinc-600">Standby — no active deployment.</p>
                       )}
                     </button>
                   );
@@ -6006,7 +6104,7 @@ export default function App() {
             <section ref={boardRef}>
               <SectionHead
                 title="PRODUCTION BOARD"
-                hint="Mga video output na hindi dumadaan sa DMC — dito nabibilang ang shoot, edit at post."
+                hint="Video outputs that do not pass through DMC — shoot, edit and post-production."
                 right={
                   <div className="flex items-center gap-2">
                     <div className="hidden items-center gap-1 md:flex">
@@ -6036,16 +6134,15 @@ export default function App() {
 
               {prodReady === 'missing' ? (
                 <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
-                  <p className="mb-2 text-sm font-bold text-white">Hindi pa naka-set up ang Production Log</p>
+                  <p className="mb-2 text-sm font-bold text-white">Production Log is not set up yet</p>
                   <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
-                    Gumawa ng <span className="text-zinc-300">bagong blangkong spreadsheet</span> (hiwalay
-                    sa DMC/AppSheet), i-paste ang{' '}
-                    <span className="font-mono text-zinc-300">ProductionLog.gs</span> sa Extensions → Apps
-                    Script, i-run ang{' '}
-                    <span className="font-mono text-[#00aeef]">setupProductionSheet()</span>, i-deploy
-                    bilang web app, tapos ilagay ang /exec URL sa{' '}
-                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span> sa App.tsx. Hindi
-                    magagalaw ang AppSheet mo.
+                    In the AV Production Log spreadsheet, open Extensions → Apps Script, paste{' '}
+                    <span className="font-mono text-zinc-300">AVNexus.gs</span>, run{' '}
+                    <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
+                    <span className="font-mono text-[#00aeef]">quickSetup()</span>, redeploy the web
+                    app, and put the /exec URL in{' '}
+                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span>. The DMC and
+                    AppSheet spreadsheet is not touched.
                   </p>
                 </div>
               ) : (
@@ -6054,14 +6151,14 @@ export default function App() {
                     <StatTile
                       label="Video outputs"
                       value={prodSummary.total}
-                      sub="Naitalang deliverables"
+                      sub="Deliverables on record"
                       accent={CYAN}
                       bar={100}
                     />
                     <StatTile
                       label="In progress"
                       value={prodSummary.live}
-                      sub="Hindi pa tapos"
+                      sub="Still in progress"
                       accent="#f59e0b"
                       bar={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
                     />
@@ -6077,7 +6174,7 @@ export default function App() {
                       value={prodSummary.overdue}
                       sub={
                         prodSummary.onTime === null
-                          ? 'Walang target dates pa'
+                          ? 'No target dates set'
                           : `${prodSummary.onTime}% on-time delivery`
                       }
                       accent="#ef4444"
@@ -6087,7 +6184,7 @@ export default function App() {
 
                   {outputs.length === 0 ? (
                     <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-10 text-center">
-                      <p className="mb-1 text-sm text-zinc-300">Walang pa lang naka-log na output.</p>
+                      <p className="mb-1 text-sm text-zinc-300">No outputs logged yet.</p>
                       <p className="mb-4 text-xs text-zinc-600">
                         Simulan sina Marx at Reiner — kahit shoot day lang, bilang 'yon.
                       </p>
@@ -6130,7 +6227,7 @@ export default function App() {
               <section className="lg:col-span-2">
                 <SectionHead
                   title="COVERAGE RECORDS"
-                  hint={`${filteredRecords.length} sa ${coverages.length} records ang tugma.`}
+                  hint={`${filteredRecords.length} of ${coverages.length} records match.`}
                 />
 
                 <div className="mb-4 space-y-3 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
@@ -6139,7 +6236,7 @@ export default function App() {
                     <input
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Hanapin ang coverage, tao, o status…"
+                      placeholder="Search coverage, personnel or status…"
                       className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
                     />
                     {query && (
@@ -6253,7 +6350,7 @@ export default function App() {
 
                   {booted && filteredRecords.length === 0 && (
                     <div className="rounded-lg border border-dashed border-zinc-800 p-10 text-center">
-                      <p className="text-sm text-zinc-400">Walang tumugmang record.</p>
+                      <p className="text-sm text-zinc-400">No matching records.</p>
                       <button
                         onClick={() => {
                           setQuery('');
@@ -6262,7 +6359,7 @@ export default function App() {
                         }}
                         className="mt-3 text-xs font-bold text-[#00aeef] hover:underline"
                       >
-                        I-clear ang mga filter
+                        Clear filters
                       </button>
                     </div>
                   )}
@@ -6272,7 +6369,7 @@ export default function App() {
                       onClick={() => setVisibleCount((v) => v + 12)}
                       className="w-full rounded-lg border border-zinc-800 py-3 text-xs font-bold uppercase tracking-[0.1em] text-zinc-400 transition-colors hover:border-[#00aeef]/40 hover:text-[#00aeef]"
                     >
-                      Show 12 more · {filteredRecords.length - visibleCount} natitira
+                      Show 12 more · {filteredRecords.length - visibleCount} remaining
                     </button>
                   )}
                 </div>
@@ -6299,9 +6396,9 @@ export default function App() {
                   <SectionHead title="SHORTCUTS" />
                   <div className="space-y-2 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
                     {[
-                      ['⌘K / Ctrl K', 'Quick jump sa kahit ano'],
-                      ['/', 'Buksan ang search'],
-                      ['ESC', 'Isara ang window'],
+                      ['⌘K / Ctrl K', 'Jump to anything'],
+                      ['/', 'Open search'],
+                      ['ESC', 'Close the current panel'],
                     ].map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between gap-3">
                         <kbd className="rounded border border-zinc-800 bg-black/60 px-2 py-1 font-mono text-[10px] text-zinc-400">
@@ -6324,7 +6421,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="EVENT MONITORING"
-                    hint="Bawat event: ano ang hiniling, ano ang inaprubahan, at ano ang aktwal na naibigay."
+                    hint="For every event: what was requested, what was approved, and what was actually delivered."
                     right={
                       <button
                         onClick={() => setEvModal({ open: true, editing: null })}
@@ -6338,13 +6435,14 @@ export default function App() {
                   {prodReady === 'missing' ? (
                     <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
                       <p className="mb-2 text-sm font-bold text-white">
-                        Hindi pa konektado ang Events sheet
+                        Events sheet is not connected
                       </p>
                       <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
-                        I-paste ang <span className="font-mono text-zinc-300">AVNexus.gs</span> sa
-                        Apps Script ng AV Production Log spreadsheet, punan ang EMAIL_SRS at
-                        EMAIL_DC, i-run ang{' '}
-                        <span className="font-mono text-[#00aeef]">setupSheets()</span>, tapos
+                        In the AV Production Log spreadsheet, open Extensions → Apps Script,
+                        paste <span className="font-mono text-zinc-300">AVNexus.gs</span>, fill in
+                        EMAIL_SRS and EMAIL_DC, run{' '}
+                        <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
+                        <span className="font-mono text-[#00aeef]">quickSetup()</span>, then
                         Deploy → Manage deployments → New version.
                       </p>
                     </div>
@@ -6356,10 +6454,10 @@ export default function App() {
                         <div className="mt-4 rounded-xl border border-amber-900/50 bg-amber-950/20 p-4">
                           <div className="mb-3 flex items-center justify-between">
                             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-400">
-                              Naghihintay ng aksyon · {approvalQueue.length}
+                              Awaiting action · {approvalQueue.length}
                             </p>
                             <span className="font-mono text-[10px] text-zinc-500">
-                              SRS → Division Chief
+                              Division Chief → Supervising SRS
                             </span>
                           </div>
                           <div className="space-y-2">
@@ -6377,14 +6475,14 @@ export default function App() {
                                   </p>
                                   <p className="truncate font-mono text-[10px] text-zinc-600">
                                     {ev.client || '—'} ·{' '}
-                                    {ev.requested.length} serbisyong hiniling
+                                    {ev.requested.length} services requested
                                   </p>
                                 </button>
                                 <div className="flex shrink-0 items-center gap-2">
                                   <ApprovalChip k={ev.approval} dense />
                                   <button
                                     onClick={() => notifyApprover(ev.id)}
-                                    title="Ipadala ulit ang approval email"
+                                    title="Resend approval email"
                                     className="rounded border border-zinc-800 px-2 py-1 text-[10px] text-zinc-500 transition-colors hover:border-[#00aeef]/50 hover:text-[#00aeef]"
                                   >
                                     
@@ -6402,7 +6500,7 @@ export default function App() {
                           <input
                             value={evQuery}
                             onChange={(e) => setEvQuery(e.target.value)}
-                            placeholder="Hanapin ang event, kliyente, tao, venue, o serbisyo…"
+                            placeholder="Search events, clients, personnel, venue or service…"
                             className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
                           />
                           {evQuery && (
@@ -6447,7 +6545,7 @@ export default function App() {
 
                       {filteredEvents.length === 0 ? (
                         <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center">
-                          <p className="mb-1 text-sm text-zinc-300">Walang tumugmang event.</p>
+                          <p className="mb-1 text-sm text-zinc-300">No matching events.</p>
                           <p className="mb-4 text-xs text-zinc-600">
                             Dito nagsisimula ang lahat — gumawa ng event para masimulan ang
                             approval at tasking.
@@ -6494,7 +6592,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="REQUEST REGISTER"
-                    hint="ISO master record — bawat request na natanggap, kasama ang outcome at dahilan."
+                    hint="ISO master record — every request received, with its outcome and reason."
                     right={
                       <button
                         onClick={() => setReqModal({ open: true, editing: null })}
@@ -6508,12 +6606,14 @@ export default function App() {
                   {prodReady === 'missing' ? (
                     <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
                       <p className="mb-2 text-sm font-bold text-white">
-                        Hindi pa naka-set up ang Request Register
+                        Request Register is not set up
                       </p>
                       <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
-                        I-paste ang <span className="font-mono text-zinc-300">AVServices.gs</span> sa
-                        Apps Script ng AV Production Log spreadsheet, i-run ang{' '}
-                        <span className="font-mono text-[#00aeef]">setupSheets()</span>, tapos
+                        In the AV Production Log spreadsheet, open Extensions → Apps Script,
+                        paste <span className="font-mono text-zinc-300">AVNexus.gs</span>, fill in
+                        EMAIL_SRS and EMAIL_DC, run{' '}
+                        <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
+                        <span className="font-mono text-[#00aeef]">quickSetup()</span>, then
                         Deploy → Manage deployments → New version.
                       </p>
                     </div>
@@ -6525,7 +6625,7 @@ export default function App() {
                           <input
                             value={reqQuery}
                             onChange={(e) => setReqQuery(e.target.value)}
-                            placeholder="Hanapin ang request, kliyente, tao, o service type…"
+                            placeholder="Search requests, clients, personnel or service type…"
                             className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
                           />
                           {reqQuery && (
@@ -6581,7 +6681,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="UNMET REQUESTS LOG"
-                    hint="Audit Item 40 — outcome at hustipikasyon ng bawat hindi na-serve na request."
+                    hint="Audit Item 40 — outcome and justification for every unserved request."
                   />
                   <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
                     <UnmetRequestsLog requests={requests} />
@@ -6595,17 +6695,17 @@ export default function App() {
               <section>
                 <SectionHead
                   title="COMPLIANCE"
-                  hint="Audit Items 40 / 41 / 44 — naghihintay ng koneksyon sa Request Register."
+                  hint="Audit Items 40, 41 and 44 — awaiting a connection to the register."
                 />
                 <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
                   <p className="mb-2 text-sm font-bold text-white">
-                    Hindi pa konektado ang Request Register
+                    Register is not connected
                   </p>
                   <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
-                    Walang maipapakitang compliance data hangga't walang naitatalang request.
-                    I-paste ang <span className="font-mono text-zinc-300">AVServices.gs</span>, i-run
-                    ang <span className="font-mono text-[#00aeef]">setupSheets()</span>, i-deploy,
-                    tapos ilagay ang /exec URL sa{' '}
+                    No compliance data can be shown until requests are recorded. Paste{' '}
+                    <span className="font-mono text-zinc-300">AVNexus.gs</span>, run{' '}
+                    <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
+                    <span className="font-mono text-[#00aeef]">quickSetup()</span>, redeploy, and set{' '}
                     <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span>.
                   </p>
                 </div>
@@ -6625,7 +6725,7 @@ export default function App() {
                         value={kpi.execution}
                         target={KPI_EXECUTION_TARGET}
                         label="Requests executed"
-                        sub={`${kpi.deliveredTotal} sa ${kpi.approvedTotal} approved request ang naihatid sa kliyente.`}
+                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests delivered to the client.`}
                       />
                     </div>
                     <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-6">
@@ -6642,7 +6742,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="SERVICE GAP ANALYSIS"
-                    hint="Audit Item 44 — bawat serbisyong hiniling laban sa aktwal na naibigay."
+                    hint="Audit Item 44 — every service requested against what was actually delivered."
                   />
                   <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
                     <ServiceGapPanel events={events} />
@@ -6653,7 +6753,7 @@ export default function App() {
                   <section>
                     <SectionHead
                       title="DEMAND VS CAPACITY"
-                      hint="Buwanang demand laban sa services rendered, mula sa request register."
+                      hint="Monthly demand against services rendered."
                     />
                     <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
                       <DemandCapacityPanel requests={requests} />
@@ -6664,7 +6764,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="WORKLOAD BY ROLE"
-                    hint="Audit Item 41 — ang totoong bigat ng trabaho: bawat papel, hiwalay na binibilang."
+                    hint="Audit Item 41 — true workload: every role counted separately."
                   />
                   <div className="overflow-x-auto rounded-md border border-zinc-800/80 bg-[#101012] custom-scrollbar">
                     <table className="w-full min-w-[640px] text-left">
@@ -6703,21 +6803,19 @@ export default function App() {
                     </table>
                     {roleLoad.every((r) => r.roleCount === 0) && (
                       <p className="px-4 py-6 text-center text-[12px] text-zinc-600">
-                        Wala pang naitalang crew assignment. Idagdag sa loob ng event.
+                        No crew assignments recorded yet. Add them inside an event.
                       </p>
                     )}
                   </div>
                   <p className="mt-2 text-[11px] text-zinc-600">
-                    Ang &ldquo;avg per event&rdquo; na lampas sa 1.0 ay nangangahulugang may
-                    tao kayong humahawak ng maraming papel nang sabay — ito ang direktang
-                    ebidensiya ng kakulangan sa personnel.
+                    An average above 1.0 means one person is holding several roles at once — direct evidence of a personnel shortfall.
                   </p>
                 </section>
 
                 <section>
                   <SectionHead
                     title="TURNAROUND TIME MONITOR"
-                    hint="Audit Item 41 — aktwal na processing time laban sa SLA, working days."
+                    hint="Audit Item 41 — actual processing time against the standard, in working days."
                   />
                   <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
                     <SLAMonitor requests={isoRequests} />
@@ -6727,7 +6825,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="AUDIT READINESS"
-                    hint="Bawat finding, may kasamang live na ebidensiya mula sa register."
+                    hint="Each finding shown with live evidence from the register."
                   />
                   <ComplianceScorecard requests={isoRequests} kpi={kpi} events={events} />
                 </section>
@@ -6745,7 +6843,7 @@ export default function App() {
                       IPCR / MOV Report Generator
                     </h2>
                     <p className="text-xs text-zinc-400">
-                      Pumili ng pangalan at taon, tapos i-print o i-export para sa IPCR/SPMS attachment.
+                      Select a name and year, then print or export for the IPCR/SPMS attachment.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -6795,7 +6893,7 @@ export default function App() {
                       onChange={(e) => setIpcrIncludeLinks(e.target.checked)}
                       className="accent-[#00aeef]"
                     />
-                    Isama ang GDrive / social links sa printout
+                    Include Drive and social links in the printout
                   </label>
                   <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-600">
                     Control no. {controlNo}
@@ -6823,7 +6921,7 @@ export default function App() {
                       </p>
                     ))}
                     {ipcrRecords.length === 0 && (
-                      <p className="italic text-zinc-600">Walang field coverage sa piniling panahon.</p>
+                      <p className="italic text-zinc-600">No field coverage for the selected period.</p>
                     )}
 
                     {ipcrRoles.length > 0 && (
@@ -6936,7 +7034,8 @@ export default function App() {
                   ? 'Total verified / checked:'
                   : 'Total catered operations:'}{' '}
                 <span className="underline">
-                  {ipcrRecords.length + ipcrOutputs.length + ipcrRequests.length} records
+                  {ipcrRecords.length + ipcrOutputs.length + ipcrRequests.length} record
+                  {ipcrRecords.length + ipcrOutputs.length + ipcrRequests.length === 1 ? '' : 's'}
                 </span>
               </p>
               <p className="text-xs">
@@ -7234,21 +7333,6 @@ export default function App() {
       {/* ------------------------------------------------------- DOCK ---- */}
       <div className="no-print fixed bottom-5 left-1/2 z-[70] -translate-x-1/2">
         <div className="flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-[#101012] p-1">
-          {SYSTEMS.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setOpenApp(s)}
-              title={s.name}
-              className="group relative flex h-11 w-11 items-center justify-center rounded-xl text-lg transition-all hover:-translate-y-1"
-              style={{ color: s.accent, background: `${s.accent}10` }}
-            >
-              {s.glyph}
-              <span className="pointer-events-none absolute -top-9 whitespace-nowrap rounded-md border border-zinc-800 bg-black px-2 py-1 text-[10px] font-bold text-zinc-300 opacity-0 transition-opacity group-hover:opacity-100">
-                {s.name}
-              </span>
-            </button>
-          ))}
-          <span className="mx-1 h-8 w-px bg-zinc-800" />
           <button
             onClick={() => setPaletteOpen(true)}
             title="Quick jump"
@@ -7278,7 +7362,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setKioskOn(true)}
-            title="Kiosk mode — para sa office monitor"
+            title="Kiosk mode — for the office monitor"
             className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
             Kiosk
@@ -7365,7 +7449,8 @@ export default function App() {
           onGenerateIPCR={() => {
             setSelectedIPCRPersonnel(drawerPerson.name);
             setDrawerPerson(null);
-            setTimeout(() => scrollTo(ipcrRef), 100);
+            setView('reports');
+            setTimeout(() => scrollTo(ipcrRef), 80);
           }}
         />
       )}
