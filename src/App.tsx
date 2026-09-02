@@ -40,7 +40,7 @@ const SCRIPT_URL =
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 const PRE_ARCHIVAL_LINK =
@@ -846,6 +846,40 @@ function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | nu
   return null;
 }
 
+/**
+ * Aling papel ang may hawak ng bawat yugto ng pipeline.
+ * Dito nakasalalay kung sinong pangalan ang lalabas sa "Susunod" —
+ * dapat ang taong may hawak ng papel na 'yon, hindi basta ang lead.
+ */
+const STEP_ROLES: Record<PipelineKey, string[]> = {
+  coordination: ['Coordinator'],
+  documents: ['Documents / Admin'],
+  deliverables: [
+    'Editor',
+    'Colorist',
+    'Motion / Graphics Artist',
+    'Camera Operator',
+    'Photographer',
+    'Director / DP',
+    'Audio Technician',
+    'Livestream Technician',
+    'Scriptwriter',
+  ],
+  archiving: ['Archiving / DMC'],
+};
+
+/**
+ * Sinong tao ang aktwal na may hawak ng yugtong ito, ayon sa crew roster.
+ * Kapag walang nakatalaga, `null` — at 'yon ay senyas, hindi kamalian.
+ */
+function ownersOfStep(key: PipelineKey, crew: Assignment[]): string[] {
+  const want = STEP_ROLES[key].map((r) => r.toLowerCase());
+  const names = crew
+    .filter((a) => a.roles.some((r) => want.includes(r.toLowerCase())))
+    .map((a) => a.personnel);
+  return Array.from(new Set(names));
+}
+
 function classifyStage(raw: string): StageKey {
   const s = (raw || '').toLowerCase();
   if (s.includes('publish') || s.includes('posted') || s.includes('on air')) return 'published';
@@ -1017,6 +1051,85 @@ function StatusBadge({ status, dense = false }: { status: string; dense?: boolea
       />
       {meta.label}
     </span>
+  );
+}
+
+/**
+ * Buong-taas na embed ng isang AV system sa loob ng sarili nitong tab.
+ * May fallback para sa mga hindi kayang i-frame (AppSheet).
+ */
+function SystemFrame({ app }: { app: SystemApp }) {
+  const [loading, setLoading] = useState(app.embeddable);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[13px] font-medium text-zinc-100">{app.name}</h2>
+          <p className="truncate text-[11px] text-zinc-600">{app.role}</p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => {
+              setLoading(app.embeddable);
+              setReloadKey((k) => k + 1);
+            }}
+            className="rounded border border-zinc-800 px-2.5 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+          >
+            Reload
+          </button>
+          <a
+            href={app.url}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded border border-zinc-800 px-2.5 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+          >
+            Open in new tab
+          </a>
+        </div>
+      </div>
+
+      <div className="relative h-[78vh] min-h-[520px] overflow-hidden rounded-md border border-zinc-800/80 bg-white">
+        {app.embeddable ? (
+          <>
+            <iframe
+              key={reloadKey}
+              src={app.url}
+              title={app.name}
+              className="h-full w-full border-0 bg-white"
+              onLoad={() => setLoading(false)}
+            />
+            {loading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#101012]">
+                <div
+                  className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-800"
+                  style={{ borderTopColor: app.accent }}
+                />
+                <p className="font-mono text-[11px] text-zinc-500">Loading {app.name}</p>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#101012] px-6 text-center">
+            <h3 className="text-[15px] font-medium text-zinc-100">
+              {app.name} runs in its own tab
+            </h3>
+            <p className="max-w-md text-[13px] leading-relaxed text-zinc-500">
+              Hinaharangan ng AppSheet ang pag-embed, kaya hindi siya kayang i-frame dito.
+            </p>
+            <a
+              href={app.url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+            >
+              Open {app.name}
+            </a>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -2842,6 +2955,7 @@ function EventCard({
   const f = fulfilment(ev);
   const sla = eventSLA(ev);
   const next = nextPipelineStep(ev);
+  const nextOwners = next ? ownersOfStep(next.key, crew) : [];
   const accent = FULFIL_META[f].hex;
 
   return (
@@ -2894,9 +3008,13 @@ function EventCard({
         </div>
 
         {next && (
-          <p className="mt-2 text-[10px] text-zinc-500">
-            Susunod: <span className="font-bold text-[#00aeef]">{next.label}</span>
-            {ev.lead ? ` · ${ev.lead}` : ''}
+          <p className="mt-2 text-[11px] text-zinc-500">
+            Susunod: <span className="font-medium text-[#00aeef]">{next.label}</span>
+            {nextOwners.length > 0 ? (
+              <span className="text-zinc-500"> · {nextOwners.join(', ')}</span>
+            ) : (
+              <span className="text-amber-400"> · walang naka-assign sa papel na ito</span>
+            )}
           </p>
         )}
         {APPROVAL_META[ev.approval].live && ev.approval !== 'approved' && (
@@ -4432,10 +4550,14 @@ function PersonnelDrawer({
   );
 }
 
-type ViewKey = 'events' | 'pulse' | 'requests' | 'production' | 'compliance' | 'reports';
+type ViewKey =
+  | 'portfolio' | 'events' | 'gatepass' | 'pulse'
+  | 'requests' | 'production' | 'compliance' | 'reports';
 
 const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
+  { key: 'portfolio',  label: 'Services',   hint: 'Public-facing AV services page' },
   { key: 'events',     label: 'Events',     hint: 'Approval, serbisyo, pipeline — ang puso' },
+  { key: 'gatepass',   label: 'Gate Pass',  hint: 'Equipment releasing & inventory' },
   { key: 'production', label: 'Production', hint: 'Video output board' },
   { key: 'pulse',      label: 'Archive',    hint: 'DMC records, team, systems' },
   { key: 'compliance', label: 'Compliance', hint: 'Audit Items 40 / 41 / 44' },
@@ -4484,6 +4606,7 @@ export default function App() {
 
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [prodReady, setProdReady] = useState<'unknown' | 'ok' | 'missing'>('unknown');
+  const [stale, setStale] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [kioskOn, setKioskOn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -4496,6 +4619,7 @@ export default function App() {
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: string }[]>([]);
 
   const seenIds = useRef<Set<string>>(new Set());
+  const loadedOnce = useRef(false);
   const bootedRef = useRef(false);
   const ipcrRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -4711,8 +4835,14 @@ export default function App() {
 
       setOutputs(mapped);
       setProdReady('ok');
+      loadedOnce.current = true;
+      setStale(false);
     } catch {
-      setProdReady('missing');
+      // Kapag may nakuha na tayong data dati, huwag burahin ang screen dahil
+      // lang sa isang sablay na poll — ipakita ang huling nakuha at markahang
+      // stale. 'Missing' lang kapag talagang hindi pa nakakakuha kahit minsan.
+      if (loadedOnce.current) setStale(true);
+      else setProdReady('missing');
     }
   }, []);
 
@@ -5516,11 +5646,17 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const connMeta = {
-    connecting: { dot: 'bg-amber-500', label: 'Connecting', short: 'Sync' },
-    live: { dot: 'bg-emerald-500', label: `Live · ${lastUpdated}`, short: 'Live' },
-    error: { dot: 'bg-zinc-600', label: 'Offline', short: 'Offline' },
-  }[conn];
+  const connMeta = stale
+    ? {
+        dot: 'bg-amber-500',
+        label: `Hindi maabot ang server — ipinapakita ang huling nakuha (${lastUpdated})`,
+        short: 'Cached',
+      }
+    : {
+        connecting: { dot: 'bg-amber-500', label: 'Connecting', short: 'Sync' },
+        live: { dot: 'bg-emerald-500', label: `Live · ${lastUpdated}`, short: 'Live' },
+        error: { dot: 'bg-zinc-600', label: 'Offline', short: 'Offline' },
+      }[conn];
 
   /* --------------------------------------------------------------- VIEW -- */
   return (
@@ -5571,8 +5707,11 @@ export default function App() {
                 </a>
 
                 <button
-                  onClick={() => fetchTasks(true)}
-                  title={conn === 'live' ? `Last sync ${lastUpdated}` : connMeta.label}
+                  onClick={() => {
+                    fetchTasks(true);
+                    fetchProduction();
+                  }}
+                  title={connMeta.label}
                   className="flex items-center gap-2 rounded px-2.5 py-1.5 text-[12px] text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
@@ -5595,6 +5734,7 @@ export default function App() {
                     : v.key === 'production'
                     ? outputs.length
                     : 0;
+                const external = v.key === 'portfolio' || v.key === 'gatepass';
                 const alert = v.key === 'events' ? approvalQueue.length : 0;
                 return (
                   <button
@@ -5608,6 +5748,11 @@ export default function App() {
                     {v.label}
                     {badge > 0 && (
                       <span className="ml-1.5 font-mono text-[11px] text-zinc-600">{badge}</span>
+                    )}
+                    {external && (
+                      <span className="ml-1 text-[10px] text-zinc-700" aria-hidden>
+                        ·
+                      </span>
                     )}
                     {alert > 0 && (
                       <span className="absolute right-1 top-2 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
@@ -6331,6 +6476,16 @@ export default function App() {
                   )}
                 </section>
               </>
+            )}
+
+            {/* ==================================== AV SERVICES ======= */}
+            {view === 'portfolio' && (
+              <SystemFrame app={SYSTEMS.find((x) => x.id === 'portfolio')!} />
+            )}
+
+            {/* ====================================== GATE PASS ======= */}
+            {view === 'gatepass' && (
+              <SystemFrame app={SYSTEMS.find((x) => x.id === 'gatepass')!} />
             )}
 
             {/* ================================== REQUEST REGISTER ==== */}
