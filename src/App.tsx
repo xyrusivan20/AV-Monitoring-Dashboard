@@ -33,14 +33,14 @@ interface SystemApp {
 /* ---------------------------------------------------------------- CONFIG -- */
 
 const SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec';
+  'https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec';
 
 /**
  * BAGONG production backend — HIWALAY na spreadsheet, hiwalay na script.
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 const PRE_ARCHIVAL_LINK =
@@ -58,10 +58,10 @@ const SYSTEMS: SystemApp[] = [
     id: 'gatepass',
     name: 'Equipment Gate Pass',
     role: 'Releasing & inventory control',
-    url: 'https://bdmsgatekeeper.vercel.app',
+    url: 'https://bdms-gpass.vercel.app',
     tag: 'OPERATIONS',
     accent: CYAN,
-    glyph: '▣',
+    glyph: 'GP',
     embeddable: true,
     points: ['QR labels per asset', 'Lifespan tracking', 'AV / DOSTv separation'],
   },
@@ -72,7 +72,7 @@ const SYSTEMS: SystemApp[] = [
     url: 'https://bdms-av-portfolio.vercel.app',
     tag: 'PUBLIC FACING',
     accent: '#ef4444',
-    glyph: '◍',
+    glyph: 'AV',
     embeddable: true,
     points: ['Service catalogue', 'Camera & lens kit', 'Showreel embeds'],
   },
@@ -83,7 +83,7 @@ const SYSTEMS: SystemApp[] = [
     url: 'https://www.appsheet.com/start/013e44a8-f18a-49f5-98b6-b28f027dd3b7?platform=desktop#appName=DMCUploadingMonitoringBackend-264496452&vss=H4sIAAAAAAAAA6XOsQrCMBQF0F-RO-cLsok4iNhF6WIcYvMKwTYpJtWWkH_3VS3O6pgbzn034Wbpvo-6ukAe0-e1pRESSeEwdqQgFVbexatvFIRCodtXuCwXBQ19UMjIJzH7SAEyfcflf9cFrCEXbW3pOnVNkjvejr8nxcFskAXaPupzQ8_BbHLmrPZVH8iUPOWHCWHj1kOnndl5w5W1bgLlB_LM-uFlAQAA&view=AV%20Nexus',
     tag: 'APPSHEET',
     accent: '#f59e0b',
-    glyph: '◈',
+    glyph: 'TS',
     embeddable: false,
     points: ['Assignment queue', 'Mobile field capture', 'Feeds this dashboard'],
   },
@@ -110,31 +110,31 @@ const STATUS_META: Record<
 > = {
   pending: {
     label: 'PENDING',
-    icon: '⏳',
+    icon: '',
     chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700',
     hex: '#a1a1aa',
   },
   upcoming: {
     label: 'UPCOMING',
-    icon: '📅',
+    icon: '',
     chip: 'bg-red-500/10 text-red-400 border-red-500/30',
     hex: '#ef4444',
   },
   checked: {
     label: 'CHECKED',
-    icon: '👀',
+    icon: '',
     chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
     hex: '#0e7fae',
   },
   transferred: {
     label: 'DMC TRANSFERRED',
-    icon: '✔',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30 shadow-[0_0_10px_rgba(0,174,239,0.12)]',
+    icon: '',
+    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
     hex: '#00aeef',
   },
   archived: {
     label: 'ARCHIVED',
-    icon: '🌟',
+    icon: '',
     chip: 'bg-zinc-900/80 text-zinc-400 border-zinc-800',
     hex: '#52525b',
   },
@@ -234,6 +234,616 @@ function classifyStatus(raw: string): StatusKey {
     return 'transferred';
   if (s.includes('supervisor') || s.includes('check')) return 'checked';
   return 'pending';
+}
+
+
+/* ==========================================================================
+   ISO LAYER — PM-CRPD-AV-08-04 Rev 7 + Audit Items 40 / 41 / 44
+   ========================================================================== */
+
+type ReqStatus =
+  | 'pending' | 'approved' | 'ongoing' | 'completed'
+  | 'rescheduled' | 'disapproved' | 'cancelled';
+
+type Stream = 'coverage' | 'production';
+
+/** Ang isang ServiceRequest ang ISO master record ng isang kahilingan. */
+interface ServiceRequest {
+  id: string;
+  dateRequested: Date | null;
+  client: string;
+  clientType: string;
+  title: string;
+  stream: Stream;
+  streamRaw: string;
+  serviceType: string;
+  eventDate: Date | null;
+  venue: string;
+  personnel: string;
+  status: ReqStatus;
+  statusRaw: string;
+  reason: string;
+  dateApproved: Date | null;
+  targetDate: Date | null;
+  dateDelivered: Date | null;
+  csm: number; // 0 = wala pang rating; 1–5
+  link: string;
+  remarks: string;
+}
+
+/** Turnaround time per PM section 6 — TOTAL TURNAROUND TIME, working days. */
+const SLA_WD: Record<Stream, number> = { coverage: 3, production: 13 };
+
+const STREAM_META: Record<Stream, { label: string; short: string; hex: string }> = {
+  coverage:   { label: 'AV Coverage',    short: 'COVERAGE',   hex: '#00aeef' },
+  production: { label: 'AVP Production', short: 'PRODUCTION', hex: '#a855f7' },
+};
+
+const REQ_ORDER: ReqStatus[] = [
+  'pending', 'approved', 'ongoing', 'completed', 'rescheduled', 'disapproved', 'cancelled',
+];
+
+const REQ_META: Record<
+  ReqStatus,
+  { label: string; hex: string; chip: string; served: boolean; unmet: boolean }
+> = {
+  pending: {
+    label: 'Pending', hex: '#a1a1aa',
+    chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700', served: false, unmet: false,
+  },
+  approved: {
+    label: 'Approved', hex: '#0e7fae',
+    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', served: false, unmet: false,
+  },
+  ongoing: {
+    label: 'Ongoing', hex: '#f59e0b',
+    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', served: false, unmet: false,
+  },
+  completed: {
+    label: 'Completed', hex: '#22c55e',
+    chip: 'bg-green-500/10 text-green-400 border-green-500/30', served: true, unmet: false,
+  },
+  rescheduled: {
+    label: 'Rescheduled', hex: '#eab308',
+    chip: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30', served: false, unmet: true,
+  },
+  disapproved: {
+    label: 'Disapproved', hex: '#ef4444',
+    chip: 'bg-red-500/10 text-red-400 border-red-500/30', served: false, unmet: true,
+  },
+  cancelled: {
+    label: 'Cancelled', hex: '#71717a',
+    chip: 'bg-zinc-900/80 text-zinc-400 border-zinc-800', served: false, unmet: true,
+  },
+};
+
+/** Item 40: obligadong may dahilan ang mga hindi na-serve. */
+const NEEDS_REASON: ReqStatus[] = ['rescheduled', 'disapproved', 'cancelled'];
+
+const SERVICE_TYPES = [
+  'Photo coverage', 'Photo shoot', 'Photo shoot production',
+  'Video coverage', 'Video shoot', 'Video reproduction (raw)',
+  'Video editing (clean-cut)', 'Video production (short video/AVP)',
+  'Full production video (script to screen)', 'Script writing',
+  'Multi-camera set-up for live streaming', 'Audio technical set-up',
+  'Same-Day-Edit (SDE)',
+];
+
+/** CSM: 4 pataas ang "Very Satisfactory or higher" per PM 2.2. */
+const CSM_LABELS: Record<number, string> = {
+  5: 'Outstanding', 4: 'Very Satisfactory', 3: 'Satisfactory', 2: 'Fair', 1: 'Poor',
+};
+const CSM_PASS = 4;
+const KPI_CSM_TARGET = 93;      // PM 2.2 — at least 93% Very Satisfactory or higher
+const KPI_EXECUTION_TARGET = 100; // PM 2.1 — 100% of approved requests delivered
+
+/**
+ * Mga araw na hindi working day — batay sa Proclamation No. 1006 (2026).
+ * DAPAT KAPAREHO ito ng NON_WORKING sa AVNexus.gs. Kapag nagkaiba,
+ * magkaibang TAT ang ipapakita ng dashboard at ng sheet.
+ * PARA SA 2027: palitan ang buong listahan mula sa bagong proklamasyon.
+ */
+const NON_WORKING_DAYS = new Set<string>([
+  // ---- Regular holidays ----
+  '2026-01-01', // New Year's Day (Thu)
+  '2026-04-02', // Maundy Thursday
+  '2026-04-03', // Good Friday
+  '2026-04-09', // Araw ng Kagitingan (Thu)
+  '2026-05-01', // Labor Day (Fri)
+  '2026-06-12', // Independence Day (Fri)
+  '2026-08-31', // National Heroes Day (last Mon of August)
+  '2026-11-30', // Bonifacio Day (Mon)
+  '2026-12-25', // Christmas Day (Fri)
+  '2026-12-30', // Rizal Day (Wed)
+  // ---- Islamic regular holidays (hiwalay na proklamasyon kada taon) ----
+  '2026-03-20', // Eid'l Fitr
+  '2026-05-27', // Eid'l Adha
+  // ---- Special (non-working) days ----
+  '2026-02-17', // Chinese New Year (Tue)
+  '2026-04-04', // Black Saturday
+  '2026-08-21', // Ninoy Aquino Day (Fri)
+  '2026-11-01', // All Saints' Day (Sun)
+  '2026-11-02', // All Souls' Day (Mon)
+  '2026-12-08', // Immaculate Conception (Tue)
+  '2026-12-24', // Christmas Eve (Thu)
+  '2026-12-31', // Last Day of the Year (Thu)
+  // TANDAAN: ang Feb 25 (EDSA) ay special WORKING day sa 2026 — hindi holiday.
+]);
+
+function isWorkingDay(d: Date): boolean {
+  const day = d.getDay();
+  if (day === 0 || day === 6) return false;
+  return !NON_WORKING_DAYS.has(dayKey(d));
+}
+
+/** Nagdadagdag ng n working days — ginagamit para sa SLA target date. */
+function addWorkingDays(start: Date, n: number): Date {
+  const d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  let added = 0;
+  let guard = 0;
+  while (added < n && guard < 400) {
+    d.setDate(d.getDate() + 1);
+    guard++;
+    if (isWorkingDay(d)) added++;
+  }
+  return d;
+}
+
+/** Bilang ng working days mula `from` (exclusive) hanggang `to` (inclusive). */
+function workingDaysBetween(from: Date, to: Date): number {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  if (b.getTime() === a.getTime()) return 0;
+  const back = b < a;
+  const lo = back ? b : a;
+  const hi = back ? a : b;
+  let count = 0;
+  let guard = 0;
+  const cur = new Date(lo);
+  while (cur < hi && guard < 2000) {
+    cur.setDate(cur.getDate() + 1);
+    guard++;
+    if (isWorkingDay(cur)) count++;
+  }
+  return back ? -count : count;
+}
+
+function classifyReqStatus(raw: string): ReqStatus {
+  const s = (raw || '').toLowerCase();
+  if (s.includes('disapprove') || s.includes('declin') || s.includes('reject')) return 'disapproved';
+  if (s.includes('cancel')) return 'cancelled';
+  if (s.includes('resched') || s.includes('delay') || s.includes('moved')) return 'rescheduled';
+  if (s.includes('complet') || s.includes('served') || s.includes('deliver') || s.includes('done'))
+    return 'completed';
+  if (s.includes('ongoing') || s.includes('in progress') || s.includes('processing')) return 'ongoing';
+  if (s.includes('approve')) return 'approved';
+  return 'pending';
+}
+
+function classifyStream(raw: string): Stream {
+  const s = (raw || '').toLowerCase();
+  if (s.includes('avp') || s.includes('production') || s.includes('editing') || s.includes('script'))
+    return 'production';
+  return 'coverage';
+}
+
+/** Kinukuha ang numeric CSM mula sa "4 - Very Satisfactory" o bare number. */
+function parseCSM(v: unknown): number {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return v >= 1 && v <= 5 ? Math.round(v) : 0;
+  const m = String(v).trim().match(/^([1-5])/);
+  if (m) return Number(m[1]);
+  const s = String(v).toLowerCase();
+  if (s.includes('outstanding')) return 5;
+  if (s.includes('very satisfactory')) return 4;
+  if (s.includes('satisfactory')) return 3;
+  if (s.includes('fair')) return 2;
+  if (s.includes('poor')) return 1;
+  return 0;
+}
+
+/** Simula ng TAT clock: mula pagkaaprub; kung wala, mula pagkatanggap. */
+function tatStart(r: ServiceRequest): Date | null {
+  return r.dateApproved || r.dateRequested;
+}
+
+/** SLA target — gamitin ang nakatakda; kung wala, kalkulahin mula sa PM. */
+function effectiveTarget(r: ServiceRequest): Date | null {
+  if (r.targetDate) return r.targetDate;
+  const start = tatStart(r);
+  return start ? addWorkingDays(start, SLA_WD[r.stream]) : null;
+}
+
+/** Aktwal na turnaround sa working days. null kung hindi pa naide-deliver. */
+function actualTAT(r: ServiceRequest): number | null {
+  const start = tatStart(r);
+  if (!start || !r.dateDelivered) return null;
+  return workingDaysBetween(start, r.dateDelivered);
+}
+
+/** Ilang working days ang natitira (+) o lumagpas (−) bago ang target. */
+function daysToTarget(r: ServiceRequest): number | null {
+  const target = effectiveTarget(r);
+  if (!target) return null;
+  const ref = r.dateDelivered || new Date();
+  return workingDaysBetween(ref, target);
+}
+
+type SLAState = 'ontime' | 'breached' | 'atrisk' | 'open' | 'na';
+
+function slaState(r: ServiceRequest): SLAState {
+  if (r.status === 'disapproved' || r.status === 'cancelled') return 'na';
+  const target = effectiveTarget(r);
+  if (!target) return 'na';
+
+  if (r.dateDelivered) {
+    return r.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'breached';
+  }
+  const left = daysToTarget(r);
+  if (left === null) return 'open';
+  if (left < 0) return 'breached';
+  if (left <= 1) return 'atrisk';
+  return 'open';
+}
+
+const SLA_META: Record<SLAState, { label: string; hex: string; chip: string }> = {
+  ontime:   { label: 'ON TIME',  hex: '#22c55e', chip: 'bg-green-500/10 text-green-400 border-green-500/30' },
+  breached: { label: 'BREACHED', hex: '#ef4444', chip: 'bg-red-500/10 text-red-400 border-red-500/30' },
+  atrisk:   { label: 'AT RISK',  hex: '#f59e0b', chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+  open:     { label: 'WITHIN',   hex: '#00aeef', chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30' },
+  na:       { label: 'N/A',      hex: '#52525b', chip: 'bg-zinc-900/80 text-zinc-500 border-zinc-800' },
+};
+
+function monthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-PH', { month: 'short' });
+}
+
+
+/* ==========================================================================
+   EVENT LAYER — ang puso ng AV Nexus.
+   Isang event = isang hiling, may listahan ng serbisyong HINILING at
+   listahan ng serbisyong AKTWAL NA NAIBIGAY. Ang agwat sa pagitan ang
+   ebidensiya para sa Audit Item 44.
+   ========================================================================== */
+
+type ApprovalKey =
+  | 'for-endorsement' | 'endorsed' | 'approved'
+  | 'declined' | 'cancelled' | 'rescheduled';
+
+/** Kinakalkula, hindi ini-input. */
+type Fulfilment = 'full' | 'partial' | 'none' | 'declined' | 'pending';
+
+type PipelineKey = 'coordination' | 'documents' | 'deliverables' | 'archiving';
+type PipelineState = 'not-started' | 'in-progress' | 'done' | 'na';
+
+interface AVEvent {
+  id: string;
+  dateRequested: Date | null;
+  title: string;
+  client: string;
+  clientType: string;
+  eventDate: Date | null;
+  endDate: Date | null;
+  venue: string;
+  requested: string[];
+  delivered: string[];
+  reason: string;
+  approval: ApprovalKey;
+  approvalRaw: string;
+  endorsedBy: string;
+  dateEndorsed: Date | null;
+  approvedBy: string;
+  dateApproved: Date | null;
+  approvalRemarks: string;
+  lead: string;
+  team: string;
+  pipeline: Record<PipelineKey, PipelineState>;
+  targetDate: Date | null;
+  dateDelivered: Date | null;
+  csm: number;
+  link: string;
+  remarks: string;
+}
+
+/**
+ * Isang tao, maraming papel sa iisang event.
+ * Hal.: si Xyrus ay Camera Operator + Coordinator + Editor sa isang coverage —
+ * tatlong papel, isang row, tatlong bilang sa IPCR niya.
+ */
+interface Assignment {
+  id: string;
+  eventId: string;
+  eventTitle: string;
+  personnel: string;
+  roles: string[];
+  status: string;
+  dateAssigned: Date | null;
+  dateCompleted: Date | null;
+  remarks: string;
+}
+
+const ROLE_CATALOG = [
+  'Camera Operator',
+  'Photographer',
+  'Director / DP',
+  'Editor',
+  'Colorist',
+  'Motion / Graphics Artist',
+  'Audio Technician',
+  'Livestream Technician',
+  'Scriptwriter',
+  'Coordinator',
+  'Documents / Admin',
+  'Archiving / DMC',
+];
+
+const ASSIGN_STATUS = ['Assigned', 'In progress', 'Completed', 'Reassigned', 'Dropped'];
+
+/** Hinahati ang comma-separated na field ng sheet tungo sa malinis na listahan. */
+function splitList(v: unknown): string[] {
+  return String(v ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+const SERVICE_CATALOG = [
+  'Photo coverage',
+  'Video coverage',
+  'Photo shoot',
+  'Video shoot',
+  'AVP production',
+  'Hybrid livestream',
+  'Livestream (multi-cam)',
+  'Audio technical set-up',
+  'Same-Day-Edit (SDE)',
+  'Video editing (clean-cut)',
+  'Motion graphics',
+  'Script writing',
+  'Social media posting',
+];
+
+/** Mabibigat na serbisyo → 13 WD SLA. Iba → 3 WD. Per PM section 6. */
+const HEAVY_SERVICES = [
+  'AVP production', 'Video editing (clean-cut)', 'Script writing', 'Motion graphics',
+];
+
+const APPROVAL_ORDER: ApprovalKey[] = [
+  'for-endorsement', 'endorsed', 'approved', 'declined', 'rescheduled', 'cancelled',
+];
+
+const APPROVAL_META: Record<
+  ApprovalKey,
+  { label: string; short: string; hex: string; chip: string; live: boolean }
+> = {
+  'for-endorsement': {
+    label: 'For endorsement', short: 'FOR SRS', hex: '#a1a1aa',
+    chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700', live: true,
+  },
+  endorsed: {
+    label: 'Endorsed', short: 'FOR DC', hex: '#f59e0b',
+    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', live: true,
+  },
+  approved: {
+    label: 'Approved', short: 'APPROVED', hex: '#00aeef',
+    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', live: true,
+  },
+  declined: {
+    label: 'Declined', short: 'DECLINED', hex: '#ef4444',
+    chip: 'bg-red-500/10 text-red-400 border-red-500/30', live: false,
+  },
+  rescheduled: {
+    label: 'Rescheduled', short: 'MOVED', hex: '#eab308',
+    chip: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30', live: false,
+  },
+  cancelled: {
+    label: 'Cancelled', short: 'CANCELLED', hex: '#71717a',
+    chip: 'bg-zinc-900/80 text-zinc-400 border-zinc-800', live: false,
+  },
+};
+
+const FULFIL_META: Record<
+  Fulfilment,
+  { label: string; hex: string; chip: string }
+> = {
+  full: {
+    label: 'FULLY SERVED', hex: '#22c55e',
+    chip: 'bg-green-500/10 text-green-400 border-green-500/30',
+  },
+  partial: {
+    label: 'LIMITED SERVICE', hex: '#f59e0b',
+    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+  },
+  none: {
+    label: 'NOT SERVED', hex: '#ef4444',
+    chip: 'bg-red-500/10 text-red-400 border-red-500/30',
+  },
+  declined: {
+    label: 'DECLINED', hex: '#ef4444',
+    chip: 'bg-red-500/10 text-red-400 border-red-500/30',
+  },
+  pending: {
+    label: 'AWAITING APPROVAL', hex: '#a1a1aa',
+    chip: 'bg-zinc-800/80 text-zinc-400 border-zinc-700',
+  },
+};
+
+const PIPELINE_STEPS: { key: PipelineKey; label: string; short: string; detail: string }[] = [
+  {
+    key: 'coordination', label: 'Coordination', short: 'COORD',
+    detail: 'Pre-production at coordination meeting sa kliyente',
+  },
+  {
+    key: 'documents', label: 'Office documents', short: 'DOCS',
+    detail: 'Gate pass, travel order, pass slip, special order',
+  },
+  {
+    key: 'deliverables', label: 'Deliverables', short: 'DELIV',
+    detail: 'Aktwal na shoot, edit at paghahatid sa kliyente',
+  },
+  {
+    key: 'archiving', label: 'Archiving', short: 'DMC',
+    detail: 'Transfer sa DMC NAS at pre-archival record',
+  },
+];
+
+const PIPELINE_META: Record<PipelineState, { label: string; hex: string }> = {
+  'not-started': { label: 'Not started', hex: '#3f3f46' },
+  'in-progress': { label: 'In progress', hex: '#f59e0b' },
+  done: { label: 'Done', hex: '#22c55e' },
+  na: { label: 'N/A', hex: '#27272a' },
+};
+
+/**
+ * Ginagawang ServiceRequest ang bawat event para magamit ng mga umiiral nang
+ * compliance panel (TAT monitor, KPI ring, audit scorecard) nang walang
+ * dobleng lohika.
+ */
+function eventAsRequest(ev: AVEvent): ServiceRequest {
+  let status: ReqStatus;
+  if (ev.approval === 'declined') status = 'disapproved';
+  else if (ev.approval === 'cancelled') status = 'cancelled';
+  else if (ev.approval === 'rescheduled') status = 'rescheduled';
+  else if (ev.approval !== 'approved') status = 'pending';
+  else if (ev.dateDelivered) status = 'completed';
+  else status = 'ongoing';
+
+  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
+  const stream: Stream = ev.requested.some((x) => heavy.has(x.toLowerCase()))
+    ? 'production'
+    : 'coverage';
+
+  return {
+    id: ev.id,
+    dateRequested: ev.dateRequested,
+    client: ev.client,
+    clientType: ev.clientType,
+    title: ev.title,
+    stream,
+    streamRaw: STREAM_META[stream].label,
+    serviceType: ev.requested.join(', '),
+    eventDate: ev.eventDate,
+    venue: ev.venue,
+    personnel: ev.lead,
+    status,
+    statusRaw: ev.approvalRaw,
+    reason: ev.reason,
+    dateApproved: ev.dateApproved,
+    targetDate: ev.targetDate,
+    dateDelivered: ev.dateDelivered,
+    csm: ev.csm,
+    link: ev.link,
+    remarks: ev.remarks,
+  };
+}
+
+function classifyApproval(raw: string): ApprovalKey {
+  const s = (raw || '').toLowerCase();
+  if (s.includes('declin') || s.includes('disapprove') || s.includes('reject')) return 'declined';
+  if (s.includes('cancel')) return 'cancelled';
+  if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
+  if (s.includes('approved')) return 'approved';
+  if (s.includes('endorsed')) return 'endorsed';
+  return 'for-endorsement';
+}
+
+function classifyPipeline(raw: string): PipelineState {
+  const s = (raw || '').toLowerCase();
+  if (s.includes('n/a') || s === 'na') return 'na';
+  if (s.includes('done') || s.includes('complete')) return 'done';
+  if (s.includes('progress') || s.includes('ongoing')) return 'in-progress';
+  return 'not-started';
+}
+
+/** "Photo coverage, Hybrid livestream" → ['Photo coverage','Hybrid livestream'] */
+function splitServices(raw: unknown): string[] {
+  return String(raw ?? '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/** Ang mga serbisyong hiniling pero HINDI naibigay. Ito ang ebidensiya. */
+function serviceGap(ev: AVEvent): string[] {
+  const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
+  return ev.requested.filter((x) => !got.has(x.toLowerCase()));
+}
+
+/** Naibigay pero hindi orihinal na hiniling — dagdag na serbisyo. */
+function serviceExtra(ev: AVEvent): string[] {
+  const asked = new Set(ev.requested.map((x) => x.toLowerCase()));
+  return ev.delivered.filter((x) => !asked.has(x.toLowerCase()));
+}
+
+function fulfilment(ev: AVEvent): Fulfilment {
+  if (ev.approval === 'declined' || ev.approval === 'cancelled' || ev.approval === 'rescheduled')
+    return 'declined';
+  if (ev.approval !== 'approved') return 'pending';
+  if (ev.requested.length === 0) return 'pending';
+  const gap = serviceGap(ev);
+  if (gap.length === 0) return 'full';
+  if (ev.delivered.length === 0) return 'none';
+  return 'partial';
+}
+
+function slaForEvent(ev: AVEvent): number {
+  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
+  return ev.requested.some((x) => heavy.has(x.toLowerCase()))
+    ? SLA_WD.production
+    : SLA_WD.coverage;
+}
+
+function eventTarget(ev: AVEvent): Date | null {
+  if (ev.targetDate) return ev.targetDate;
+  const start = ev.dateApproved || ev.dateRequested;
+  return start ? addWorkingDays(start, slaForEvent(ev)) : null;
+}
+
+function eventTAT(ev: AVEvent): number | null {
+  const start = ev.dateApproved || ev.dateRequested;
+  if (!start || !ev.dateDelivered) return null;
+  return workingDaysBetween(start, ev.dateDelivered);
+}
+
+function eventSLA(ev: AVEvent): SLAState {
+  if (!APPROVAL_META[ev.approval].live) return 'na';
+  const target = eventTarget(ev);
+  if (!target) return 'na';
+  if (ev.dateDelivered) {
+    return ev.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'breached';
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const left = workingDaysBetween(today, target);
+  if (left < 0) return 'breached';
+  if (left <= 1) return 'atrisk';
+  return 'open';
+}
+
+/** 0–100, batay sa apat na hakbang ng pipeline. N/A ay binibilang na tapos. */
+function pipelineProgress(ev: AVEvent): number {
+  const states = PIPELINE_STEPS.map((s) => ev.pipeline[s.key]);
+  const score = states.reduce((a, st) => {
+    if (st === 'done' || st === 'na') return a + 1;
+    if (st === 'in-progress') return a + 0.5;
+    return a;
+  }, 0);
+  return Math.round((score / PIPELINE_STEPS.length) * 100);
+}
+
+/** Ang susunod na hakbang na dapat asikasuhin. */
+function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | null {
+  if (ev.approval !== 'approved') return null;
+  for (const step of PIPELINE_STEPS) {
+    const st = ev.pipeline[step.key];
+    if (st === 'not-started' || st === 'in-progress') return { key: step.key, label: step.label };
+  }
+  return null;
 }
 
 function classifyStage(raw: string): StageKey {
@@ -396,11 +1006,15 @@ function StatusBadge({ status, dense = false }: { status: string; dense?: boolea
   const meta = STATUS_META[classifyStatus(status)];
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border font-bold tracking-wide ${
-        dense ? 'px-2 py-0.5 text-[9px]' : 'px-3 py-1 text-[10px]'
-      } ${meta.chip}`}
+      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-zinc-400 ${
+        dense ? 'text-[10px]' : 'text-[11px]'
+      }`}
     >
-      <span aria-hidden>{meta.icon}</span>
+      <span
+        className="h-1.5 w-1.5 shrink-0 rounded-full"
+        style={{ background: meta.hex }}
+        aria-hidden
+      />
       {meta.label}
     </span>
   );
@@ -417,9 +1031,11 @@ function SectionHead({
 }) {
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
-      <div className="border-l-4 border-red-500 pl-3">
-        <h2 className="text-sm font-bold tracking-[0.2em] text-zinc-400">{title}</h2>
-        {hint && <p className="mt-0.5 text-[11px] text-zinc-600">{hint}</p>}
+      <div>
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+          {title}
+        </h2>
+        {hint && <p className="mt-1 text-[12px] text-zinc-600">{hint}</p>}
       </div>
       {right}
     </div>
@@ -441,19 +1057,18 @@ function StatTile({
 }) {
   const shown = useCountUp(value);
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-zinc-800 bg-[#09090b]/80 p-4 backdrop-blur-sm transition-colors hover:border-zinc-700">
-      <div
-        className="absolute inset-x-0 top-0 h-px opacity-60"
-        style={{ background: `linear-gradient(90deg, transparent, ${accent}, transparent)` }}
-      />
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">{label}</p>
-      <p className="mt-2 font-mono text-4xl font-black leading-none text-white tabular-nums">
+    <div className="rounded-md border border-zinc-800/80 bg-[#101012] px-4 py-3.5">
+      <div className="flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
+        <p className="truncate text-[11px] font-medium text-zinc-500">{label}</p>
+      </div>
+      <p className="mt-2 font-mono text-[28px] font-medium leading-none text-zinc-50 tabular-nums">
         {shown}
       </p>
-      <p className="mt-2 text-[11px] text-zinc-500">{sub}</p>
-      <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-zinc-900">
+      <p className="mt-1.5 truncate text-[11px] text-zinc-600">{sub}</p>
+      <div className="mt-3 h-px w-full bg-zinc-800">
         <div
-          className="h-full rounded-full transition-all duration-700"
+          className="h-px transition-all duration-500"
           style={{ width: `${Math.max(2, Math.min(100, bar))}%`, background: accent }}
         />
       </div>
@@ -498,7 +1113,7 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="font-mono text-2xl font-black text-white tabular-nums">{shown}%</span>
-          <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-500">
+          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-zinc-500">
             cleared
           </span>
         </div>
@@ -540,11 +1155,11 @@ function WorkloadBars({
           </div>
           <div className="flex h-2 overflow-hidden rounded-full bg-zinc-900">
             <div
-              className="h-full bg-gradient-to-r from-[#00aeef]/40 to-[#00aeef] transition-all duration-1000"
+              className="h-full bg-[#00aeef] transition-all duration-1000"
               style={{ width: `${(d.cov / max) * 100}%` }}
             />
             <div
-              className="h-full bg-gradient-to-r from-amber-500/60 to-amber-400 transition-all duration-1000"
+              className="h-full bg-amber-500 transition-all duration-1000"
               style={{ width: `${(d.out / max) * 100}%` }}
             />
           </div>
@@ -645,10 +1260,9 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
 function StageBadge({ stage }: { stage: StageKey }) {
   const m = STAGE_META[stage];
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold tracking-wider ${m.chip}`}
-    >
-      {m.short}
+    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-zinc-400">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
+      {m.label}
     </span>
   );
 }
@@ -666,7 +1280,7 @@ function OutputCard({
   const atEnd = o.stage === 'published';
   return (
     <div
-      className="group rounded-lg border border-zinc-800 bg-black/50 p-3 transition-colors hover:border-zinc-700"
+      className="group rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-3 transition-colors hover:border-zinc-700"
       style={overdue ? { borderColor: 'rgba(239,68,68,0.45)' } : undefined}
     >
       <p className="mb-1.5 line-clamp-2 text-xs font-semibold leading-snug text-zinc-100">
@@ -739,11 +1353,11 @@ function ProductionBoard({
           const lane = outputs.filter((o) => o.stage === stage);
           const meta = STAGE_META[stage];
           return (
-            <div key={stage} className="flex-1 rounded-xl border border-zinc-800 bg-[#09090b]/60 p-3">
+            <div key={stage} className="flex-1 rounded-md border border-zinc-800/80 bg-[#101012] p-3">
               <div className="mb-3 flex items-center justify-between border-b border-zinc-800 pb-2">
                 <div className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.hex }} />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
                     {meta.label}
                   </span>
                 </div>
@@ -789,7 +1403,7 @@ function ProductionScoreboard({ outputs, people }: { outputs: Output[]; people: 
     <div className="overflow-x-auto custom-scrollbar">
       <table className="w-full min-w-[560px] text-left text-xs">
         <thead>
-          <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-widest text-zinc-600">
+          <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-[0.1em] text-zinc-600">
             <th className="pb-2 pr-3 font-bold">Personnel</th>
             <th className="pb-2 pr-3 text-right font-bold">Outputs</th>
             <th className="pb-2 pr-3 text-right font-bold">Delivered</th>
@@ -861,13 +1475,13 @@ function QuickLogModal({
   }, [onClose]);
 
   const field =
-    'w-full rounded-lg border border-zinc-800 bg-black/60 px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
-  const lab = 'mb-1 block text-[10px] font-bold uppercase tracking-widest text-zinc-500';
+    'w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-zinc-500';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
-      <div className="fixed inset-0 bg-black/85 backdrop-blur-sm animate-fadein" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-2xl border border-zinc-800 bg-[#0a0a0c] shadow-[0_30px_90px_-15px_rgba(0,0,0,0.9)] animate-riseup">
+      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
+      <div className="relative w-full max-w-2xl rounded-lg border border-zinc-800 bg-[#101012] animate-riseup">
         <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
           <div>
             <h3 className="text-base font-bold uppercase tracking-wide text-white">Log a video output</h3>
@@ -1009,14 +1623,14 @@ function QuickLogModal({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded-lg border border-zinc-800 px-4 py-2 text-sm font-bold text-zinc-400 hover:text-white"
+              className="rounded border border-zinc-800 px-4 py-2 text-[13px] text-zinc-400 transition-colors hover:text-zinc-100"
             >
               Cancel
             </button>
             <button
               disabled={!f.title.trim() || submitting}
               onClick={() => onSubmit(f)}
-              className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? 'Saving…' : 'Save output'}
             </button>
@@ -1027,11 +1641,2022 @@ function QuickLogModal({
   );
 }
 
+/* ==================================================== ISO COMPONENTS ====== */
+
+function ReqBadge({ status, dense = false }: { status: ReqStatus; dense?: boolean }) {
+  const m = REQ_META[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-zinc-400 ${
+        dense ? 'text-[10px]' : 'text-[11px]'
+      }`}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
+      {m.label}
+    </span>
+  );
+}
+
+function SLABadge({ state }: { state: SLAState }) {
+  const m = SLA_META[state];
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide"
+      style={{ color: state === 'breached' ? m.hex : undefined }}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
+      <span className={state === 'breached' ? '' : 'text-zinc-400'}>{m.label}</span>
+    </span>
+  );
+}
+
+/** KPI ring — target vs actual, para sa PM 2.1 at 2.2. */
+function KPIRing({
+  value,
+  target,
+  label,
+  sub,
+  size = 128,
+}: {
+  value: number | null;
+  target: number;
+  label: string;
+  sub: string;
+  size?: number;
+}) {
+  const shown = useCountUp(value ?? 0);
+  const r = size / 2 - 10;
+  const C = 2 * Math.PI * r;
+  const pass = value !== null && value >= target;
+  const hex = value === null ? '#3f3f46' : pass ? '#22c55e' : '#ef4444';
+  const pct = Math.max(0, Math.min(100, value ?? 0));
+
+  return (
+    <div className="flex items-center gap-5">
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
+        <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#18181b" strokeWidth="11" />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={hex}
+            strokeWidth="11"
+            strokeLinecap="round"
+            strokeDasharray={`${(pct / 100) * C} ${C}`}
+            className="transition-all duration-1000"
+          />
+          {/* target marker */}
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke="#71717a"
+            strokeWidth="11"
+            strokeDasharray={`1.5 ${C}`}
+            strokeDashoffset={-((target / 100) * C)}
+          />
+        </svg>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <span className="font-mono text-2xl font-black text-white tabular-nums">
+            {value === null ? '—' : `${shown}%`}
+          </span>
+          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-zinc-600">
+            target {target}%
+          </span>
+        </div>
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-bold uppercase tracking-wide text-white">{label}</p>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">{sub}</p>
+        <p
+          className="mt-2 text-[10px] font-bold uppercase tracking-[0.1em]"
+          style={{ color: hex }}
+        >
+          {value === null ? 'No data yet' : pass ? 'On target' : 'Below target'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ITEM 44 — Demand vs Capacity.
+ * Inihahambing ang aktwal na demand (lahat ng natanggap) sa capacity
+ * (na-serve), at hayagang ipinapakita ang gap bilang basehan ng augmentation.
+ */
+function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
+  const { months, maxV, totals } = useMemo(() => {
+    const map = new Map<string, { demand: number; served: number; unmet: number }>();
+    requests.forEach((r) => {
+      const d = r.dateRequested || r.eventDate;
+      if (!d) return;
+      const k = monthKey(d);
+      const cur = map.get(k) || { demand: 0, served: 0, unmet: 0 };
+      cur.demand += 1;
+      if (REQ_META[r.status].served) cur.served += 1;
+      if (REQ_META[r.status].unmet) cur.unmet += 1;
+      map.set(k, cur);
+    });
+
+    const keys = Array.from(map.keys()).sort().slice(-8);
+    const rows = keys.map((k) => ({ key: k, ...map.get(k)! }));
+    const t = requests.reduce(
+      (a, r) => {
+        a.demand += 1;
+        if (REQ_META[r.status].served) a.served += 1;
+        if (REQ_META[r.status].unmet) a.unmet += 1;
+        if (r.status === 'pending' || r.status === 'approved' || r.status === 'ongoing')
+          a.inflight += 1;
+        return a;
+      },
+      { demand: 0, served: 0, unmet: 0, inflight: 0 }
+    );
+    return { months: rows, maxV: Math.max(1, ...rows.map((x) => x.demand)), totals: t };
+  }, [requests]);
+
+  const W = 760;
+  const H = 190;
+  const PAD = 28;
+  const slot = months.length ? (W - PAD * 2) / months.length : 0;
+  const barW = Math.min(26, slot * 0.34);
+
+  const capacityPct = totals.demand ? Math.round((totals.served / totals.demand) * 100) : null;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { k: 'Service demand', v: totals.demand, c: '#00aeef', s: 'Total requests received' },
+          { k: 'Services rendered', v: totals.served, c: '#22c55e', s: 'Completed / delivered' },
+          { k: 'In progress', v: totals.inflight, c: '#f59e0b', s: 'Pending, approved, ongoing' },
+          { k: 'Unmet requests', v: totals.unmet, c: '#ef4444', s: 'Declined, cancelled, moved' },
+        ].map((x) => (
+          <div
+            key={x.k}
+            className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4"
+            style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
+          >
+            <p className="font-mono text-3xl font-black text-white tabular-nums">{x.v}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+              {x.k}
+            </p>
+            <p className="mt-0.5 text-[10px] text-zinc-600">{x.s}</p>
+          </div>
+        ))}
+      </div>
+
+      {months.length > 0 ? (
+        <div className="overflow-x-auto custom-scrollbar">
+          <svg viewBox={`0 0 ${W} ${H}`} className="block h-[190px] w-full min-w-[560px]">
+            {[0, 0.5, 1].map((f) => (
+              <line
+                key={f}
+                x1={PAD}
+                x2={W - PAD}
+                y1={H - 34 - f * (H - 60)}
+                y2={H - 34 - f * (H - 60)}
+                stroke="#18181b"
+                strokeWidth="1"
+              />
+            ))}
+            {months.map((m, i) => {
+              const x = PAD + i * slot + slot / 2;
+              const dh = (m.demand / maxV) * (H - 60);
+              const sh = (m.served / maxV) * (H - 60);
+              const gap = m.demand - m.served;
+              return (
+                <g key={m.key}>
+                  <rect
+                    x={x - barW - 2}
+                    y={H - 34 - dh}
+                    width={barW}
+                    height={dh}
+                    rx={3}
+                    fill="#00aeef"
+                    opacity={0.35}
+                  >
+                    <title>{`${monthLabel(m.key)} — demand ${m.demand}`}</title>
+                  </rect>
+                  <rect
+                    x={x + 2}
+                    y={H - 34 - sh}
+                    width={barW}
+                    height={sh}
+                    rx={3}
+                    fill="#22c55e"
+                  >
+                    <title>{`${monthLabel(m.key)} — served ${m.served}`}</title>
+                  </rect>
+                  {gap > 0 && (
+                    <text
+                      x={x}
+                      y={H - 40 - dh}
+                      fill="#ef4444"
+                      fontSize="10"
+                      fontFamily="ui-monospace, monospace"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                    >
+                      −{gap}
+                    </text>
+                  )}
+                  <text
+                    x={x}
+                    y={H - 16}
+                    fill="#52525b"
+                    fontSize="10"
+                    fontFamily="ui-monospace, monospace"
+                    textAnchor="middle"
+                  >
+                    {monthLabel(m.key).toUpperCase()}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      ) : (
+        <p className="py-8 text-center text-xs italic text-zinc-600">
+          Walang request na may petsa pa. Mag-log sa Request Register para mabuo ang chart.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-5 border-t border-zinc-900 pt-3">
+        <span className="flex items-center gap-2 text-[10px] text-zinc-500">
+          <span className="h-2 w-4 rounded-sm bg-[#00aeef]/40" /> Demand (received)
+        </span>
+        <span className="flex items-center gap-2 text-[10px] text-zinc-500">
+          <span className="h-2 w-4 rounded-sm bg-green-500" /> Capacity (rendered)
+        </span>
+        <span className="flex items-center gap-2 text-[10px] text-zinc-500">
+          <span className="font-mono font-bold text-red-400">−n</span> Unserved gap
+        </span>
+        {capacityPct !== null && (
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-500">
+            Service fulfilment {capacityPct}%
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ITEM 41 — Turnaround time monitor.
+ * Aktwal na processing time laban sa SLA ng Procedures Manual.
+ */
+function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
+  const stats = useMemo(() => {
+    const byStream = (['coverage', 'production'] as Stream[]).map((st) => {
+      const mine = requests.filter((r) => r.stream === st);
+      const tats = mine.map(actualTAT).filter((v): v is number => v !== null);
+      const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'breached');
+      return {
+        stream: st,
+        total: mine.length,
+        avg: tats.length ? tats.reduce((a, b) => a + b, 0) / tats.length : null,
+        worst: tats.length ? Math.max(...tats) : null,
+        onTimePct: rated.length
+          ? Math.round((rated.filter((s) => s === 'ontime').length / rated.length) * 100)
+          : null,
+        sla: SLA_WD[st],
+      };
+    });
+
+    const live = requests.filter((r) => !r.dateDelivered);
+    return {
+      byStream,
+      breached: requests.filter((r) => slaState(r) === 'breached'),
+      atRisk: live.filter((r) => slaState(r) === 'atrisk'),
+    };
+  }, [requests]);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {stats.byStream.map((x) => {
+          const ratio = x.avg !== null ? Math.min(160, (x.avg / x.sla) * 100) : 0;
+          const over = x.avg !== null && x.avg > x.sla;
+          return (
+            <div key={x.stream} className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-5">
+              <div className="mb-3 flex items-baseline justify-between">
+                <span
+                  className="text-[10px] font-bold uppercase tracking-[0.12em]"
+                  style={{ color: STREAM_META[x.stream].hex }}
+                >
+                  {STREAM_META[x.stream].label}
+                </span>
+                <span className="font-mono text-[10px] text-zinc-600">
+                  SLA {x.sla} WD · n={x.total}
+                </span>
+              </div>
+
+              <div className="flex items-end gap-3">
+                <p className="font-mono text-4xl font-black leading-none text-white tabular-nums">
+                  {x.avg === null ? '—' : x.avg.toFixed(1)}
+                </p>
+                <p className="pb-1 text-xs text-zinc-500">avg working days</p>
+              </div>
+
+              {/* SLA bar: 100% = SLA limit */}
+              <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-zinc-900">
+                <div
+                  className="h-full rounded-full transition-all duration-1000"
+                  style={{
+                    width: `${Math.min(100, ratio)}%`,
+                    background: over ? '#ef4444' : '#22c55e',
+                  }}
+                />
+                <div className="absolute inset-y-0 right-0 w-px bg-zinc-600" />
+              </div>
+              <div className="mt-2 flex items-center justify-between text-[10px]">
+                <span className={over ? 'font-bold text-red-400' : 'text-zinc-500'}>
+                  {x.avg === null
+                    ? 'Wala pang naide-deliver'
+                    : over
+                    ? `${(x.avg - x.sla).toFixed(1)} WD lampas sa SLA`
+                    : `${(x.sla - x.avg).toFixed(1)} WD sa loob ng SLA`}
+                </span>
+                <span className="font-mono text-zinc-500">
+                  {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {(stats.breached.length > 0 || stats.atRisk.length > 0) && (
+        <div className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+            Attention queue · {stats.breached.length} breached · {stats.atRisk.length} at risk
+          </p>
+          <div className="space-y-2">
+            {[...stats.breached, ...stats.atRisk].slice(0, 6).map((r) => {
+              const left = daysToTarget(r);
+              return (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-zinc-900 bg-[#101012] px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-zinc-200">{r.title}</p>
+                    <p className="font-mono text-[10px] text-zinc-600">
+                      {r.id} · {r.personnel || 'Unassigned'} ·{' '}
+                      {STREAM_META[r.stream].short}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="font-mono text-[10px] text-zinc-500">
+                      {left === null ? '—' : left < 0 ? `${Math.abs(left)} WD over` : `${left} WD left`}
+                    </span>
+                    <SLABadge state={slaState(r)} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ITEM 40 — Unmet / non-served requests, kasama ang dahilan.
+ * Ito ang ebidensiyang hinahanap ng auditor: kompletong visibility sa
+ * outcome AT sa hustipikasyon ng bawat request.
+ */
+function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
+  const unmet = useMemo(
+    () =>
+      requests
+        .filter((r) => REQ_META[r.status].unmet)
+        .sort((a, b) => (b.dateRequested?.getTime() ?? 0) - (a.dateRequested?.getTime() ?? 0)),
+    [requests]
+  );
+
+  const missingReason = unmet.filter((r) => !r.reason.trim()).length;
+
+  if (unmet.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center">
+        <p className="text-sm text-zinc-300">Walang non-served request sa panahong ito.</p>
+        <p className="mt-1 text-xs text-zinc-600">
+          100% ng natanggap ay na-serve o kasalukuyang pinoproseso.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {missingReason > 0 && (
+        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
+          {missingReason} non-served request ang walang nakatalang dahilan. Kailangan ito ng
+          Item 40 — punan sa Request Register bago ang audit.
+        </div>
+      )}
+      <div className="overflow-x-auto custom-scrollbar">
+        <table className="w-full min-w-[720px] text-left text-xs">
+          <thead>
+            <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-[0.1em] text-zinc-600">
+              <th className="pb-2 pr-3 font-bold">Request</th>
+              <th className="pb-2 pr-3 font-bold">Client</th>
+              <th className="pb-2 pr-3 font-bold">Date</th>
+              <th className="pb-2 pr-3 font-bold">Outcome</th>
+              <th className="pb-2 font-bold">Reason for non-service</th>
+            </tr>
+          </thead>
+          <tbody>
+            {unmet.slice(0, 12).map((r) => (
+              <tr key={r.id} className="border-b border-zinc-900 align-top last:border-0">
+                <td className="py-3 pr-3">
+                  <p className="font-semibold text-zinc-200">{r.title}</p>
+                  <p className="font-mono text-[10px] text-zinc-600">{r.id}</p>
+                </td>
+                <td className="py-3 pr-3 text-zinc-400">{r.client || '—'}</td>
+                <td className="py-3 pr-3 font-mono text-[10px] text-zinc-500">
+                  {fmtDate(r.dateRequested)}
+                </td>
+                <td className="py-3 pr-3">
+                  <ReqBadge status={r.status} dense />
+                </td>
+                <td className="py-3">
+                  {r.reason.trim() ? (
+                    <span className="text-zinc-300">{r.reason}</span>
+                  ) : (
+                    <span className="font-bold text-red-400">Walang nakatalang dahilan</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ISO audit scorecard — direktang mapping ng bawat audit finding sa live data.
+ * Ito ang unang titingnan ng auditor: sagot na may ebidensiya.
+ */
+function ComplianceScorecard({
+  requests,
+  kpi,
+  events = [],
+}: {
+  requests: ServiceRequest[];
+  kpi: { execution: number | null; csm: number | null; rated: number };
+  events?: AVEvent[];
+}) {
+  const rows = useMemo(() => {
+    const unmet = requests.filter((r) => REQ_META[r.status].unmet);
+    const withReason = unmet.filter((r) => r.reason.trim()).length;
+    const tracked = requests.length;
+    const withTat = requests.filter((r) => actualTAT(r) !== null).length;
+    const served = requests.filter((r) => REQ_META[r.status].served).length;
+
+    return [
+      {
+        item: 'Item 40',
+        title: 'Request monitoring & reason for non-service',
+        ask: 'Itala ang declined, delayed at rescheduled na request kasama ang dahilan.',
+        met: tracked > 0 && unmet.length === withReason,
+        evidence:
+          tracked === 0
+            ? 'Walang request na naitala pa.'
+            : `${tracked} request na-track sa 7 status. ${withReason} sa ${unmet.length} non-served ay may nakatalang dahilan.`,
+      },
+      {
+        item: 'Item 41',
+        title: 'Turnaround time & workload monitoring',
+        ask: 'Sukatin ang aktwal na processing time laban sa SLA, at ang workload ng bawat staff.',
+        met: withTat > 0,
+        evidence:
+          withTat === 0
+            ? 'Wala pang naide-deliver na request na masusukat.'
+            : `${withTat} completed request ang may aktwal na TAT laban sa SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
+      },
+      {
+        item: 'Item 44',
+        title: 'Demand vs capacity for augmentation',
+        ask: 'Ihambing ang aktwal na demand sa services rendered para makita ang unmet requests.',
+        met: tracked > 0,
+        evidence: (() => {
+          if (tracked === 0) return 'Walang demand data pa.';
+          const decided = events.filter(
+            (ev) => ev.approval === 'approved' || !APPROVAL_META[ev.approval].live
+          );
+          const asked = decided.reduce((a, ev) => a + ev.requested.length, 0);
+          const missed = decided.reduce((a, ev) => a + serviceGap(ev).length, 0);
+          const base = `Demand ${tracked} · rendered ${served} · unmet ${unmet.length}.`;
+          return asked > 0
+            ? `${base} Sa antas ng serbisyo: ${asked} hiniling, ${missed} hindi naibigay — ito ang basehan ng personnel augmentation.`
+            : `${base} Buwanang paghahambing ay nasa Demand vs Capacity panel.`;
+        })(),
+      },
+      {
+        item: 'PM 2.1',
+        title: '100% of approved requests executed',
+        ask: 'Lahat ng naaprubahang request ay naipatupad at naihatid.',
+        met: kpi.execution !== null && kpi.execution >= KPI_EXECUTION_TARGET,
+        evidence:
+          kpi.execution === null
+            ? 'Wala pang naaprubahang request.'
+            : `${kpi.execution}% ng approved requests ay completed.`,
+      },
+      {
+        item: 'PM 2.2',
+        title: '93% rated Very Satisfactory or higher',
+        ask: 'CSM rating ng mga na-serve na kliyente.',
+        met: kpi.csm !== null && kpi.csm >= KPI_CSM_TARGET,
+        evidence:
+          kpi.csm === null
+            ? 'Wala pang CSM rating na naitala.'
+            : `${kpi.csm}% ng ${kpi.rated} rated request ay Very Satisfactory pataas.`,
+      },
+    ];
+  }, [requests, kpi, events]);
+
+  const metCount = rows.filter((r) => r.met).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-5 py-4">
+        <div>
+          <p className="text-sm font-bold uppercase tracking-wide text-white">
+            Audit readiness
+          </p>
+          <p className="text-[11px] text-zinc-500">
+            PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="font-mono text-3xl font-black text-white tabular-nums">
+            {metCount}
+            <span className="text-lg text-zinc-600">/{rows.length}</span>
+          </p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-zinc-500">criteria met</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div
+            key={r.item}
+            className="flex gap-4 rounded-md border border-zinc-800/80 bg-[#101012] p-4"
+            style={{
+              borderLeftColor: r.met ? '#22c55e' : '#f59e0b',
+              borderLeftWidth: 3,
+            }}
+          >
+            <div className="w-20 shrink-0">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-500">
+                {r.item}
+              </p>
+              <p
+                className="mt-1 text-[10px] font-bold uppercase"
+                style={{ color: r.met ? '#22c55e' : '#f59e0b' }}
+              >
+                {r.met ? 'Met' : 'Partial'}
+              </p>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-zinc-100">{r.title}</p>
+              <p className="mt-0.5 text-[11px] italic text-zinc-600">{r.ask}</p>
+              <p className="mt-2 text-xs leading-relaxed text-zinc-400">{r.evidence}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Ang Request Register mismo — mabilis na scan, filter at status update. */
+function RequestTable({
+  requests,
+  onEdit,
+}: {
+  requests: ServiceRequest[];
+  onEdit: (r: ServiceRequest) => void;
+}) {
+  if (requests.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center">
+        <p className="text-sm text-zinc-300">Walang tumugmang request.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto custom-scrollbar rounded-md border border-zinc-800/80 bg-[#101012]">
+      <table className="w-full min-w-[900px] text-left text-xs">
+        <thead>
+          <tr className="border-b border-zinc-800 bg-black/40 text-[9px] uppercase tracking-[0.1em] text-zinc-600">
+            <th className="p-3 font-bold">Request</th>
+            <th className="p-3 font-bold">Client</th>
+            <th className="p-3 font-bold">Stream</th>
+            <th className="p-3 font-bold">Personnel</th>
+            <th className="p-3 font-bold">Received</th>
+            <th className="p-3 font-bold">Target</th>
+            <th className="p-3 font-bold">TAT</th>
+            <th className="p-3 font-bold">Status</th>
+            <th className="p-3 font-bold">SLA</th>
+            <th className="p-3" />
+          </tr>
+        </thead>
+        <tbody>
+          {requests.map((r) => {
+            const tat = actualTAT(r);
+            const st = slaState(r);
+            return (
+              <tr
+                key={r.id}
+                className="border-b border-zinc-900 transition-colors last:border-0 hover:bg-black/40"
+              >
+                <td className="p-3">
+                  <p className="max-w-[260px] truncate font-semibold text-zinc-100">{r.title}</p>
+                  <p className="font-mono text-[10px] text-zinc-600">
+                    {r.id}
+                    {r.serviceType ? ` · ${r.serviceType}` : ''}
+                  </p>
+                </td>
+                <td className="p-3 text-zinc-400">
+                  {r.client || '—'}
+                  {r.clientType && (
+                    <span className="block text-[10px] text-zinc-600">{r.clientType}</span>
+                  )}
+                </td>
+                <td className="p-3">
+                  <span
+                    className="font-mono text-[10px] font-bold"
+                    style={{ color: STREAM_META[r.stream].hex }}
+                  >
+                    {STREAM_META[r.stream].short}
+                  </span>
+                </td>
+                <td className="p-3 font-mono text-[10px] uppercase text-zinc-300">
+                  {r.personnel || '—'}
+                </td>
+                <td className="p-3 font-mono text-[10px] text-zinc-500">
+                  {fmtDate(r.dateRequested)}
+                </td>
+                <td className="p-3 font-mono text-[10px] text-zinc-500">
+                  {fmtDate(effectiveTarget(r))}
+                </td>
+                <td className="p-3 font-mono text-[10px] tabular-nums">
+                  {tat === null ? (
+                    <span className="text-zinc-700">—</span>
+                  ) : (
+                    <span style={{ color: tat > SLA_WD[r.stream] ? '#ef4444' : '#22c55e' }}>
+                      {tat} WD
+                    </span>
+                  )}
+                </td>
+                <td className="p-3">
+                  <ReqBadge status={r.status} dense />
+                  {REQ_META[r.status].unmet && !r.reason.trim() && (
+                    <span className="mt-1 block text-[9px] font-bold text-red-400">
+                      walang dahilan
+                    </span>
+                  )}
+                </td>
+                <td className="p-3">
+                  <SLABadge state={st} />
+                </td>
+                <td className="p-3 text-right">
+                  <button
+                    onClick={() => onEdit(r)}
+                    className="rounded border border-zinc-800 px-2 py-1 text-[10px] font-bold text-zinc-500 transition-colors hover:border-[#00aeef]/50 hover:text-[#00aeef]"
+                  >
+                    Update
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Log / update ng ServiceRequest.
+ * Item 40: kapag Rescheduled, Disapproved o Cancelled ang status, hindi
+ * pwedeng mag-save nang walang dahilan — hindi lang paalala, naka-block talaga.
+ */
+function RequestModal({
+  existing,
+  onClose,
+  onSubmit,
+  submitting,
+}: {
+  existing: ServiceRequest | null;
+  onClose: () => void;
+  onSubmit: (payload: Record<string, string>, id: string | null) => void;
+  submitting: boolean;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
+
+  const [f, setF] = useState({
+    title: existing?.title ?? '',
+    client: existing?.client ?? '',
+    clientType: existing?.clientType || 'Internal',
+    stream: existing ? STREAM_META[existing.stream].label : STREAM_META.coverage.label,
+    serviceType: existing?.serviceType || SERVICE_TYPES[3],
+    personnel: existing?.personnel || 'Marx',
+    venue: existing?.venue ?? '',
+    dateRequested: existing ? iso(existing.dateRequested) : today,
+    eventDate: existing ? iso(existing.eventDate) : '',
+    status: existing ? REQ_META[existing.status].label : 'Pending',
+    reason: existing?.reason ?? '',
+    dateApproved: existing ? iso(existing.dateApproved) : '',
+    targetDate: existing ? iso(existing.targetDate) : '',
+    dateDelivered: existing ? iso(existing.dateDelivered) : '',
+    csm: existing?.csm ? String(existing.csm) : '',
+    link: existing?.link ?? '',
+    remarks: existing?.remarks ?? '',
+  });
+
+  const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const statusKey = classifyReqStatus(f.status);
+  const streamKey = classifyStream(f.stream);
+  const needsReason = NEEDS_REASON.includes(statusKey);
+  const reasonMissing = needsReason && !f.reason.trim();
+
+  // Live preview ng SLA target habang nagbabago ang stream / petsa
+  const previewTarget = useMemo(() => {
+    if (f.targetDate) return f.targetDate;
+    const base = f.dateApproved || f.dateRequested;
+    if (!base) return '';
+    const d = parseDate(base);
+    return d ? dayKey(addWorkingDays(d, SLA_WD[streamKey])) : '';
+  }, [f.targetDate, f.dateApproved, f.dateRequested, streamKey]);
+
+  const canSave = !!f.title.trim() && !reasonMissing && !submitting;
+
+  const field =
+    'w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-zinc-500';
+
+  return (
+    <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[6vh]">
+      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
+      <div className="relative w-full max-w-3xl rounded-lg border border-zinc-800 bg-[#101012] animate-riseup">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+          <div>
+            <h3 className="text-base font-bold uppercase tracking-wide text-white">
+              {existing ? `Update request · ${existing.id}` : 'Log a service request'}
+            </h3>
+            <p className="text-[11px] text-zinc-500">
+              Request Register — PM-CRPD-AV-08-04 Rev 7 · Form FR-CRPD-AV No. 001
+            </p>
+          </div>
+          <button onClick={onClose} className="text-zinc-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label className={lab}>Request title *</label>
+            <input
+              className={field}
+              value={f.title}
+              onChange={(e) => set('title', e.target.value)}
+              placeholder="NSTW 2026 Day 1 video coverage"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className={lab}>Client / requesting party</label>
+            <input
+              className={field}
+              value={f.client}
+              onChange={(e) => set('client', e.target.value)}
+              placeholder="CRPD / PCAARRD / etc."
+            />
+          </div>
+          <div>
+            <label className={lab}>Client type</label>
+            <select
+              className={field}
+              value={f.clientType}
+              onChange={(e) => set('clientType', e.target.value)}
+            >
+              <option>Internal</option>
+              <option>External</option>
+            </select>
+          </div>
+
+          <div>
+            <label className={lab}>Service stream</label>
+            <select className={field} value={f.stream} onChange={(e) => set('stream', e.target.value)}>
+              <option>{STREAM_META.coverage.label}</option>
+              <option>{STREAM_META.production.label}</option>
+            </select>
+            <p className="mt-1 font-mono text-[10px] text-zinc-600">
+              SLA {SLA_WD[streamKey]} working days
+            </p>
+          </div>
+          <div>
+            <label className={lab}>Service type</label>
+            <select
+              className={field}
+              value={f.serviceType}
+              onChange={(e) => set('serviceType', e.target.value)}
+            >
+              {SERVICE_TYPES.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className={lab}>Assigned personnel</label>
+            <select
+              className={field}
+              value={f.personnel}
+              onChange={(e) => set('personnel', e.target.value)}
+            >
+              {['Marx', 'Reiner', 'Xyrus', 'Pat', 'Team'].map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={lab}>Venue</label>
+            <input
+              className={field}
+              value={f.venue}
+              onChange={(e) => set('venue', e.target.value)}
+              placeholder="DOST-STII / off-site"
+            />
+          </div>
+
+          <div>
+            <label className={lab}>Date requested</label>
+            <input
+              type="date"
+              className={field}
+              value={f.dateRequested}
+              onChange={(e) => set('dateRequested', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className={lab}>Event date</label>
+            <input
+              type="date"
+              className={field}
+              value={f.eventDate}
+              onChange={(e) => set('eventDate', e.target.value)}
+            />
+          </div>
+
+          {/* ---------------- status block ---------------- */}
+          <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <label className={lab}>Status</label>
+                <select
+                  className={field}
+                  value={f.status}
+                  onChange={(e) => set('status', e.target.value)}
+                >
+                  {REQ_ORDER.map((k) => (
+                    <option key={k}>{REQ_META[k].label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={lab}>Date approved</label>
+                <input
+                  type="date"
+                  className={field}
+                  value={f.dateApproved}
+                  onChange={(e) => set('dateApproved', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className={lab}>Date delivered</label>
+                <input
+                  type="date"
+                  className={field}
+                  value={f.dateDelivered}
+                  onChange={(e) => set('dateDelivered', e.target.value)}
+                />
+              </div>
+            </div>
+
+            {needsReason && (
+              <div className="mt-4 animate-fadein">
+                <label className={lab}>
+                  <span className="text-red-400">
+                    Reason for non-service / delay * — required for {REQ_META[statusKey].label}
+                  </span>
+                </label>
+                <textarea
+                  className={`${field} min-h-[76px] resize-y ${
+                    reasonMissing ? 'border-red-500/60' : ''
+                  }`}
+                  value={f.reason}
+                  onChange={(e) => set('reason', e.target.value)}
+                  placeholder="Hal.: Conflict sa schedule — lahat ng AV personnel naka-deploy sa NSTW."
+                />
+                <p className="mt-1 text-[10px] text-zinc-600">
+                  Audit Item 40: dapat naitatala ang dahilan ng bawat hindi na-serve na request.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className={lab}>Target date (SLA)</label>
+                <input
+                  type="date"
+                  className={field}
+                  value={f.targetDate}
+                  onChange={(e) => set('targetDate', e.target.value)}
+                />
+                {!f.targetDate && previewTarget && (
+                  <p className="mt-1 font-mono text-[10px] text-[#00aeef]">
+                    Auto: {previewTarget} ({SLA_WD[streamKey]} WD)
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className={lab}>CSM rating</label>
+                <select className={field} value={f.csm} onChange={(e) => set('csm', e.target.value)}>
+                  <option value="">Wala pa</option>
+                  {[5, 4, 3, 2, 1].map((n) => (
+                    <option key={n} value={String(n)}>
+                      {n} — {CSM_LABELS[n]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className={lab}>Output link</label>
+            <input
+              className={field}
+              value={f.link}
+              onChange={(e) => set('link', e.target.value)}
+              placeholder="https://…"
+            />
+          </div>
+          <div>
+            <label className={lab}>Remarks</label>
+            <input
+              className={field}
+              value={f.remarks}
+              onChange={(e) => set('remarks', e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
+          <p className="text-[10px] text-zinc-600">
+            {reasonMissing
+              ? 'Punan ang dahilan bago mag-save.'
+              : 'Direktang isusulat sa Request Register sheet.'}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="rounded border border-zinc-800 px-4 py-2 text-[13px] text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!canSave}
+              onClick={() => onSubmit(f, existing?.id ?? null)}
+              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {submitting ? 'Saving…' : existing ? 'Save changes' : 'Log request'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================= EVENT COMPONENTS ====== */
+
+function ApprovalChip({ k, dense = false }: { k: ApprovalKey; dense?: boolean }) {
+  const m = APPROVAL_META[k];
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border font-bold tracking-wider ${
+        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
+      } ${m.chip}`}
+    >
+      {m.short}
+    </span>
+  );
+}
+
+function FulfilChip({ f, dense = false }: { f: Fulfilment; dense?: boolean }) {
+  const m = FULFIL_META[f];
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border font-bold tracking-wider ${
+        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
+      } ${m.chip}`}
+    >
+      {m.label}
+    </span>
+  );
+}
+
+/**
+ * Ang service ledger — ito ang gitna ng buong ideya.
+ * Berde = hiniling at naibigay. Pula = hiniling pero hindi naibigay.
+ * Cyan = naibigay kahit hindi hiniling.
+ */
+function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean }) {
+  const gap = serviceGap(ev);
+  const extra = serviceExtra(ev);
+  const gapSet = new Set(gap.map((x) => x.toLowerCase()));
+
+  // Hindi pa naaaprubahan — wala pang dapat ihambing, kaya neutral ang lahat.
+  const pending = fulfilment(ev) === 'pending';
+
+  if (pending) {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {ev.requested.map((svc) => (
+          <span
+            key={svc}
+            title="Hiniling — naghihintay pa ng approval"
+            className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium text-zinc-300"
+          >
+            {svc}
+          </span>
+        ))}
+        {ev.requested.length === 0 && (
+          <span className="text-[10px] italic text-zinc-600">Walang nakatalang serbisyo</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
+      <div className="flex flex-wrap gap-1.5">
+        {ev.requested.map((svc) => {
+          const missing = gapSet.has(svc.toLowerCase());
+          return (
+            <span
+              key={svc}
+              title={missing ? 'Hiniling pero hindi naibigay' : 'Hiniling at naibigay'}
+              className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${
+                missing
+                  ? 'border-red-500/40 bg-red-500/10 text-red-300 line-through decoration-red-500/60'
+                  : 'border-green-500/30 bg-green-500/10 text-green-300'
+              }`}
+            >
+              {missing ? '✕' : '✓'} {svc}
+            </span>
+          );
+        })}
+        {extra.map((svc) => (
+          <span
+            key={svc}
+            title="Naibigay kahit hindi orihinal na hiniling"
+            className="inline-flex items-center gap-1 rounded border border-[#00aeef]/40 bg-[#00aeef]/10 px-2 py-0.5 text-[10px] font-medium text-[#00aeef]"
+          >
+            + {svc}
+          </span>
+        ))}
+        {ev.requested.length === 0 && (
+          <span className="text-[10px] italic text-zinc-600">Walang nakatalang serbisyo</span>
+        )}
+      </div>
+
+      {gap.length > 0 && (
+        <p className="text-[11px] leading-relaxed">
+          <span className="font-bold text-red-400">
+            {gap.length} serbisyong hindi naibigay:
+          </span>{' '}
+          {ev.reason ? (
+            <span className="text-zinc-400">{ev.reason}</span>
+          ) : (
+            <span className="font-medium text-red-400">Walang nakatalang dahilan</span>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Apat na hakbang matapos ang approval: coordination → docs → deliverables → archiving. */
+function PipelineTrack({
+  ev,
+  onStep,
+  compact = false,
+}: {
+  ev: AVEvent;
+  onStep?: (key: PipelineKey, next: PipelineState) => void;
+  compact?: boolean;
+}) {
+  const locked = ev.approval !== 'approved';
+  const cycle: PipelineState[] = ['not-started', 'in-progress', 'done', 'na'];
+
+  return (
+    <div className={`flex items-center ${compact ? 'gap-1' : 'gap-1.5'}`}>
+      {PIPELINE_STEPS.map((step, i) => {
+        const st = ev.pipeline[step.key];
+        const meta = PIPELINE_META[st];
+        const clickable = !!onStep && !locked;
+        return (
+          <React.Fragment key={step.key}>
+            {i > 0 && <span className="h-px w-2 shrink-0 bg-zinc-800" />}
+            <button
+              disabled={!clickable}
+              onClick={() => {
+                if (!onStep) return;
+                const next = cycle[(cycle.indexOf(st) + 1) % cycle.length];
+                onStep(step.key, next);
+              }}
+              title={`${step.label} — ${meta.label}${locked ? ' (naghihintay ng approval)' : ''}\n${step.detail}`}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${
+                clickable ? 'cursor-pointer hover:border-zinc-600' : 'cursor-default'
+              } ${locked ? 'opacity-40' : ''}`}
+              style={{ borderColor: st === 'not-started' ? '#27272a' : `${meta.hex}55` }}
+            >
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ background: meta.hex }}
+              />
+              <span
+                className="text-[9px] font-bold tracking-wider"
+                style={{ color: st === 'not-started' ? '#52525b' : meta.hex }}
+              >
+                {step.short}
+              </span>
+            </button>
+          </React.Fragment>
+        );
+      })}
+      {!compact && (
+        <span className="ml-2 font-mono text-[10px] text-zinc-600">
+          {pipelineProgress(ev)}%
+        </span>
+      )}
+    </div>
+  );
+}
+
+function EventCard({
+  ev,
+  crew,
+  onOpen,
+  onStep,
+}: {
+  ev: AVEvent;
+  crew: Assignment[];
+  onOpen: () => void;
+  onStep: (key: PipelineKey, next: PipelineState) => void;
+}) {
+  const f = fulfilment(ev);
+  const sla = eventSLA(ev);
+  const next = nextPipelineStep(ev);
+  const accent = FULFIL_META[f].hex;
+
+  return (
+    <div
+      className="group relative overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012] transition-all duration-300 hover:border-zinc-700"
+      style={{ borderLeftColor: accent, borderLeftWidth: 3 }}
+    >
+      <div className="p-5">
+        <div className="mb-3 flex items-start justify-between gap-4">
+          <button onClick={onOpen} className="min-w-0 flex-1 text-left">
+            <h3 className="truncate text-base font-bold leading-snug text-zinc-100 transition-colors group-hover:text-white">
+              {ev.title || 'Untitled event'}
+            </h3>
+            <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-600">
+              {ev.id} · {ev.client || 'walang kliyente'}
+              {ev.venue ? ` · ${ev.venue}` : ''}
+            </p>
+          </button>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <ApprovalChip k={ev.approval} dense />
+            <FulfilChip f={f} dense />
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <ServiceLedger ev={ev} compact />
+        </div>
+
+        {crew.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-zinc-900 pt-3">
+            {crew.map((a) => (
+              <span key={a.id} className="text-[11px] text-zinc-500">
+                <span className="font-medium text-zinc-300">{a.personnel}</span>
+                {a.roles.length > 0 && (
+                  <span className="text-zinc-600"> — {a.roles.join(', ')}</span>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-900 pt-3">
+          <PipelineTrack ev={ev} onStep={onStep} compact />
+          <div className="flex items-center gap-2">
+            {sla !== 'na' && <SLABadge state={sla} />}
+            <span className="font-mono text-[10px] text-zinc-600">
+              {ev.eventDate ? fmtDate(ev.eventDate) : fmtDate(ev.dateRequested)}
+            </span>
+          </div>
+        </div>
+
+        {next && (
+          <p className="mt-2 text-[10px] text-zinc-500">
+            Susunod: <span className="font-bold text-[#00aeef]">{next.label}</span>
+            {ev.lead ? ` · ${ev.lead}` : ''}
+          </p>
+        )}
+        {APPROVAL_META[ev.approval].live && ev.approval !== 'approved' && (
+          <p className="mt-2 text-[10px] text-amber-400/80">
+            Naghihintay ng {ev.approval === 'endorsed' ? 'Division Chief' : 'Supervising SRS'}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Buod sa itaas ng Events tab — approved / declined / limited. */
+function EventSummary({ events }: { events: AVEvent[] }) {
+  const t = useMemo(() => {
+    const base = { total: events.length, approved: 0, declined: 0, waiting: 0, full: 0, partial: 0, none: 0, gapCount: 0, noReason: 0 };
+    events.forEach((ev) => {
+      if (ev.approval === 'approved') base.approved += 1;
+      if (!APPROVAL_META[ev.approval].live) base.declined += 1;
+      if (APPROVAL_META[ev.approval].live && ev.approval !== 'approved') base.waiting += 1;
+      const f = fulfilment(ev);
+      if (f === 'full') base.full += 1;
+      if (f === 'partial') base.partial += 1;
+      if (f === 'none') base.none += 1;
+      const gap = serviceGap(ev);
+      const decided = ev.approval === 'approved' || !APPROVAL_META[ev.approval].live;
+      if (gap.length && decided) {
+        if (ev.approval === 'approved') base.gapCount += gap.length;
+        if (!ev.reason.trim()) base.noReason += 1;
+      }
+    });
+    return base;
+  }, [events]);
+
+  const tiles = [
+    { k: 'Total events', v: t.total, c: '#00aeef', s: 'Naitalang request' },
+    { k: 'Approved', v: t.approved, c: '#22c55e', s: `${t.full} fully served` },
+    { k: 'Limited service', v: t.partial, c: '#f59e0b', s: `${t.gapCount} serbisyong kulang` },
+    { k: 'Declined', v: t.declined, c: '#ef4444', s: 'Hindi na-serve' },
+    { k: 'Awaiting action', v: t.waiting, c: '#a1a1aa', s: 'Nasa SRS o DC' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {tiles.map((x) => (
+          <div
+            key={x.k}
+            className="rounded-md border border-zinc-800/80 bg-[#101012] p-4"
+            style={{ borderTopColor: x.c, borderTopWidth: 2 }}
+          >
+            <p className="font-mono text-3xl font-black text-white tabular-nums">{x.v}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+              {x.k}
+            </p>
+            <p className="mt-0.5 text-[10px] text-zinc-600">{x.s}</p>
+          </div>
+        ))}
+      </div>
+      {t.noReason > 0 && (
+        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
+          {t.noReason} event ang may kulang na serbisyo pero walang nakatalang dahilan. Kailangan
+          ito ng Audit Item 40 — buksan ang event at punan ang dahilan.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Buong detalye at pag-edit ng isang event.
+ * Dalawang hanay ng checkbox: HINILING at NAIBIGAY. Awtomatikong lumalabas
+ * ang agwat, at hindi makaka-save nang walang dahilan kapag may kulang.
+ */
+function EventModal({
+  existing,
+  onClose,
+  onSubmit,
+  onNotify,
+  submitting,
+  roster,
+}: {
+  existing: AVEvent | null;
+  onClose: () => void;
+  onSubmit: (
+    payload: Record<string, string>,
+    id: string | null,
+    crew: { personnel: string; roles: string[]; status: string }[]
+  ) => void;
+  onNotify: (id: string) => void;
+  submitting: boolean;
+  roster: Assignment[];
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
+
+  const [f, setF] = useState({
+    title: existing?.title ?? '',
+    client: existing?.client ?? '',
+    clientType: existing?.clientType || 'Internal',
+    venue: existing?.venue ?? '',
+    dateRequested: existing ? iso(existing.dateRequested) : today,
+    eventDate: existing ? iso(existing.eventDate) : '',
+    endDate: existing ? iso(existing.endDate) : '',
+    approvalStatus: existing ? APPROVAL_META[existing.approval].label : 'For endorsement',
+    reason: existing?.reason ?? '',
+    lead: existing?.lead || 'Xyrus',
+    team: existing?.team ?? '',
+    targetDate: existing ? iso(existing.targetDate) : '',
+    dateDelivered: existing ? iso(existing.dateDelivered) : '',
+    csm: existing?.csm ? String(existing.csm) : '',
+    link: existing?.link ?? '',
+    remarks: existing?.remarks ?? '',
+  });
+
+  const [requested, setRequested] = useState<string[]>(existing?.requested ?? []);
+  const [delivered, setDelivered] = useState<string[]>(existing?.delivered ?? []);
+  const [pipeline, setPipeline] = useState<Record<PipelineKey, PipelineState>>(
+    existing?.pipeline ?? {
+      coordination: 'not-started',
+      documents: 'not-started',
+      deliverables: 'not-started',
+      archiving: 'not-started',
+    }
+  );
+
+  /** Roster: isang row bawat tao, maraming papel kada tao. */
+  const [crew, setCrew] = useState<{ personnel: string; roles: string[]; status: string }[]>(
+    roster && roster.length
+      ? roster.map((a) => ({ personnel: a.personnel, roles: a.roles, status: a.status }))
+      : [{ personnel: 'Xyrus', roles: [], status: 'Assigned' }]
+  );
+
+  const setCrewAt = (
+    i: number,
+    patch: Partial<{ personnel: string; roles: string[]; status: string }>
+  ) => setCrew((prev) => prev.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+
+  const toggleRole = (i: number, role: string) =>
+    setCrewAt(i, {
+      roles: crew[i].roles.includes(role)
+        ? crew[i].roles.filter((r) => r !== role)
+        : [...crew[i].roles, role],
+    });
+
+  const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const toggle = (list: string[], setList: (v: string[]) => void, svc: string) =>
+    setList(list.includes(svc) ? list.filter((x) => x !== svc) : [...list, svc]);
+
+  const approvalKey = classifyApproval(f.approvalStatus);
+  const gap = requested.filter((x) => !delivered.includes(x));
+  const extra = delivered.filter((x) => !requested.includes(x));
+
+  const notApproved = !APPROVAL_META[approvalKey].live;
+  const hasGap = approvalKey === 'approved' && gap.length > 0 && delivered.length >= 0;
+  const reasonRequired = notApproved || (hasGap && requested.length > 0);
+  const reasonMissing = reasonRequired && !f.reason.trim();
+
+  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
+  const sla = requested.some((x) => heavy.has(x.toLowerCase()))
+    ? SLA_WD.production
+    : SLA_WD.coverage;
+
+  const previewTarget = useMemo(() => {
+    if (f.targetDate) return f.targetDate;
+    const base = f.dateRequested;
+    if (!base) return '';
+    const d = parseDate(base);
+    return d ? dayKey(addWorkingDays(d, sla)) : '';
+  }, [f.targetDate, f.dateRequested, sla]);
+
+  const canSave = !!f.title.trim() && !reasonMissing && !submitting;
+
+  const field =
+    'w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-zinc-500';
+
+  const submit = () =>
+    onSubmit(
+      {
+        ...f,
+        lead: crew.find((c) => c.roles.length)?.personnel || f.lead,
+        team: crew.map((c) => c.personnel).filter(Boolean).join(', '),
+        requestedServices: requested.join(', '),
+        deliveredServices: delivered.join(', '),
+        coordination: PIPELINE_META[pipeline.coordination].label,
+        documents: PIPELINE_META[pipeline.documents].label,
+        deliverables: PIPELINE_META[pipeline.deliverables].label,
+        archiving: PIPELINE_META[pipeline.archiving].label,
+      },
+      existing?.id ?? null,
+      crew.filter((c) => c.personnel && c.roles.length)
+    );
+
+  return (
+    <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[5vh]">
+      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
+      <div className="relative w-full max-w-4xl rounded-lg border border-zinc-800 bg-[#101012] animate-riseup">
+        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-bold uppercase tracking-wide text-white">
+              {existing ? existing.title || existing.id : 'New event request'}
+            </h3>
+            <p className="text-[11px] text-zinc-500">
+              {existing ? `${existing.id} · ` : ''}Request Form FR-CRPD-AV No. 001 ·
+              PM-CRPD-AV-08-04 Rev 7
+            </p>
+          </div>
+          <button onClick={onClose} className="shrink-0 text-zinc-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+
+        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar">
+          <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className={lab}>Event title *</label>
+              <input
+                className={field}
+                value={f.title}
+                onChange={(e) => set('title', e.target.value)}
+                placeholder="NAST Scientific Meeting"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className={lab}>Client / requesting party</label>
+              <input
+                className={field}
+                value={f.client}
+                onChange={(e) => set('client', e.target.value)}
+                placeholder="NAST / PAGASA / CRPD"
+              />
+            </div>
+            <div>
+              <label className={lab}>Client type</label>
+              <select
+                className={field}
+                value={f.clientType}
+                onChange={(e) => set('clientType', e.target.value)}
+              >
+                <option>Internal</option>
+                <option>External</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={lab}>Event date</label>
+              <input
+                type="date"
+                className={field}
+                value={f.eventDate}
+                onChange={(e) => set('eventDate', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={lab}>End date (kung multi-day)</label>
+              <input
+                type="date"
+                className={field}
+                value={f.endDate}
+                onChange={(e) => set('endDate', e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className={lab}>Venue</label>
+              <input
+                className={field}
+                value={f.venue}
+                onChange={(e) => set('venue', e.target.value)}
+                placeholder="PICC / DOST-STII"
+              />
+            </div>
+            <div>
+              <label className={lab}>Date requested</label>
+              <input
+                type="date"
+                className={field}
+                value={f.dateRequested}
+                onChange={(e) => set('dateRequested', e.target.value)}
+              />
+            </div>
+
+            {/* ----------- ang service ledger ----------- */}
+            <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
+              <div className="mb-3 flex items-baseline justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+                  Serbisyo — hiniling laban sa naibigay
+                </p>
+                <span className="font-mono text-[10px] text-zinc-600">SLA {sla} WD</span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <p className={lab}>Hiniling ng kliyente</p>
+                  <div className="space-y-1">
+                    {SERVICE_CATALOG.map((svc) => (
+                      <label
+                        key={svc}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-900/60"
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-[#00aeef]"
+                          checked={requested.includes(svc)}
+                          onChange={() => toggle(requested, setRequested, svc)}
+                        />
+                        {svc}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className={lab}>Aktwal na naibigay</p>
+                  <div className="space-y-1">
+                    {SERVICE_CATALOG.map((svc) => {
+                      const asked = requested.includes(svc);
+                      const got = delivered.includes(svc);
+                      const missing = asked && !got;
+                      return (
+                        <label
+                          key={svc}
+                          className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-900/60 ${
+                            missing ? 'text-red-400' : got ? 'text-green-400' : 'text-zinc-600'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-green-500"
+                            checked={got}
+                            onChange={() => toggle(delivered, setDelivered, svc)}
+                          />
+                          {svc}
+                          {missing && <span className="ml-auto text-[9px] font-bold">KULANG</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {(gap.length > 0 || extra.length > 0) && (
+                <div className="mt-3 space-y-1 border-t border-zinc-900 pt-3 text-[11px]">
+                  {gap.length > 0 && (
+                    <p className="text-red-400">
+                      <b>{gap.length} hindi naibigay:</b> {gap.join(', ')}
+                    </p>
+                  )}
+                  {extra.length > 0 && (
+                    <p className="text-[#00aeef]">
+                      <b>Dagdag na naibigay:</b> {extra.join(', ')}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ----------- approval ----------- */}
+            <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <label className={lab}>Approval status</label>
+                  <select
+                    className={field}
+                    value={f.approvalStatus}
+                    onChange={(e) => set('approvalStatus', e.target.value)}
+                  >
+                    {APPROVAL_ORDER.map((k) => (
+                      <option key={k}>{APPROVAL_META[k].label}</option>
+                    ))}
+                  </select>
+                  {existing && APPROVAL_META[approvalKey].live && approvalKey !== 'approved' && (
+                    <button
+                      onClick={() => onNotify(existing.id)}
+                      className="mt-2 w-full rounded-lg border border-[#00aeef]/40 px-3 py-1.5 text-[10px] font-bold text-[#00aeef] transition-colors hover:bg-[#00aeef]/10"
+                    >
+                      Send approval email
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* ------------------------- CREW & ROLES ------------------- */}
+              <div className="mt-5 border-t border-zinc-800/80 pt-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-medium text-zinc-400">Crew &amp; roles</p>
+                    <p className="text-[11px] text-zinc-600">
+                      Maraming papel kada tao. Bawat papel ay hiwalay na binibilang sa IPCR.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      setCrew((prev) => [...prev, { personnel: 'Marx', roles: [], status: 'Assigned' }])
+                    }
+                    className="rounded border border-zinc-800 px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+                  >
+                    Add person
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {crew.map((c, i) => (
+                    <div key={i} className="rounded border border-zinc-800/80 bg-[#0c0c0e] p-3">
+                      <div className="mb-2.5 flex items-center gap-2">
+                        <select
+                          value={c.personnel}
+                          onChange={(e) => setCrewAt(i, { personnel: e.target.value })}
+                          className="rounded border border-zinc-800 bg-[#101012] px-2 py-1 text-[12px] font-medium text-zinc-200 focus:border-[#00aeef] focus:outline-none"
+                        >
+                          {['Xyrus', 'Marx', 'Reiner', 'Pat', 'Team'].map((n) => (
+                            <option key={n}>{n}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={c.status}
+                          onChange={(e) => setCrewAt(i, { status: e.target.value })}
+                          className="rounded border border-zinc-800 bg-[#101012] px-2 py-1 text-[12px] text-zinc-400 focus:border-[#00aeef] focus:outline-none"
+                        >
+                          {ASSIGN_STATUS.map((n) => (
+                            <option key={n}>{n}</option>
+                          ))}
+                        </select>
+                        <span className="ml-auto font-mono text-[11px] text-zinc-600">
+                          {c.roles.length} role{c.roles.length === 1 ? '' : 's'}
+                        </span>
+                        {crew.length > 1 && (
+                          <button
+                            onClick={() => setCrew((prev) => prev.filter((_, j) => j !== i))}
+                            className="text-[12px] text-zinc-600 transition-colors hover:text-red-400"
+                            aria-label="Remove person"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {ROLE_CATALOG.map((role) => {
+                          const on = c.roles.includes(role);
+                          return (
+                            <button
+                              key={role}
+                              onClick={() => toggleRole(i, role)}
+                              className={`rounded border px-2 py-1 text-[11px] transition-colors ${
+                                on
+                                  ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
+                                  : 'border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                              }`}
+                            >
+                              {role}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {existing && (
+                <p className="mt-3 font-mono text-[10px] text-zinc-600">
+                  {existing.endorsedBy
+                    ? `Endorsed by ${existing.endorsedBy}${
+                        existing.dateEndorsed ? ` · ${fmtDate(existing.dateEndorsed)}` : ''
+                      }`
+                    : 'Hindi pa na-endorso'}
+                  {' — '}
+                  {existing.approvedBy
+                    ? `Approved by ${existing.approvedBy}${
+                        existing.dateApproved ? ` · ${fmtDate(existing.dateApproved)}` : ''
+                      }`
+                    : 'hindi pa naaaprubahan'}
+                </p>
+              )}
+
+              {reasonRequired && (
+                <div className="mt-4 animate-fadein">
+                  <label className={lab}>
+                    <span className="text-red-400">
+                      Dahilan * —{' '}
+                      {notApproved
+                        ? `kailangan kapag ${APPROVAL_META[approvalKey].label}`
+                        : 'kailangan kapag may serbisyong hindi naibigay'}
+                    </span>
+                  </label>
+                  <textarea
+                    className={`${field} min-h-[76px] resize-y ${
+                      reasonMissing ? 'border-red-500/60' : ''
+                    }`}
+                    value={f.reason}
+                    onChange={(e) => set('reason', e.target.value)}
+                    placeholder="Hal.: Hybrid livestream hindi naibigay — kulang sa tao, naka-deploy sa ibang DOST event coverage."
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-600">
+                    Audit Item 40 at 44: ito ang ebidensiya para sa personnel augmentation.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* ----------- pipeline ----------- */}
+            <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
+              <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+                Execution pipeline
+              </p>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                {PIPELINE_STEPS.map((step) => (
+                  <div key={step.key}>
+                    <label className={lab}>{step.label}</label>
+                    <select
+                      className={field}
+                      value={PIPELINE_META[pipeline[step.key]].label}
+                      onChange={(e) =>
+                        setPipeline((p) => ({
+                          ...p,
+                          [step.key]: classifyPipeline(e.target.value),
+                        }))
+                      }
+                    >
+                      {(['not-started', 'in-progress', 'done', 'na'] as PipelineState[]).map((st) => (
+                        <option key={st}>{PIPELINE_META[st].label}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[9px] leading-tight text-zinc-600">{step.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className={lab}>Target date (SLA)</label>
+              <input
+                type="date"
+                className={field}
+                value={f.targetDate}
+                onChange={(e) => set('targetDate', e.target.value)}
+              />
+              {!f.targetDate && previewTarget && (
+                <p className="mt-1 font-mono text-[10px] text-[#00aeef]">
+                  Auto: {previewTarget} ({sla} WD)
+                </p>
+              )}
+            </div>
+            <div>
+              <label className={lab}>Date delivered</label>
+              <input
+                type="date"
+                className={field}
+                value={f.dateDelivered}
+                onChange={(e) => set('dateDelivered', e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className={lab}>CSM rating</label>
+              <select className={field} value={f.csm} onChange={(e) => set('csm', e.target.value)}>
+                <option value="">Wala pa</option>
+                {[5, 4, 3, 2, 1].map((n) => (
+                  <option key={n} value={String(n)}>
+                    {n} — {CSM_LABELS[n]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={lab}>Output link</label>
+              <input
+                className={field}
+                value={f.link}
+                onChange={(e) => set('link', e.target.value)}
+                placeholder="https://…"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className={lab}>Remarks</label>
+              <input
+                className={field}
+                value={f.remarks}
+                onChange={(e) => set('remarks', e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
+          <p className="text-[10px] text-zinc-600">
+            {reasonMissing ? 'Punan ang dahilan bago mag-save.' : 'Direktang isusulat sa Events sheet.'}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="rounded border border-zinc-800 px-4 py-2 text-[13px] text-zinc-400 transition-colors hover:text-zinc-100"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!canSave}
+              onClick={submit}
+              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {submitting ? 'Saving…' : existing ? 'Save changes' : 'Create event'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ITEM 44, service-level — ang pinakamalakas na ebidensiya para sa augmentation.
+ * Hindi bilang ng request, kundi bilang ng SERBISYONG hiniling pero hindi
+ * naibigay, kasama ang dahilan.
+ */
+function ServiceGapPanel({ events }: { events: AVEvent[] }) {
+  const rows = useMemo(() => {
+    const map = new Map<string, { asked: number; given: number; missed: number }>();
+    events.forEach((ev) => {
+      // Naghihintay pa ng approval — wala pang masasabing naibigay o hindi
+      if (APPROVAL_META[ev.approval].live && ev.approval !== 'approved') return;
+      if (!APPROVAL_META[ev.approval].live) {
+        // Declined: bilangin pa rin ang hiniling — demand pa rin 'yon
+        ev.requested.forEach((svc) => {
+          const cur = map.get(svc) || { asked: 0, given: 0, missed: 0 };
+          cur.asked += 1;
+          cur.missed += 1;
+          map.set(svc, cur);
+        });
+        return;
+      }
+      const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
+      ev.requested.forEach((svc) => {
+        const cur = map.get(svc) || { asked: 0, given: 0, missed: 0 };
+        cur.asked += 1;
+        if (got.has(svc.toLowerCase())) cur.given += 1;
+        else cur.missed += 1;
+        map.set(svc, cur);
+      });
+    });
+    return Array.from(map.entries())
+      .map(([svc, v]) => ({ svc, ...v, rate: v.asked ? v.given / v.asked : 0 }))
+      .sort((a, b) => b.missed - a.missed || b.asked - a.asked);
+  }, [events]);
+
+  const totals = rows.reduce(
+    (a, r) => ({ asked: a.asked + r.asked, missed: a.missed + r.missed }),
+    { asked: 0, missed: 0 }
+  );
+
+  const reasons = useMemo(() => {
+    const list: { ev: AVEvent; gap: string[] }[] = [];
+    events.forEach((ev) => {
+      const gap = serviceGap(ev);
+      if (gap.length && ev.reason.trim()) list.push({ ev, gap });
+    });
+    return list.slice(0, 5);
+  }, [events]);
+
+  if (rows.length === 0) {
+    return (
+      <p className="py-8 text-center text-xs italic text-zinc-600">
+        Walang naitalang serbisyo pa. Gumawa ng event para mabuo ang gap analysis.
+      </p>
+    );
+  }
+
+  const max = Math.max(1, ...rows.map((r) => r.asked));
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { k: 'Services requested', v: totals.asked, c: '#00aeef' },
+          { k: 'Services delivered', v: totals.asked - totals.missed, c: '#22c55e' },
+          { k: 'Services not delivered', v: totals.missed, c: '#ef4444' },
+        ].map((x) => (
+          <div
+            key={x.k}
+            className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4"
+            style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
+          >
+            <p className="font-mono text-3xl font-black text-white tabular-nums">{x.v}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+              {x.k}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2.5">
+        {rows.map((r) => (
+          <div key={r.svc}>
+            <div className="mb-1 flex items-baseline justify-between gap-3">
+              <span className="truncate text-xs font-semibold text-zinc-300">{r.svc}</span>
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-500">
+                {r.given}/{r.asked} delivered
+                {r.missed > 0 && (
+                  <span className="ml-2 font-bold text-red-400">−{r.missed}</span>
+                )}
+              </span>
+            </div>
+            <div
+              className="flex h-2 overflow-hidden rounded-full bg-zinc-900"
+              style={{ width: `${Math.max(12, (r.asked / max) * 100)}%` }}
+            >
+              <div
+                className="h-full bg-green-500 transition-all duration-1000"
+                style={{ width: `${r.asked ? (r.given / r.asked) * 100 : 0}%` }}
+              />
+              <div
+                className="h-full bg-red-500 transition-all duration-1000"
+                style={{ width: `${r.asked ? (r.missed / r.asked) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {reasons.length > 0 && (
+        <div className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+            Naitalang dahilan ng hindi pagkakabigay
+          </p>
+          <div className="space-y-2.5">
+            {reasons.map(({ ev, gap }) => (
+              <div key={ev.id} className="border-l-2 border-red-500/50 pl-3">
+                <p className="text-xs font-semibold text-zinc-200">{ev.title}</p>
+                <p className="mt-0.5 text-[10px] text-red-400">
+                  Hindi naibigay: {gap.join(', ')}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-400">{ev.reason}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------- KIOSK ---- */
 
 function KioskMode({
   coverages,
   outputs,
+  requests,
+  kpi,
   stats,
   workload,
   upNext,
@@ -1039,13 +3664,15 @@ function KioskMode({
 }: {
   coverages: Coverage[];
   outputs: Output[];
+  requests: ServiceRequest[];
+  kpi: { execution: number | null; csm: number | null; rated: number };
   stats: { counts: Record<StatusKey, number>; total: number; thisMonth: number };
   workload: { name: string; count: number; cov: number; out: number }[];
   upNext: Coverage[];
   onClose: () => void;
 }) {
   const SLIDE_MS = 12000;
-  const SLIDES = 5;
+  const SLIDES = 6;
   const [slide, setSlide] = useState(0);
   const [now, setNow] = useState(new Date());
 
@@ -1080,24 +3707,38 @@ function KioskMode({
 
   const cleared = stats.counts.transferred + stats.counts.archived;
   const wip = outputs.filter((o) => o.stage !== 'approved' && o.stage !== 'published').slice(0, 6);
-  const titles = ['AV TEAM STATUS', 'OPERATIONS PULSE', 'PRODUCTION BOARD', 'UP NEXT', 'AV CALENDAR'];
+  const titles = [
+    'AV TEAM STATUS',
+    'OPERATIONS PULSE',
+    'PRODUCTION BOARD',
+    'SERVICE PERFORMANCE',
+    'UP NEXT',
+    'AV CALENDAR',
+  ];
+
+  const svc = useMemo(() => {
+    const served = requests.filter((r) => REQ_META[r.status].served).length;
+    const unmet = requests.filter((r) => REQ_META[r.status].unmet).length;
+    const breached = requests.filter((r) => slaState(r) === 'breached').length;
+    return { demand: requests.length, served, unmet, breached };
+  }, [requests]);
 
   const ticker = useMemo(() => {
     const bits: string[] = [];
     coverages.slice(0, 6).forEach((c) => bits.push(`${fmtDate(c.dateObj, c.date)} — ${c.details}`));
-    outputs.slice(0, 4).forEach((o) => bits.push(`▶ ${o.title} [${STAGE_META[o.stage].label.toUpperCase()}]`));
+    outputs.slice(0, 4).forEach((o) => bits.push(`${o.title} [${STAGE_META[o.stage].label.toUpperCase()}]`));
+    requests
+      .slice(0, 4)
+      .forEach((r) => bits.push(`${r.title} [${REQ_META[r.status].label.toUpperCase()}]`));
     return bits.length ? bits.join('    •    ') : 'AV NEXUS · DOST-STII · Broadcast & Digital Media Section';
-  }, [coverages, outputs]);
+  }, [coverages, outputs, requests]);
 
   return (
     <div className="no-print fixed inset-0 z-[120] flex flex-col bg-black text-zinc-200">
       {/* top bar */}
       <div className="flex items-center justify-between border-b border-zinc-900 px-6 py-4 md:px-10 md:py-6">
         <div className="flex items-center gap-4">
-          <span className="relative flex h-3.5 w-3.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex h-3.5 w-3.5 rounded-full bg-red-500" />
-          </span>
+          <span className="h-2 w-2 rounded-full bg-[#00aeef]" />
           <span className="font-display text-2xl font-black uppercase tracking-tight text-white">
             AV <span className="text-[#00aeef]">Nexus</span>
           </span>
@@ -1110,7 +3751,7 @@ function KioskMode({
             <p className="font-mono text-2xl font-black text-white tabular-nums md:text-3xl">
               {now.toLocaleTimeString('en-PH', { hour12: false })}
             </p>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-zinc-500">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
               {now.toLocaleDateString('en-PH', {
                 weekday: 'long',
                 day: 'numeric',
@@ -1138,7 +3779,7 @@ function KioskMode({
               return (
                 <div
                   key={m.name}
-                  className="flex flex-col rounded-2xl border border-zinc-800 bg-[#09090b]/80 p-8"
+                  className="flex flex-col rounded-lg border border-zinc-800/80 bg-[#101012] p-8"
                 >
                   <div className="mb-6 flex items-center gap-5">
                     <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#00aeef]/50">
@@ -1186,13 +3827,13 @@ function KioskMode({
               ].map((x) => (
                 <div
                   key={x.label}
-                  className="rounded-2xl border border-zinc-800 bg-[#09090b]/80 p-10 text-center"
+                  className="rounded-lg border border-zinc-800/80 bg-[#101012] p-10 text-center"
                 >
                   <p className="font-mono text-7xl font-black text-white tabular-nums md:text-8xl">
                     {x.v}
                   </p>
                   <p
-                    className="mt-3 text-sm font-bold uppercase tracking-[0.25em]"
+                    className="mt-3 text-sm font-bold uppercase tracking-[0.14em]"
                     style={{ color: x.accent }}
                   >
                     {x.label}
@@ -1236,13 +3877,13 @@ function KioskMode({
               {STAGE_ORDER.map((k) => (
                 <div
                   key={k}
-                  className="rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 text-center"
+                  className="rounded-md border border-zinc-800/80 bg-[#101012] p-5 text-center"
                 >
                   <p className="font-mono text-4xl font-black text-white tabular-nums md:text-5xl">
                     {outputs.filter((o) => o.stage === k).length}
                   </p>
                   <p
-                    className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em]"
+                    className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em]"
                     style={{ color: STAGE_META[k].hex }}
                   >
                     {STAGE_META[k].label}
@@ -1254,7 +3895,7 @@ function KioskMode({
               {wip.map((o) => (
                 <div
                   key={o.id}
-                  className="flex items-center justify-between gap-6 rounded-xl border border-zinc-800 bg-[#09090b]/80 px-6 py-4"
+                  className="flex items-center justify-between gap-6 rounded-md border border-zinc-800/80 bg-[#101012] px-6 py-4"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-xl font-bold text-zinc-100">{o.title}</p>
@@ -1276,15 +3917,88 @@ function KioskMode({
         )}
 
         {slide === 3 && (
+          <div className="flex h-full flex-col justify-center gap-10">
+            <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
+              {[
+                { k: 'Service demand', v: svc.demand, c: '#00aeef' },
+                { k: 'Services rendered', v: svc.served, c: '#22c55e' },
+                { k: 'Unmet requests', v: svc.unmet, c: '#ef4444' },
+                { k: 'SLA breaches', v: svc.breached, c: '#f59e0b' },
+              ].map((x) => (
+                <div
+                  key={x.k}
+                  className="rounded-lg border border-zinc-800/80 bg-[#101012] p-8 text-center"
+                >
+                  <p className="font-mono text-6xl font-black text-white tabular-nums md:text-7xl">
+                    {x.v}
+                  </p>
+                  <p
+                    className="mt-3 text-xs font-bold uppercase tracking-[0.14em]"
+                    style={{ color: x.c }}
+                  >
+                    {x.k}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {[
+                {
+                  label: 'Requests executed',
+                  v: kpi.execution,
+                  t: KPI_EXECUTION_TARGET,
+                  sub: 'PM 2.1 — 100% of approved requests delivered',
+                },
+                {
+                  label: 'CSM very satisfactory+',
+                  v: kpi.csm,
+                  t: KPI_CSM_TARGET,
+                  sub: `PM 2.2 — at least 93% (${kpi.rated} rated)`,
+                },
+              ].map((x) => {
+                const pass = x.v !== null && x.v >= x.t;
+                const hex = x.v === null ? '#3f3f46' : pass ? '#22c55e' : '#ef4444';
+                return (
+                  <div
+                    key={x.label}
+                    className="rounded-lg border border-zinc-800/80 bg-[#101012] p-8"
+                  >
+                    <div className="mb-4 flex items-baseline justify-between">
+                      <span className="text-sm font-bold uppercase tracking-[0.1em] text-zinc-300">
+                        {x.label}
+                      </span>
+                      <span className="font-mono text-4xl font-black tabular-nums" style={{ color: hex }}>
+                        {x.v === null ? '—' : `${x.v}%`}
+                      </span>
+                    </div>
+                    <div className="relative h-3 overflow-hidden rounded-full bg-zinc-900">
+                      <div
+                        className="h-full rounded-full transition-all duration-1000"
+                        style={{ width: `${Math.min(100, x.v ?? 0)}%`, background: hex }}
+                      />
+                      <div
+                        className="absolute inset-y-0 w-0.5 bg-zinc-500"
+                        style={{ left: `${x.t}%` }}
+                      />
+                    </div>
+                    <p className="mt-3 text-xs text-zinc-500">{x.sub}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {slide === 4 && (
           <div className="flex h-full flex-col justify-center gap-6">
             {upNext.map((c, i) => (
               <div
                 key={i}
-                className="flex flex-col items-start gap-3 rounded-2xl border-l-4 border-red-500 bg-[#09090b]/80 px-8 py-6 md:flex-row md:items-center md:gap-8"
+                className="flex flex-col items-start gap-3 rounded-2xl border-l-4 border-red-500 bg-[#101012] px-8 py-6 md:flex-row md:items-center md:gap-8"
               >
                 <div className="w-44 shrink-0">
                   <p className="font-mono text-2xl font-black text-white">{fmtDate(c.dateObj)}</p>
-                  <p className="text-xs uppercase tracking-widest text-red-400">
+                  <p className="text-xs uppercase tracking-[0.1em] text-red-400">
                     {relativeDay(c.dateObj) || 'Scheduled'}
                   </p>
                 </div>
@@ -1304,7 +4018,7 @@ function KioskMode({
           </div>
         )}
 
-        {slide === 4 && (
+        {slide === 5 && (
           <div className="h-full overflow-hidden rounded-2xl border border-zinc-800 bg-[#0b0b0d]">
             <iframe
               src={`${CAL_EMBED}&mode=AGENDA&showTitle=0&showPrint=0&showTabs=0&showCalendars=0&showTz=0`}
@@ -1317,7 +4031,7 @@ function KioskMode({
 
       {/* broadcast ticker */}
       <div className="flex items-center gap-4 overflow-hidden border-t border-zinc-900 bg-[#050506] px-6 py-2.5 md:px-10">
-        <span className="shrink-0 rounded bg-red-600 px-2 py-0.5 font-mono text-[10px] font-black uppercase tracking-widest text-white">
+        <span className="shrink-0 rounded bg-red-600 px-2 py-0.5 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-white">
           Latest
         </span>
         <div className="relative flex-1 overflow-hidden">
@@ -1386,15 +4100,15 @@ function AppWindow({
 
   return (
     <div className="no-print fixed inset-0 z-[90] flex items-center justify-center p-0 md:p-6">
-      <div className="absolute inset-0 bg-black/85 backdrop-blur-md animate-fadein" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/85 animate-fadein" onClick={onClose} />
       <div
-        className={`relative flex flex-col overflow-hidden border border-zinc-800 bg-[#0a0a0c] shadow-[0_40px_120px_-20px_rgba(0,0,0,0.9)] animate-riseup ${
+        className={`relative flex flex-col overflow-hidden border border-zinc-800 bg-[#0a0a0c] animate-riseup ${
           maximized ? 'h-full w-full rounded-none' : 'h-full w-full md:h-[88vh] md:max-w-[1400px] md:rounded-2xl'
         }`}
         style={{ boxShadow: `0 0 0 1px ${app.accent}22, 0 40px 120px -20px rgba(0,0,0,0.9)` }}
       >
         {/* title bar */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-[#09090b] px-4 py-2.5">
+        <div className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-[#101012] px-4 py-2.5">
           <div className="flex items-center gap-1.5">
             <button
               onClick={onClose}
@@ -1422,7 +4136,7 @@ function AppWindow({
               }}
               className="rounded-md border border-zinc-800 px-2.5 py-1.5 text-[11px] font-bold text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
             >
-              ↻ Reload
+              Reload
             </button>
             <a
               href={app.url}
@@ -1431,7 +4145,7 @@ function AppWindow({
               className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-black transition-opacity hover:opacity-85"
               style={{ background: app.accent }}
             >
-              ↗ Open full tab
+              Open in new tab
             </a>
           </div>
         </div>
@@ -1448,19 +4162,19 @@ function AppWindow({
                 onLoad={() => setLoading(false)}
               />
               {loading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#09090b]">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#101012]">
                   <div
                     className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-800"
                     style={{ borderTopColor: app.accent }}
                   />
-                  <p className="font-mono text-[11px] uppercase tracking-widest text-zinc-500">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-zinc-500">
                     Connecting to {app.name}
                   </p>
                 </div>
               )}
             </>
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#09090b] px-6 text-center">
+            <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#101012] px-6 text-center">
               <div
                 className="flex h-16 w-16 items-center justify-center rounded-2xl border text-2xl"
                 style={{ borderColor: `${app.accent}55`, color: app.accent }}
@@ -1485,8 +4199,8 @@ function AppWindow({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-zinc-800 bg-[#09090b] px-4 py-2">
-          <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">
+        <div className="flex shrink-0 items-center justify-between border-t border-zinc-800 bg-[#101012] px-4 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-600">
             {app.tag} · {app.role}
           </span>
           <span className="font-mono text-[10px] text-zinc-600">ESC to close</span>
@@ -1552,9 +4266,9 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center px-4 pt-[12vh]">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-fadein" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/80 animate-fadein" onClick={onClose} />
       <div
-        className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-zinc-800 bg-[#0a0a0c] shadow-[0_30px_90px_-15px_rgba(0,0,0,0.9)] animate-riseup"
+        className="relative w-full max-w-2xl overflow-hidden rounded-lg border border-zinc-800 bg-[#101012] animate-riseup"
         onKeyDown={onKey}
       >
         <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-4">
@@ -1577,7 +4291,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             return (
               <React.Fragment key={c.id}>
                 {showGroup && (
-                  <p className="px-5 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-600">
+                  <p className="px-5 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600">
                     {c.group}
                   </p>
                 )}
@@ -1652,8 +4366,8 @@ function PersonnelDrawer({
 
   return (
     <div className="no-print fixed inset-0 z-[85] flex justify-end">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fadein" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-zinc-800 bg-[#09090b] animate-slidein">
+      <div className="absolute inset-0 bg-black/70 animate-fadein" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-zinc-800 bg-[#101012] animate-slidein">
         <div className="flex items-center gap-4 border-b border-zinc-800 p-6">
           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-[#00aeef]/60">
             <img src={image} alt={name} className="h-full w-full object-cover" />
@@ -1678,20 +4392,20 @@ function PersonnelDrawer({
             { k: 'Cleared', v: counts.transferred + counts.archived },
             { k: 'Pending', v: counts.pending },
           ].map((s) => (
-            <div key={s.k} className="bg-[#09090b] p-4 text-center">
+            <div key={s.k} className="bg-[#101012] p-4 text-center">
               <p className="font-mono text-2xl font-black text-white tabular-nums">{s.v}</p>
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500">{s.k}</p>
+              <p className="text-[10px] uppercase tracking-[0.1em] text-zinc-500">{s.k}</p>
             </div>
           ))}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-600">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600">
             Deployment history
           </p>
           <div className="space-y-3">
             {records.map((r, i) => (
-              <div key={i} className="rounded-lg border border-zinc-800 bg-black/40 p-3">
+              <div key={i} className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-3">
                 <p className="mb-2 text-sm leading-snug text-zinc-200">{r.details}</p>
                 <div className="flex items-center justify-between gap-2">
                   <StatusBadge status={r.status} dense />
@@ -1718,6 +4432,17 @@ function PersonnelDrawer({
   );
 }
 
+type ViewKey = 'events' | 'pulse' | 'requests' | 'production' | 'compliance' | 'reports';
+
+const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
+  { key: 'events',     label: 'Events',     hint: 'Approval, serbisyo, pipeline — ang puso' },
+  { key: 'production', label: 'Production', hint: 'Video output board' },
+  { key: 'pulse',      label: 'Archive',    hint: 'DMC records, team, systems' },
+  { key: 'compliance', label: 'Compliance', hint: 'Audit Items 40 / 41 / 44' },
+  { key: 'reports',    label: 'Reports',    hint: 'IPCR / MOV generator' },
+  { key: 'requests',   label: 'Register',   hint: 'Legacy request register' },
+];
+
 /* ============================================================== MAIN APP == */
 
 export default function App() {
@@ -1736,6 +4461,26 @@ export default function App() {
   const [filterPerson, setFilterPerson] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState<'ALL' | StatusKey>('ALL');
   const [visibleCount, setVisibleCount] = useState(8);
+
+  const [events, setEvents] = useState<AVEvent[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [evModal, setEvModal] = useState<{ open: boolean; editing: AVEvent | null }>({
+    open: false,
+    editing: null,
+  });
+  const [evQuery, setEvQuery] = useState('');
+  const [evApproval, setEvApproval] = useState<'ALL' | ApprovalKey>('ALL');
+  const [evFulfil, setEvFulfil] = useState<'ALL' | Fulfilment>('ALL');
+
+  const [requests, setRequests] = useState<ServiceRequest[]>([]);
+  const [reqModal, setReqModal] = useState<{ open: boolean; editing: ServiceRequest | null }>({
+    open: false,
+    editing: null,
+  });
+  const [reqQuery, setReqQuery] = useState('');
+  const [reqStatusFilter, setReqStatusFilter] = useState<'ALL' | ReqStatus>('ALL');
+  const [reqStreamFilter, setReqStreamFilter] = useState<'ALL' | Stream>('ALL');
+  const [view, setView] = useState<ViewKey>('events');
 
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [prodReady, setProdReady] = useState<'unknown' | 'ok' | 'missing'>('unknown');
@@ -1827,9 +4572,107 @@ export default function App() {
         setProdReady('missing');
         return;
       }
-      const res = await fetch(PROD_SCRIPT_URL, { cache: 'no-store' });
+      const res = await fetch(`${PROD_SCRIPT_URL}?sheet=all`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      const raw = await res.json();
+
+      // Bagong backend → { requests, production }. Lumang backend → array lang.
+      const data = Array.isArray(raw) ? raw : raw?.production;
+      const reqRows = Array.isArray(raw?.requests) ? raw.requests : [];
+
+      const evRows = Array.isArray(raw?.events) ? raw.events : [];
+      const asgRows = Array.isArray(raw?.assignments) ? raw.assignments : [];
+
+      setAssignments(
+        asgRows
+          .filter((r: any) => r['Personnel'] || r['Assignment ID'])
+          .map((r: any) => ({
+            id: String(r['Assignment ID'] || Math.random()),
+            eventId: String(r['Event ID'] || ''),
+            eventTitle: String(r['Event Title'] || ''),
+            personnel: String(r['Personnel'] || ''),
+            roles: splitList(r['Roles']),
+            status: String(r['Status'] || 'Assigned'),
+            dateAssigned: parseDate(r['Date Assigned']),
+            dateCompleted: parseDate(r['Date Completed']),
+            remarks: String(r['Remarks'] || ''),
+          }) as Assignment)
+      );
+
+      setEvents(
+        evRows
+          .filter((r: any) => r['Event Title'] || r['Event ID'])
+          .map((r: any) => {
+            const approvalRaw = String(r['Approval Status'] || 'For Endorsement');
+            return {
+              id: String(r['Event ID'] || r['Event Title'] || Math.random()),
+              dateRequested: parseDate(r['Date Requested']),
+              title: String(r['Event Title'] || ''),
+              client: String(r['Client'] || ''),
+              clientType: String(r['Client Type'] || ''),
+              eventDate: parseDate(r['Event Date']),
+              endDate: parseDate(r['End Date']),
+              venue: String(r['Venue'] || ''),
+              requested: splitServices(r['Requested Services']),
+              delivered: splitServices(r['Delivered Services']),
+              reason: String(r['Reason for Gap'] || ''),
+              approval: classifyApproval(approvalRaw),
+              approvalRaw,
+              endorsedBy: String(r['Endorsed By'] || ''),
+              dateEndorsed: parseDate(r['Date Endorsed']),
+              approvedBy: String(r['Approved By'] || ''),
+              dateApproved: parseDate(r['Date Approved']),
+              approvalRemarks: String(r['Approval Remarks'] || ''),
+              lead: String(r['Lead Personnel'] || ''),
+              team: String(r['Team'] || ''),
+              pipeline: {
+                coordination: classifyPipeline(String(r['Coordination'] || '')),
+                documents: classifyPipeline(String(r['Documents'] || '')),
+                deliverables: classifyPipeline(String(r['Deliverables'] || '')),
+                archiving: classifyPipeline(String(r['Archiving'] || '')),
+              },
+              targetDate: parseDate(r['Target Date']),
+              dateDelivered: parseDate(r['Date Delivered']),
+              csm: parseCSM(r['CSM Rating']),
+              link: String(r['Output Link'] || ''),
+              remarks: String(r['Remarks'] || ''),
+            } as AVEvent;
+          })
+          .reverse()
+      );
+
+      setRequests(
+        reqRows
+          .filter((r: any) => r['Request Title'] || r['Request ID'])
+          .map((r: any) => {
+            const statusRaw = String(r['Status'] || 'Pending');
+            const streamRaw = String(r['Service Stream'] || 'AV Coverage');
+            return {
+              id: String(r['Request ID'] || r['Request Title'] || Math.random()),
+              dateRequested: parseDate(r['Date Requested']),
+              client: String(r['Client'] || ''),
+              clientType: String(r['Client Type'] || ''),
+              title: String(r['Request Title'] || ''),
+              stream: classifyStream(streamRaw),
+              streamRaw,
+              serviceType: String(r['Service Type'] || ''),
+              eventDate: parseDate(r['Event Date']),
+              venue: String(r['Venue'] || ''),
+              personnel: String(r['Assigned Personnel'] || ''),
+              status: classifyReqStatus(statusRaw),
+              statusRaw,
+              reason: String(r['Reason for Non-Service'] || ''),
+              dateApproved: parseDate(r['Date Approved']),
+              targetDate: parseDate(r['Target Date']),
+              dateDelivered: parseDate(r['Date Delivered']),
+              csm: parseCSM(r['CSM Rating']),
+              link: String(r['Output Link'] || ''),
+              remarks: String(r['Remarks'] || ''),
+            } as ServiceRequest;
+          })
+          .reverse()
+      );
+
       if (!Array.isArray(data)) throw new Error('unexpected shape');
 
       // Luma pang Apps Script? Coverage rows ang babalik — walang Output ID.
@@ -1892,6 +4735,183 @@ export default function App() {
       } finally {
         setSubmitting(false);
         setLogOpen(false);
+        setTimeout(() => fetchProduction(), 1400);
+      }
+    },
+    [fetchProduction, toast]
+  );
+
+  const submitEvent = useCallback(
+    async (
+      form: Record<string, string>,
+      id: string | null,
+      roster?: { personnel: string; roles: string[]; status: string }[]
+    ) => {
+      if (!PROD_CONFIGURED) {
+        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        return;
+      }
+      setSubmitting(true);
+      const payload = {
+        title: form.title,
+        client: form.client,
+        clientType: form.clientType,
+        venue: form.venue,
+        dateRequested: form.dateRequested,
+        eventDate: form.eventDate,
+        endDate: form.endDate,
+        requestedServices: form.requestedServices,
+        deliveredServices: form.deliveredServices,
+        reason: form.reason,
+        approvalStatus: APPROVAL_META[classifyApproval(form.approvalStatus)].label
+          .replace('For endorsement', 'For Endorsement'),
+        leadPersonnel: form.lead,
+        team: form.team,
+        coordination: form.coordination,
+        documents: form.documents,
+        deliverables: form.deliverables,
+        archiving: form.archiving,
+        targetDate: form.targetDate,
+        dateDelivered: form.dateDelivered,
+        csm: form.csm,
+        link: form.link,
+        remarks: form.remarks,
+      };
+      const body = id
+        ? { action: 'updateEvent', id, patch: payload }
+        : { action: 'addEvent', payload };
+
+      try {
+        const res = await fetch(PROD_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(body),
+        });
+
+        // Ang roster ay hiwalay na sulat — kailangan muna ng Event ID.
+        let eventId = id;
+        if (!eventId) {
+          try {
+            const out = await res.json();
+            if (out && out.id) eventId = String(out.id);
+          } catch {
+            /* kung hindi mabasa ang sagot, laktawan na lang ang roster */
+          }
+        }
+        if (eventId && roster) {
+          await fetch(PROD_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'setAssignments',
+              eventId,
+              rows: roster.filter((r) => r.personnel && r.roles.length),
+            }),
+          });
+        }
+        toast(id ? 'Event updated' : 'Event created — ipinadala sa SRS', 'ok');
+      } catch {
+        toast('Naipadala — sine-sync ko na ang board', 'info');
+      } finally {
+        setSubmitting(false);
+        setEvModal({ open: false, editing: null });
+        setTimeout(() => fetchProduction(), 1400);
+      }
+    },
+    [fetchProduction, toast]
+  );
+
+  const notifyApprover = useCallback(
+    async (id: string) => {
+      if (!PROD_CONFIGURED) {
+        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        return;
+      }
+      try {
+        await fetch(PROD_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'notify', id }),
+        });
+        toast('Approval email ipinadala', 'ok');
+      } catch {
+        toast('Hindi maabot ang backend', 'err');
+      }
+    },
+    [toast]
+  );
+
+  const stepEvent = useCallback(
+    async (ev: AVEvent, key: PipelineKey, next: PipelineState) => {
+      if (!PROD_CONFIGURED) {
+        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        return;
+      }
+      setEvents((prev) =>
+        prev.map((x) =>
+          x.id === ev.id ? { ...x, pipeline: { ...x.pipeline, [key]: next } } : x
+        )
+      );
+      const fieldMap: Record<PipelineKey, string> = {
+        coordination: 'coordination',
+        documents: 'documents',
+        deliverables: 'deliverables',
+        archiving: 'archiving',
+      };
+      try {
+        await fetch(PROD_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'updateEvent',
+            id: ev.id,
+            patch: { [fieldMap[key]]: PIPELINE_META[next].label },
+          }),
+        });
+      } catch {
+        /* optimistic — ire-reconcile ng susunod na refetch */
+      }
+      setTimeout(() => fetchProduction(), 1600);
+    },
+    [fetchProduction, toast]
+  );
+
+  const submitRequest = useCallback(
+    async (form: Record<string, string>, id: string | null) => {
+      if (!PROD_CONFIGURED) {
+        toast('Ilagay muna ang PROD_SCRIPT_URL sa App.tsx.', 'err');
+        return;
+      }
+      setSubmitting(true);
+      const body = id
+        ? {
+            action: 'updateRequest',
+            id,
+            patch: {
+              status: form.status,
+              reason: form.reason,
+              dateApproved: form.dateApproved,
+              targetDate: form.targetDate,
+              dateDelivered: form.dateDelivered,
+              csm: form.csm,
+              personnel: form.personnel,
+              remarks: form.remarks,
+            },
+          }
+        : { action: 'addRequest', payload: form };
+
+      try {
+        await fetch(PROD_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(body),
+        });
+        toast(id ? 'Request updated' : 'Request logged sa register', 'ok');
+      } catch {
+        toast('Naipadala — sine-sync ko na ang register', 'info');
+      } finally {
+        setSubmitting(false);
+        setReqModal({ open: false, editing: null });
         setTimeout(() => fetchProduction(), 1400);
       }
     },
@@ -1974,6 +4994,29 @@ export default function App() {
     [coverages, outputs]
   );
 
+  /**
+   * Bilang kada papel — ang totoong workload picture na hinihingi ng Item 41.
+   * Kung si Xyrus ay cam op AT editor AT coordinator sa isang event, tatlo
+   * 'yon, hindi isa.
+   */
+  const roleLoad = useMemo(() => {
+    return TEAM.map((m) => {
+      const mine = assignments.filter(
+        (a) => a.personnel.toLowerCase() === m.name.toLowerCase()
+      );
+      const byRole = new Map<string, number>();
+      mine.forEach((a) =>
+        a.roles.forEach((r) => byRole.set(r, (byRole.get(r) || 0) + 1))
+      );
+      return {
+        name: m.name,
+        events: mine.length,
+        roleCount: mine.reduce((acc, a) => acc + a.roles.length, 0),
+        top: Array.from(byRole.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4),
+      };
+    }).sort((a, b) => b.roleCount - a.roleCount);
+  }, [assignments]);
+
   const prodSummary = useMemo(() => {
     const live = outputs.filter((o) => o.stage !== 'published' && o.stage !== 'approved');
     const done = outputs.filter((o) => o.stage === 'published' || o.stage === 'approved');
@@ -1995,6 +5038,71 @@ export default function App() {
         : outputs.filter((o) => (o.personnel || '').toLowerCase().includes(prodPerson.toLowerCase())),
     [outputs, prodPerson]
   );
+
+  const filteredEvents = useMemo(() => {
+    const q = evQuery.trim().toLowerCase();
+    return events.filter((ev) => {
+      if (evApproval !== 'ALL' && ev.approval !== evApproval) return false;
+      if (evFulfil !== 'ALL' && fulfilment(ev) !== evFulfil) return false;
+      if (
+        q &&
+        !`${ev.title} ${ev.client} ${ev.lead} ${ev.venue} ${ev.id} ${ev.requested.join(' ')}`
+          .toLowerCase()
+          .includes(q)
+      )
+        return false;
+      return true;
+    });
+  }, [events, evQuery, evApproval, evFulfil]);
+
+  const approvalQueue = useMemo(
+    () => events.filter((ev) => APPROVAL_META[ev.approval].live && ev.approval !== 'approved'),
+    [events]
+  );
+
+  /** Events + legacy register, pinagsama para sa compliance panels. */
+  const isoRequests = useMemo(
+    () => [...events.map(eventAsRequest), ...requests],
+    [events, requests]
+  );
+
+  /** PM 2.1 at 2.2 — ang dalawang opisyal na KPI ng AV Services. */
+  const kpi = useMemo(() => {
+    const approvedOrBeyond = isoRequests.filter(
+      (r) => r.status === 'approved' || r.status === 'ongoing' || r.status === 'completed'
+    );
+    const delivered = approvedOrBeyond.filter((r) => r.status === 'completed');
+    const rated = isoRequests.filter((r) => r.csm > 0);
+    const passing = rated.filter((r) => r.csm >= CSM_PASS);
+
+    return {
+      execution: approvedOrBeyond.length
+        ? Math.round((delivered.length / approvedOrBeyond.length) * 100)
+        : null,
+      approvedTotal: approvedOrBeyond.length,
+      deliveredTotal: delivered.length,
+      csm: rated.length ? Math.round((passing.length / rated.length) * 100) : null,
+      rated: rated.length,
+    };
+  }, [isoRequests]);
+
+  const filteredRequests = useMemo(() => {
+    const q = reqQuery.trim().toLowerCase();
+    return requests.filter((r) => {
+      if (reqStatusFilter !== 'ALL' && r.status !== reqStatusFilter) return false;
+      if (reqStreamFilter !== 'ALL' && r.stream !== reqStreamFilter) return false;
+      if (q && !`${r.title} ${r.client} ${r.personnel} ${r.serviceType} ${r.id}`.toLowerCase().includes(q))
+        return false;
+      return true;
+    });
+  }, [requests, reqQuery, reqStatusFilter, reqStreamFilter]);
+
+  const reqCounts = useMemo(() => {
+    const base = {} as Record<ReqStatus, number>;
+    REQ_ORDER.forEach((k) => (base[k] = 0));
+    requests.forEach((r) => (base[r.status] += 1));
+    return base;
+  }, [requests]);
 
   const years = useMemo(() => {
     const set = new Set<string>();
@@ -2085,6 +5193,72 @@ export default function App() {
     };
   }, [ipcrOutputs, ipcrRecords]);
 
+  const ipcrRequests = useMemo(() => {
+    let base: ServiceRequest[];
+    if (selectedIPCRPersonnel === 'Lotus') {
+      base = requests.filter((r) => r.status === 'completed');
+    } else {
+      base = requests.filter((r) =>
+        (r.personnel || '').toLowerCase().includes(selectedIPCRPersonnel.toLowerCase())
+      );
+    }
+    if (ipcrYear !== 'ALL') {
+      base = base.filter((r) => {
+        const d = r.dateDelivered || r.dateRequested || r.eventDate;
+        return d && String(d.getFullYear()) === ipcrYear;
+      });
+    }
+    return [...base].sort((a, b) => {
+      const at = (a.dateDelivered || a.dateRequested)?.getTime() ?? 0;
+      const bt = (b.dateDelivered || b.dateRequested)?.getTime() ?? 0;
+      return at - bt;
+    });
+  }, [requests, selectedIPCRPersonnel, ipcrYear]);
+
+  /** Ang mga papel na hinawakan ng piniling tao — Part D ng IPCR. */
+  const ipcrRoles = useMemo(() => {
+    if (selectedIPCRPersonnel === 'Lotus') return [];
+    const mine = assignments.filter(
+      (a) => a.personnel.toLowerCase() === selectedIPCRPersonnel.toLowerCase()
+    );
+    const filtered =
+      ipcrYear === 'ALL'
+        ? mine
+        : mine.filter((a) => {
+            const d = a.dateCompleted || a.dateAssigned;
+            return d && String(d.getFullYear()) === ipcrYear;
+          });
+    return [...filtered].sort((a, b) => {
+      const at = (a.dateCompleted || a.dateAssigned)?.getTime() ?? 0;
+      const bt = (b.dateCompleted || b.dateAssigned)?.getTime() ?? 0;
+      return at - bt;
+    });
+  }, [assignments, selectedIPCRPersonnel, ipcrYear]);
+
+  const ipcrRoleTally = useMemo(() => {
+    const m = new Map<string, number>();
+    ipcrRoles.forEach((a) => a.roles.forEach((r) => m.set(r, (m.get(r) || 0) + 1)));
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+  }, [ipcrRoles]);
+
+  const ipcrSLA = useMemo(() => {
+    const tats = ipcrRequests.map(actualTAT).filter((v): v is number => v !== null);
+    const rated = ipcrRequests.map(slaState).filter((x) => x === 'ontime' || x === 'breached');
+    const csmRated = ipcrRequests.filter((r) => r.csm > 0);
+    return {
+      avgTAT: tats.length ? tats.reduce((a, b) => a + b, 0) / tats.length : null,
+      onTime: rated.length
+        ? Math.round((rated.filter((x) => x === 'ontime').length / rated.length) * 100)
+        : null,
+      csm: csmRated.length
+        ? Math.round(
+            (csmRated.filter((r) => r.csm >= CSM_PASS).length / csmRated.length) * 100
+          )
+        : null,
+      csmCount: csmRated.length,
+    };
+  }, [ipcrRequests]);
+
   const controlNo = useMemo(() => {
     const initials = (OFFICIAL[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel)
       .split(' ')
@@ -2093,8 +5267,9 @@ export default function App() {
       .replace(/[^A-Z]/g, '')
       .slice(0, 3);
     const y = ipcrYear === 'ALL' ? new Date().getFullYear() : ipcrYear;
-    return `BDMS-AV-${y}-${initials}-${String(ipcrRecords.length + ipcrOutputs.length).padStart(3, '0')}`;
-  }, [selectedIPCRPersonnel, ipcrYear, ipcrRecords.length, ipcrOutputs.length]);
+    const n = ipcrRecords.length + ipcrOutputs.length + ipcrRequests.length;
+    return `BDMS-AV-${y}-${initials}-${String(n).padStart(3, '0')}`;
+  }, [selectedIPCRPersonnel, ipcrYear, ipcrRecords.length, ipcrOutputs.length, ipcrRequests.length]);
 
   /* ------------------------------------------------------------ ACTIONS -- */
   const scrollTo = (ref: { current: HTMLElement | null }) =>
@@ -2150,7 +5325,11 @@ export default function App() {
     setOpenApp(null);
     setDrawerPerson(null);
     setPaletteOpen(false);
-    setTimeout(() => window.print(), 120);
+    setReqModal({ open: false, editing: null });
+    setEvModal({ open: false, editing: null });
+    setLogOpen(false);
+    setView('reports');
+    setTimeout(() => window.print(), 160);
   }, []);
 
   const commands = useMemo<Cmd[]>(() => {
@@ -2225,7 +5404,63 @@ export default function App() {
         hint: 'Display',
         group: 'Actions',
         run: () => setKioskOn(true),
+      },
+      {
+        id: 'log-request',
+        label: 'Log a service request',
+        hint: 'Register',
+        group: 'Actions',
+        run: () => {
+          setView('requests');
+          setReqModal({ open: true, editing: null });
+        },
+      },
+      {
+        id: 'new-event',
+        label: 'Create a new event request',
+        hint: 'Events',
+        group: 'Actions',
+        run: () => {
+          setView('events');
+          setEvModal({ open: true, editing: null });
+        },
       }
+    );
+    events.slice(0, 40).forEach((ev) =>
+      list.push({
+        id: `ev-${ev.id}`,
+        label: ev.title || 'Untitled event',
+        hint: `${APPROVAL_META[ev.approval].short} · ${FULFIL_META[fulfilment(ev)].label}`,
+        group: 'Events',
+        run: () => {
+          setView('events');
+          setEvModal({ open: true, editing: ev });
+        },
+      })
+    );
+    VIEWS.forEach((v) =>
+      list.push({
+        id: `view-${v.key}`,
+        label: `Go to ${v.label}`,
+        hint: v.hint,
+        group: 'Navigate',
+        run: () => {
+          setView(v.key);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        },
+      })
+    );
+    requests.slice(0, 40).forEach((r) =>
+      list.push({
+        id: `req-${r.id}`,
+        label: r.title || 'Untitled request',
+        hint: `${REQ_META[r.status].label} · ${r.client || 'no client'}`,
+        group: 'Requests',
+        run: () => {
+          setView('requests');
+          setReqModal({ open: true, editing: r });
+        },
+      })
     );
     outputs.slice(0, 40).forEach((o, i) =>
       list.push({
@@ -2264,7 +5499,7 @@ export default function App() {
       })
     );
     return list;
-  }, [coverages, outputs, exportCSV, fetchTasks, fetchProduction, printSheet]);
+  }, [coverages, outputs, requests, events, exportCSV, fetchTasks, fetchProduction, printSheet]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2282,87 +5517,109 @@ export default function App() {
   }, []);
 
   const connMeta = {
-    connecting: { dot: 'bg-amber-400', label: 'CONNECTING' },
-    live: { dot: 'bg-red-500', label: `LIVE · ${lastUpdated}` },
-    error: { dot: 'bg-zinc-600', label: 'OFFLINE' },
+    connecting: { dot: 'bg-amber-500', label: 'Connecting', short: 'Sync' },
+    live: { dot: 'bg-emerald-500', label: `Live · ${lastUpdated}`, short: 'Live' },
+    error: { dot: 'bg-zinc-600', label: 'Offline', short: 'Offline' },
   }[conn];
 
   /* --------------------------------------------------------------- VIEW -- */
   return (
-    <div className="relative min-h-screen bg-black font-sans text-zinc-200 selection:bg-[#00aeef]/30">
-      {/* ambient atmosphere */}
-      <div className="pointer-events-none fixed inset-0 z-0 no-print">
-        <div className="absolute -left-40 -top-40 h-[520px] w-[520px] rounded-full bg-[#00aeef]/[0.07] blur-[120px]" />
-        <div className="absolute -right-32 top-1/3 h-[420px] w-[420px] rounded-full bg-red-600/[0.05] blur-[130px]" />
-        <div className="absolute inset-0 opacity-[0.035] grain" />
-      </div>
-
-      <div className="relative z-10 p-4 pb-32 md:p-8 md:pb-32">
+    <div className="relative min-h-screen bg-[#08080a] font-sans text-[13px] text-zinc-300 antialiased selection:bg-[#00aeef]/25">
+      <div className="relative z-10 px-4 pb-28 pt-5 md:px-8">
         {/* ================================================ DASHBOARD ==== */}
-        <div className="no-print space-y-10">
-          {/* -------------------------------------------------- HEADER -- */}
-          <header className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 border-b border-zinc-800 pb-6 md:flex-row md:items-end">
-            <div>
-              <img src="/stii.png" alt="DOST-STII" className="mb-6 h-16 w-auto drop-shadow-md" />
-              <div className="mb-2 flex items-center gap-2">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500" />
-                <span className="font-mono text-[10px] uppercase tracking-[0.28em] text-zinc-500">
+        <div className="no-print space-y-6">
+          {/* ---------------------------------------------- APP BAR -- */}
+          <header className="mx-auto max-w-[1400px]">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-zinc-800/80 pb-4">
+              <img src="/stii.png" alt="DOST-STII" className="h-8 w-auto shrink-0" />
+
+              <div className="flex min-w-0 items-baseline gap-3">
+                <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100">
+                  AV Nexus
+                </h1>
+                <span className="hidden truncate text-[12px] text-zinc-600 sm:block">
                   Broadcast &amp; Digital Media Section
                 </span>
               </div>
-              <h1 className="mb-1 font-display text-5xl font-black uppercase tracking-tight text-white drop-shadow-sm md:text-6xl">
-                AV{' '}
-                <span className="text-[#00aeef] drop-shadow-[0_0_10px_rgba(0,174,239,0.45)]">
-                  Nexus
-                </span>
-              </h1>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-400">
-                Master control · coverage, DMC &amp; systems
-              </p>
-            </div>
 
-            <div className="flex w-full flex-col items-start gap-3 md:w-auto md:items-end">
-              <div className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-950/80 px-4 py-2 shadow-inner">
-                <span className={`h-2 w-2 rounded-full ${connMeta.dot} ${conn === 'live' ? 'animate-pulse' : ''}`} />
-                <span className="font-mono text-xs text-zinc-400">{connMeta.label}</span>
-                <button
-                  onClick={() => fetchTasks(true)}
-                  className={`ml-1 text-xs text-zinc-500 transition-colors hover:text-[#00aeef] ${
-                    refreshing ? 'animate-spin' : ''
-                  }`}
-                  aria-label="Refresh now"
-                >
-                  ↻
-                </button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="ml-auto flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setPaletteOpen(true)}
-                  className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-xs font-bold text-white shadow-md transition-colors hover:bg-zinc-700"
+                  className="flex items-center gap-2 rounded border border-zinc-800 bg-[#101012] px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
                 >
-                  ⌘K Quick jump
+                  Search
+                  <kbd className="rounded border border-zinc-800 px-1 font-mono text-[10px] text-zinc-600">
+                    ⌘K
+                  </kbd>
                 </button>
+
                 <a
                   href={PRE_ARCHIVAL_LINK}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-xs font-bold text-white shadow-md transition-colors hover:bg-zinc-700"
+                  className="rounded border border-zinc-800 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
                 >
-                  📁 Pre-Archival
+                  Pre-Archival
                 </a>
                 <a
                   href={DMC_MONITORING_LINK}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg bg-[#00aeef]/90 px-4 py-2 text-xs font-bold text-white shadow-[0_0_15px_rgba(0,174,239,0.2)] transition-colors hover:bg-[#00aeef]"
+                  className="rounded border border-zinc-800 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
                 >
-                  📊 DMC Monitoring IRAD
+                  DMC Sheet
                 </a>
+
+                <button
+                  onClick={() => fetchTasks(true)}
+                  title={conn === 'live' ? `Last sync ${lastUpdated}` : connMeta.label}
+                  className="flex items-center gap-2 rounded px-2.5 py-1.5 text-[12px] text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
+                  <span className="font-mono">{refreshing ? 'Syncing' : connMeta.short}</span>
+                </button>
               </div>
             </div>
           </header>
 
-          <main className="mx-auto max-w-7xl space-y-12">
+          <main className="mx-auto max-w-[1400px] space-y-9">
+            {/* --------------------------------------------- NAV ------- */}
+            <nav className="-mt-6 flex gap-0.5 overflow-x-auto border-b border-zinc-800/80 pb-px custom-scrollbar">
+              {VIEWS.map((v) => {
+                const active = view === v.key;
+                const badge =
+                  v.key === 'events'
+                    ? events.length
+                    : v.key === 'requests'
+                    ? requests.length
+                    : v.key === 'production'
+                    ? outputs.length
+                    : 0;
+                const alert = v.key === 'events' ? approvalQueue.length : 0;
+                return (
+                  <button
+                    key={v.key}
+                    onClick={() => setView(v.key)}
+                    title={v.hint}
+                    className={`group relative shrink-0 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
+                      active ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {v.label}
+                    {badge > 0 && (
+                      <span className="ml-1.5 font-mono text-[11px] text-zinc-600">{badge}</span>
+                    )}
+                    {alert > 0 && (
+                      <span className="absolute right-1 top-2 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                    )}
+                    {active && (
+                      <span className="absolute inset-x-0 -bottom-px h-px bg-[#00aeef]" />
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
             {conn === 'error' && (
               <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-300">
                 Hindi nakuha ang records — {errMsg}. Naka-cache pa ang huling nakuhang data.
@@ -2370,13 +5627,15 @@ export default function App() {
               </div>
             )}
 
+            {view === 'pulse' && (
+            <>
             {/* ---------------------------------------- SYSTEMS HUB ---- */}
             <section>
               <SectionHead
                 title="SYSTEMS HUB"
                 hint="Lahat ng AV-built systems, buksan mo dito nang hindi umaalis sa dashboard."
                 right={
-                  <span className="hidden font-mono text-[10px] uppercase tracking-widest text-zinc-600 md:block">
+                  <span className="hidden font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-600 md:block">
                     {SYSTEMS.length} apps online
                   </span>
                 }
@@ -2386,7 +5645,7 @@ export default function App() {
                   <button
                     key={s.id}
                     onClick={() => setOpenApp(s)}
-                    className="group relative flex flex-col overflow-hidden rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 text-left backdrop-blur-sm transition-all duration-300 hover:-translate-y-1"
+                    className="group relative flex flex-col overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012] p-5 text-left transition-all duration-300 hover:-translate-y-1"
                     style={{ boxShadow: 'none' }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLElement).style.borderColor = `${s.accent}66`;
@@ -2409,7 +5668,7 @@ export default function App() {
                         {s.glyph}
                       </div>
                       <span
-                        className="rounded-full border px-2 py-0.5 font-mono text-[9px] font-bold tracking-widest"
+                        className="rounded-full border px-2 py-0.5 font-mono text-[9px] font-bold tracking-[0.1em]"
                         style={{ borderColor: `${s.accent}33`, color: s.accent }}
                       >
                         {s.tag}
@@ -2433,7 +5692,7 @@ export default function App() {
                         className="text-[11px] font-bold transition-transform group-hover:translate-x-1"
                         style={{ color: s.accent }}
                       >
-                        Open window →
+                        Open
                       </span>
                     </div>
                   </button>
@@ -2476,14 +5735,14 @@ export default function App() {
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <div className="rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
                     DMC status mix
                   </p>
                   <StatusDonut counts={stats.counts} total={stats.total} />
                 </div>
-                <div className="rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
                     Deployment load
                   </p>
                   <WorkloadBars data={workload} />
@@ -2498,8 +5757,8 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-                <div className="rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
                     Up next
                   </p>
                   <div className="space-y-3">
@@ -2520,8 +5779,8 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="mt-4 rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm">
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+              <div className="mt-4 rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
                   Coverage density · last 26 weeks
                 </p>
                 <ActivityGrid coverages={coverages} />
@@ -2539,10 +5798,10 @@ export default function App() {
                     <button
                       key={member.name}
                       onClick={() => setDrawerPerson(member)}
-                      className="group relative cursor-pointer overflow-hidden rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 text-left backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-[#00aeef]/50 hover:bg-[#09090b]"
+                      className="group relative cursor-pointer overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012] p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-[#00aeef]/50 hover:bg-[#101012]"
                     >
                       <div className="mb-4 flex items-center gap-4">
-                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-zinc-800 shadow-lg transition-colors duration-300 group-hover:border-[#00aeef]">
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-zinc-800 transition-colors duration-300 group-hover:border-[#00aeef]">
                           <img
                             src={member.image}
                             alt={member.name}
@@ -2559,10 +5818,7 @@ export default function App() {
                             </p>
                           </div>
                           {act ? (
-                            <span className="relative flex h-3 w-3">
-                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                              <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-                            </span>
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#00aeef]" />
                           ) : (
                             <span className="h-3 w-3 rounded-full bg-zinc-800" />
                           )}
@@ -2596,6 +5852,11 @@ export default function App() {
               </div>
             </section>
 
+            </>
+            )}
+
+            {view === 'production' && (
+            <>
             {/* ------------------------------------ PRODUCTION BOARD ---- */}
             <section ref={boardRef}>
               <SectionHead
@@ -2610,7 +5871,7 @@ export default function App() {
                           onClick={() => setProdPerson(n)}
                           className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                             prodPerson === n
-                              ? 'border-[#00aeef]/50 bg-[#00aeef]/15 text-[#00aeef]'
+                              ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
                               : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
                           }`}
                         >
@@ -2620,7 +5881,7 @@ export default function App() {
                     </div>
                     <button
                       onClick={() => setLogOpen(true)}
-                      className="rounded-lg bg-[#00aeef] px-4 py-2 text-xs font-bold text-black transition-opacity hover:opacity-85"
+                      className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
                     >
                       + Log output
                     </button>
@@ -2629,7 +5890,7 @@ export default function App() {
               />
 
               {prodReady === 'missing' ? (
-                <div className="rounded-xl border border-dashed border-zinc-800 bg-[#09090b]/60 p-8 text-center">
+                <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
                   <p className="mb-2 text-sm font-bold text-white">Hindi pa naka-set up ang Production Log</p>
                   <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
                     Gumawa ng <span className="text-zinc-300">bagong blangkong spreadsheet</span> (hiwalay
@@ -2680,7 +5941,7 @@ export default function App() {
                   </div>
 
                   {outputs.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-zinc-800 bg-[#09090b]/60 p-10 text-center">
+                    <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-10 text-center">
                       <p className="mb-1 text-sm text-zinc-300">Walang pa lang naka-log na output.</p>
                       <p className="mb-4 text-xs text-zinc-600">
                         Simulan sina Marx at Reiner — kahit shoot day lang, bilang 'yon.
@@ -2699,8 +5960,8 @@ export default function App() {
                         onAdvance={advanceStage}
                         busyId={busyId}
                       />
-                      <div className="mt-4 rounded-xl border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm">
-                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                      <div className="mt-4 rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
                           Output scoreboard · quantity, timeliness, revisions
                         </p>
                         <ProductionScoreboard
@@ -2714,6 +5975,11 @@ export default function App() {
               )}
             </section>
 
+            </>
+            )}
+
+            {view === 'pulse' && (
+            <>
             {/* -------------------------------- RECORDS + CALENDAR ------ */}
             <div ref={recordsRef} className="grid grid-cols-1 gap-8 lg:grid-cols-3">
               <section className="lg:col-span-2">
@@ -2722,8 +5988,8 @@ export default function App() {
                   hint={`${filteredRecords.length} sa ${coverages.length} records ang tugma.`}
                 />
 
-                <div className="mb-4 space-y-3 rounded-xl border border-zinc-800 bg-[#09090b]/80 p-4 backdrop-blur-sm">
-                  <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-black/60 px-3 py-2">
+                <div className="mb-4 space-y-3 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
+                  <div className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2">
                     <span className="text-zinc-600">⌕</span>
                     <input
                       value={query}
@@ -2744,7 +6010,7 @@ export default function App() {
                         onClick={() => setFilterPerson(p)}
                         className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                           filterPerson === p
-                            ? 'border-[#00aeef]/50 bg-[#00aeef]/15 text-[#00aeef]'
+                            ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
                             : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
                         }`}
                       >
@@ -2773,7 +6039,7 @@ export default function App() {
                     [0, 1, 2].map((i) => (
                       <div
                         key={i}
-                        className="h-28 animate-pulse rounded-lg border border-zinc-800 bg-[#09090b]/60"
+                        className="h-28 animate-pulse rounded-lg border border-zinc-800 bg-[#101012]"
                       />
                     ))}
 
@@ -2781,7 +6047,7 @@ export default function App() {
                     filteredRecords.slice(0, visibleCount).map((cov, idx) => (
                       <div
                         key={idx}
-                        className="flex flex-col justify-between gap-4 rounded-lg border border-zinc-800 bg-[#09090b]/80 p-5 backdrop-blur-sm transition-colors hover:border-zinc-700 hover:bg-[#09090b] md:flex-row"
+                        className="flex flex-col justify-between gap-4 rounded-md border border-zinc-800/80 bg-[#101012] p-5 transition-colors hover:border-zinc-700 hover:bg-[#101012] md:flex-row"
                       >
                         <div className="min-w-0 flex-1">
                           <h3 className="mb-2 text-base font-bold leading-snug text-zinc-100">
@@ -2806,9 +6072,9 @@ export default function App() {
                                 href={cov.gdrive}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] drop-shadow-[0_0_2px_rgba(0,174,239,0.5)] transition-colors hover:text-white"
+                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] transition-colors hover:text-white"
                               >
-                                📂 GDrive
+                                Drive
                               </a>
                             )}
                             {cov.socialMediaLink && (
@@ -2816,9 +6082,9 @@ export default function App() {
                                 href={cov.socialMediaLink}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] drop-shadow-[0_0_2px_rgba(0,174,239,0.5)] transition-colors hover:text-white"
+                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] transition-colors hover:text-white"
                               >
-                                🌐 Social Media
+                                Social
                               </a>
                             )}
                             <button
@@ -2859,7 +6125,7 @@ export default function App() {
                   {filteredRecords.length > visibleCount && (
                     <button
                       onClick={() => setVisibleCount((v) => v + 12)}
-                      className="w-full rounded-lg border border-zinc-800 py-3 text-xs font-bold uppercase tracking-widest text-zinc-400 transition-colors hover:border-[#00aeef]/40 hover:text-[#00aeef]"
+                      className="w-full rounded-lg border border-zinc-800 py-3 text-xs font-bold uppercase tracking-[0.1em] text-zinc-400 transition-colors hover:border-[#00aeef]/40 hover:text-[#00aeef]"
                     >
                       Show 12 more · {filteredRecords.length - visibleCount} natitira
                     </button>
@@ -2870,7 +6136,7 @@ export default function App() {
               <section className="space-y-8 lg:col-span-1">
                 <div>
                   <SectionHead title="AV CALENDAR" />
-                  <div className="group relative h-[450px] overflow-hidden rounded-xl border border-zinc-800 bg-[#09090b]/80 backdrop-blur-sm">
+                  <div className="group relative h-[450px] overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012]">
                     <iframe
                       src={CAL_EMBED}
                       style={{ border: 0 }}
@@ -2886,7 +6152,7 @@ export default function App() {
 
                 <div>
                   <SectionHead title="SHORTCUTS" />
-                  <div className="space-y-2 rounded-xl border border-zinc-800 bg-[#09090b]/80 p-4 backdrop-blur-sm">
+                  <div className="space-y-2 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
                     {[
                       ['⌘K / Ctrl K', 'Quick jump sa kahit ano'],
                       ['/', 'Buksan ang search'],
@@ -2904,9 +6170,420 @@ export default function App() {
               </section>
             </div>
 
+            </>
+            )}
+
+            {/* ========================================= EVENTS ======== */}
+            {view === 'events' && (
+              <>
+                <section>
+                  <SectionHead
+                    title="EVENT MONITORING"
+                    hint="Bawat event: ano ang hiniling, ano ang inaprubahan, at ano ang aktwal na naibigay."
+                    right={
+                      <button
+                        onClick={() => setEvModal({ open: true, editing: null })}
+                        className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                      >
+                        + New event
+                      </button>
+                    }
+                  />
+
+                  {prodReady === 'missing' ? (
+                    <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
+                      <p className="mb-2 text-sm font-bold text-white">
+                        Hindi pa konektado ang Events sheet
+                      </p>
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                        I-paste ang <span className="font-mono text-zinc-300">AVNexus.gs</span> sa
+                        Apps Script ng AV Production Log spreadsheet, punan ang EMAIL_SRS at
+                        EMAIL_DC, i-run ang{' '}
+                        <span className="font-mono text-[#00aeef]">setupSheets()</span>, tapos
+                        Deploy → Manage deployments → New version.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <EventSummary events={events} />
+
+                      {approvalQueue.length > 0 && (
+                        <div className="mt-4 rounded-xl border border-amber-900/50 bg-amber-950/20 p-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-400">
+                              Naghihintay ng aksyon · {approvalQueue.length}
+                            </p>
+                            <span className="font-mono text-[10px] text-zinc-500">
+                              SRS → Division Chief
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {approvalQueue.slice(0, 5).map((ev) => (
+                              <div
+                                key={ev.id}
+                                className="flex items-center justify-between gap-3 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2"
+                              >
+                                <button
+                                  onClick={() => setEvModal({ open: true, editing: ev })}
+                                  className="min-w-0 flex-1 text-left"
+                                >
+                                  <p className="truncate text-xs font-semibold text-zinc-100">
+                                    {ev.title}
+                                  </p>
+                                  <p className="truncate font-mono text-[10px] text-zinc-600">
+                                    {ev.client || '—'} ·{' '}
+                                    {ev.requested.length} serbisyong hiniling
+                                  </p>
+                                </button>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <ApprovalChip k={ev.approval} dense />
+                                  <button
+                                    onClick={() => notifyApprover(ev.id)}
+                                    title="Ipadala ulit ang approval email"
+                                    className="rounded border border-zinc-800 px-2 py-1 text-[10px] text-zinc-500 transition-colors hover:border-[#00aeef]/50 hover:text-[#00aeef]"
+                                  >
+                                    
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mb-4 mt-4 space-y-3 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
+                        <div className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2">
+                          <span className="text-zinc-600">⌕</span>
+                          <input
+                            value={evQuery}
+                            onChange={(e) => setEvQuery(e.target.value)}
+                            placeholder="Hanapin ang event, kliyente, tao, venue, o serbisyo…"
+                            className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
+                          />
+                          {evQuery && (
+                            <button
+                              onClick={() => setEvQuery('')}
+                              className="text-xs text-zinc-500 hover:text-white"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(['ALL', ...APPROVAL_ORDER] as const).map((k) => (
+                            <button
+                              key={k}
+                              onClick={() => setEvApproval(k as 'ALL' | ApprovalKey)}
+                              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                evApproval === k
+                                  ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
+                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                              }`}
+                            >
+                              {k === 'ALL' ? 'All approval' : APPROVAL_META[k as ApprovalKey].label}
+                            </button>
+                          ))}
+                          <span className="mx-1 w-px bg-zinc-800" />
+                          {(['ALL', 'full', 'partial', 'none', 'declined'] as const).map((k) => (
+                            <button
+                              key={k}
+                              onClick={() => setEvFulfil(k as 'ALL' | Fulfilment)}
+                              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                evFulfil === k
+                                  ? 'border-red-500/50 bg-red-500/10 text-red-400'
+                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                              }`}
+                            >
+                              {k === 'ALL' ? 'All service' : FULFIL_META[k as Fulfilment].label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {filteredEvents.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center">
+                          <p className="mb-1 text-sm text-zinc-300">Walang tumugmang event.</p>
+                          <p className="mb-4 text-xs text-zinc-600">
+                            Dito nagsisimula ang lahat — gumawa ng event para masimulan ang
+                            approval at tasking.
+                          </p>
+                          <button
+                            onClick={() => setEvModal({ open: true, editing: null })}
+                            className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black hover:opacity-85"
+                          >
+                            Create the first event
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                          {filteredEvents.map((ev) => (
+                            <EventCard
+                              key={ev.id}
+                              ev={ev}
+                              crew={assignments.filter((a) => a.eventId === ev.id)}
+                              onOpen={() => setEvModal({ open: true, editing: ev })}
+                              onStep={(k, next) => stepEvent(ev, k, next)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </section>
+              </>
+            )}
+
+            {/* ================================== REQUEST REGISTER ==== */}
+            {view === 'requests' && (
+              <>
+                <section>
+                  <SectionHead
+                    title="REQUEST REGISTER"
+                    hint="ISO master record — bawat request na natanggap, kasama ang outcome at dahilan."
+                    right={
+                      <button
+                        onClick={() => setReqModal({ open: true, editing: null })}
+                        className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                      >
+                        + Log request
+                      </button>
+                    }
+                  />
+
+                  {prodReady === 'missing' ? (
+                    <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
+                      <p className="mb-2 text-sm font-bold text-white">
+                        Hindi pa naka-set up ang Request Register
+                      </p>
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                        I-paste ang <span className="font-mono text-zinc-300">AVServices.gs</span> sa
+                        Apps Script ng AV Production Log spreadsheet, i-run ang{' '}
+                        <span className="font-mono text-[#00aeef]">setupSheets()</span>, tapos
+                        Deploy → Manage deployments → New version.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mb-4 space-y-3 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
+                        <div className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2">
+                          <span className="text-zinc-600">⌕</span>
+                          <input
+                            value={reqQuery}
+                            onChange={(e) => setReqQuery(e.target.value)}
+                            placeholder="Hanapin ang request, kliyente, tao, o service type…"
+                            className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
+                          />
+                          {reqQuery && (
+                            <button
+                              onClick={() => setReqQuery('')}
+                              className="text-xs text-zinc-500 hover:text-white"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(['ALL', ...REQ_ORDER] as const).map((k) => (
+                            <button
+                              key={k}
+                              onClick={() => setReqStatusFilter(k as 'ALL' | ReqStatus)}
+                              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                reqStatusFilter === k
+                                  ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
+                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                              }`}
+                            >
+                              {k === 'ALL'
+                                ? 'All status'
+                                : `${REQ_META[k as ReqStatus].label} ${reqCounts[k as ReqStatus] || 0}`}
+                            </button>
+                          ))}
+                          <span className="mx-1 w-px bg-zinc-800" />
+                          {(['ALL', 'coverage', 'production'] as const).map((k) => (
+                            <button
+                              key={k}
+                              onClick={() => setReqStreamFilter(k as 'ALL' | Stream)}
+                              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                reqStreamFilter === k
+                                  ? 'border-red-500/50 bg-red-500/10 text-red-400'
+                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                              }`}
+                            >
+                              {k === 'ALL' ? 'All streams' : STREAM_META[k as Stream].short}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <RequestTable
+                        requests={filteredRequests}
+                        onEdit={(r) => setReqModal({ open: true, editing: r })}
+                      />
+                    </>
+                  )}
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="UNMET REQUESTS LOG"
+                    hint="Audit Item 40 — outcome at hustipikasyon ng bawat hindi na-serve na request."
+                  />
+                  <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                    <UnmetRequestsLog requests={requests} />
+                  </div>
+                </section>
+              </>
+            )}
+
+            {/* ====================================== COMPLIANCE ====== */}
+            {view === 'compliance' && prodReady === 'missing' && events.length === 0 && (
+              <section>
+                <SectionHead
+                  title="COMPLIANCE"
+                  hint="Audit Items 40 / 41 / 44 — naghihintay ng koneksyon sa Request Register."
+                />
+                <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
+                  <p className="mb-2 text-sm font-bold text-white">
+                    Hindi pa konektado ang Request Register
+                  </p>
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                    Walang maipapakitang compliance data hangga't walang naitatalang request.
+                    I-paste ang <span className="font-mono text-zinc-300">AVServices.gs</span>, i-run
+                    ang <span className="font-mono text-[#00aeef]">setupSheets()</span>, i-deploy,
+                    tapos ilagay ang /exec URL sa{' '}
+                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span>.
+                  </p>
+                </div>
+              </section>
+            )}
+
+            {view === 'compliance' && (prodReady !== 'missing' || events.length > 0) && (
+              <>
+                <section>
+                  <SectionHead
+                    title="SERVICE PERFORMANCE KPI"
+                    hint="PM-CRPD-AV-08-04 Rev 7, section 2 — Expected Outputs."
+                  />
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-6">
+                      <KPIRing
+                        value={kpi.execution}
+                        target={KPI_EXECUTION_TARGET}
+                        label="Requests executed"
+                        sub={`${kpi.deliveredTotal} sa ${kpi.approvedTotal} approved request ang naihatid sa kliyente.`}
+                      />
+                    </div>
+                    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-6">
+                      <KPIRing
+                        value={kpi.csm}
+                        target={KPI_CSM_TARGET}
+                        label="CSM very satisfactory+"
+                        sub={`${kpi.rated} request ang may CSM rating. Target: 93% na Very Satisfactory pataas.`}
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="SERVICE GAP ANALYSIS"
+                    hint="Audit Item 44 — bawat serbisyong hiniling laban sa aktwal na naibigay."
+                  />
+                  <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                    <ServiceGapPanel events={events} />
+                  </div>
+                </section>
+
+                {requests.length > 0 && (
+                  <section>
+                    <SectionHead
+                      title="DEMAND VS CAPACITY"
+                      hint="Buwanang demand laban sa services rendered, mula sa request register."
+                    />
+                    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                      <DemandCapacityPanel requests={requests} />
+                    </div>
+                  </section>
+                )}
+
+                <section>
+                  <SectionHead
+                    title="WORKLOAD BY ROLE"
+                    hint="Audit Item 41 — ang totoong bigat ng trabaho: bawat papel, hiwalay na binibilang."
+                  />
+                  <div className="overflow-x-auto rounded-md border border-zinc-800/80 bg-[#101012] custom-scrollbar">
+                    <table className="w-full min-w-[640px] text-left">
+                      <thead>
+                        <tr className="border-b border-zinc-800/80 text-[11px] text-zinc-600">
+                          <th className="px-4 py-2.5 font-medium">Personnel</th>
+                          <th className="px-4 py-2.5 text-right font-medium">Events</th>
+                          <th className="px-4 py-2.5 text-right font-medium">Roles filled</th>
+                          <th className="px-4 py-2.5 text-right font-medium">Avg per event</th>
+                          <th className="px-4 py-2.5 font-medium">Most frequent roles</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {roleLoad.map((r) => (
+                          <tr key={r.name} className="border-b border-zinc-900 last:border-0">
+                            <td className="px-4 py-3 text-[13px] font-medium text-zinc-200">
+                              {r.name}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-zinc-300 tabular-nums">
+                              {r.events}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-zinc-50 tabular-nums">
+                              {r.roleCount}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-zinc-500 tabular-nums">
+                              {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-[12px] text-zinc-500">
+                              {r.top.length
+                                ? r.top.map(([role, n]) => `${role} (${n})`).join(', ')
+                                : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {roleLoad.every((r) => r.roleCount === 0) && (
+                      <p className="px-4 py-6 text-center text-[12px] text-zinc-600">
+                        Wala pang naitalang crew assignment. Idagdag sa loob ng event.
+                      </p>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[11px] text-zinc-600">
+                    Ang &ldquo;avg per event&rdquo; na lampas sa 1.0 ay nangangahulugang may
+                    tao kayong humahawak ng maraming papel nang sabay — ito ang direktang
+                    ebidensiya ng kakulangan sa personnel.
+                  </p>
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="TURNAROUND TIME MONITOR"
+                    hint="Audit Item 41 — aktwal na processing time laban sa SLA, working days."
+                  />
+                  <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                    <SLAMonitor requests={isoRequests} />
+                  </div>
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="AUDIT READINESS"
+                    hint="Bawat finding, may kasamang live na ebidensiya mula sa register."
+                  />
+                  <ComplianceScorecard requests={isoRequests} kpi={kpi} events={events} />
+                </section>
+              </>
+            )}
+
+            {view === 'reports' && (
+            <>
             {/* ------------------------------------ IPCR GENERATOR ------ */}
             <section ref={ipcrRef} className="border-t border-zinc-800 pt-10">
-              <div className="rounded-xl border border-zinc-800 bg-[#09090b]/80 p-6 backdrop-blur-sm">
+              <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-6">
                 <div className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
                   <div>
                     <h2 className="text-lg font-bold uppercase tracking-wide text-white">
@@ -2920,7 +6597,7 @@ export default function App() {
                     <select
                       value={selectedIPCRPersonnel}
                       onChange={(e) => setSelectedIPCRPersonnel(e.target.value)}
-                      className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-white focus:border-[#00aeef] focus:outline-none"
+                      className="rounded border border-zinc-800 bg-[#0c0c0e] px-3 py-1.5 text-[13px] text-zinc-200 focus:border-[#00aeef] focus:outline-none"
                     >
                       <option value="Xyrus">Xyrus (AVAT IV)</option>
                       <option value="Marx">Marx (SRS II)</option>
@@ -2931,7 +6608,7 @@ export default function App() {
                     <select
                       value={ipcrYear}
                       onChange={(e) => setIpcrYear(e.target.value)}
-                      className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-bold text-white focus:border-[#00aeef] focus:outline-none"
+                      className="rounded border border-zinc-800 bg-[#0c0c0e] px-3 py-1.5 text-[13px] text-zinc-200 focus:border-[#00aeef] focus:outline-none"
                     >
                       <option value="ALL">All years</option>
                       {years.map((y) => (
@@ -2942,15 +6619,15 @@ export default function App() {
                     </select>
                     <button
                       onClick={exportCSV}
-                      className="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-zinc-700"
+                      className="rounded border border-zinc-800 px-3 py-2 text-[13px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
                     >
-                      ⬇ CSV
+                      Export CSV
                     </button>
                     <button
                       onClick={printSheet}
-                      className="flex items-center gap-2 rounded-lg bg-red-600 px-5 py-2 text-sm font-bold text-white shadow-[0_0_10px_rgba(220,38,38,0.3)] transition-colors hover:bg-red-500"
+                      className="flex items-center gap-2 rounded border border-zinc-800 px-4 py-2 text-[13px] font-medium text-zinc-300 transition-colors hover:border-zinc-700 hover:text-zinc-100"
                     >
-                      🖨 Print / Save as PDF
+                      Print / Save as PDF
                     </button>
                   </div>
                 </div>
@@ -2965,14 +6642,14 @@ export default function App() {
                     />
                     Isama ang GDrive / social links sa printout
                   </label>
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-600">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-600">
                     Control no. {controlNo}
                   </span>
                 </div>
 
                 <div className="custom-scrollbar max-h-[420px] overflow-y-auto rounded-lg border border-zinc-800 bg-black p-5 font-mono text-sm">
                   <p className="mb-3 border-b border-zinc-800 pb-2 font-bold text-red-500">
-                    📄 PREVIEW — ito ang lalabas sa printed sheet
+                    PREVIEW — ito ang lalabas sa printed sheet
                   </p>
                   <div className="space-y-1 text-zinc-300">
                     <p className="text-base font-bold uppercase text-white">
@@ -2992,6 +6669,50 @@ export default function App() {
                     ))}
                     {ipcrRecords.length === 0 && (
                       <p className="italic text-zinc-600">Walang field coverage sa piniling panahon.</p>
+                    )}
+
+                    {ipcrRoles.length > 0 && (
+                      <>
+                        <p className="mt-4 text-base font-bold uppercase text-white">
+                          PART D — ROLES PERFORMED: {ipcrRoles.reduce((a, x) => a + x.roles.length, 0)}
+                        </p>
+                        <p className="text-zinc-700">
+                          --------------------------------------------------
+                        </p>
+                        {ipcrRoles.map((a, idx) => (
+                          <p key={a.id} className="whitespace-pre-wrap leading-relaxed">
+                            <span className="font-bold text-[#00aeef]">{idx + 1}.</span> [
+                            {fmtDate(a.dateCompleted || a.dateAssigned)}] — {a.eventTitle || a.eventId}{' '}
+                            <span className="text-zinc-600">[{a.roles.join(', ') || '—'}]</span>
+                          </p>
+                        ))}
+                      </>
+                    )}
+
+                    {ipcrRequests.length > 0 && (
+                      <>
+                        <p className="mt-4 text-base font-bold uppercase text-white">
+                          PART C — SERVICE REQUESTS HANDLED: {ipcrRequests.length}
+                        </p>
+                        <p className="text-zinc-700">
+                          --------------------------------------------------
+                        </p>
+                        {ipcrRequests.map((r, idx) => {
+                          const tat = actualTAT(r);
+                          return (
+                            <p key={r.id} className="whitespace-pre-wrap leading-relaxed">
+                              <span className="font-bold text-green-500">{idx + 1}.</span> [
+                              {fmtDate(r.dateDelivered || r.dateRequested)}] — {r.title}{' '}
+                              <span className="text-zinc-600">
+                                [{STREAM_META[r.stream].short} ·{' '}
+                                {REQ_META[r.status].label.toUpperCase()}
+                                {tat !== null ? ` · ${tat} WD` : ''}
+                                {r.csm ? ` · CSM ${r.csm}` : ''}]
+                              </span>
+                            </p>
+                          );
+                        })}
+                      </>
                     )}
 
                     {ipcrOutputs.length > 0 && (
@@ -3019,8 +6740,11 @@ export default function App() {
               </div>
             </section>
 
+            </>
+            )}
+
             <footer className="pb-8 pt-4 text-center">
-              <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-zinc-700">
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-700">
                 DOST-STII · CRPD · Broadcast &amp; Digital Media Section
               </p>
             </footer>
@@ -3030,7 +6754,7 @@ export default function App() {
         {/* ============================================= PRINT SHEET ==== */}
         <div className="print-only hidden bg-white p-8 font-serif text-base text-black">
           <div className="mb-6 border-b-2 border-black pb-4 text-center">
-            <p className="text-xs uppercase tracking-widest">Republic of the Philippines</p>
+            <p className="text-xs uppercase tracking-[0.1em]">Republic of the Philippines</p>
             <p className="text-sm font-bold uppercase">Department of Science and Technology</p>
             <p className="text-xs uppercase">Science and Technology Information Institute</p>
             <h1 className="mt-3 text-2xl font-bold uppercase tracking-wide">
@@ -3038,7 +6762,7 @@ export default function App() {
                 ? 'Supervisory Verification Report'
                 : 'AV Production Services Coverage Report'}
             </h1>
-            <p className="mt-1 text-sm uppercase tracking-widest">
+            <p className="mt-1 text-sm uppercase tracking-[0.1em]">
               AV Coverage and DMC Verification
             </p>
             <p className="mt-1 text-xs italic">Official reference document for IPCR / SPMS</p>
@@ -3057,12 +6781,13 @@ export default function App() {
                   ? 'Total verified / checked:'
                   : 'Total catered operations:'}{' '}
                 <span className="underline">
-                  {ipcrRecords.length + ipcrOutputs.length} records
+                  {ipcrRecords.length + ipcrOutputs.length + ipcrRequests.length} records
                 </span>
               </p>
               <p className="text-xs">
                 {ipcrRecords.length} field coverage · {ipcrOutputs.length} production output
-                {ipcrOutputs.length === 1 ? '' : 's'}
+                {ipcrOutputs.length === 1 ? '' : 's'} · {ipcrRequests.length} service request
+                {ipcrRequests.length === 1 ? '' : 's'}
               </p>
             </div>
             <div className="text-right text-xs">
@@ -3191,12 +6916,134 @@ export default function App() {
                         ? 'No target dates recorded'
                         : `${ipcrQQT.onTime}% delivered on or before target date`}
                     </p>
+                    {ipcrSLA.onTime !== null && (
+                      <p>
+                        Requests: {ipcrSLA.onTime}% within SLA
+                        {ipcrSLA.avgTAT !== null && `, avg ${ipcrSLA.avgTAT.toFixed(1)} WD`}
+                      </p>
+                    )}
+                    {ipcrSLA.csm !== null && (
+                      <p>
+                        CSM: {ipcrSLA.csm}% very satisfactory or higher ({ipcrSLA.csmCount} rated)
+                      </p>
+                    )}
                   </div>
                   <div>
                     <p className="font-bold">Source</p>
-                    <p>AV Nexus — DMC Monitoring &amp; Production Log</p>
+                    <p>AV Nexus — DMC Monitoring, Production Log &amp; Request Register</p>
                   </div>
                 </div>
+              </div>
+            </>
+          )}
+
+          {ipcrRequests.length > 0 && (
+            <>
+              <p className="mb-1 mt-8 text-sm font-bold uppercase">
+                Part C — Service requests handled (Request Register)
+              </p>
+              <table className="w-full border-collapse border border-black text-left">
+                <thead>
+                  <tr className="border-b border-black bg-gray-100 text-sm font-bold">
+                    <th className="w-10 border border-black p-2 text-center">#</th>
+                    <th className="w-28 border border-black p-2">Date</th>
+                    <th className="w-28 border border-black p-2">Client</th>
+                    <th className="border border-black p-2">Request &amp; service type</th>
+                    <th className="w-24 border border-black p-2">Status</th>
+                    <th className="w-20 border border-black p-2">TAT</th>
+                    <th className="w-16 border border-black p-2">CSM</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ipcrRequests.map((r, idx) => {
+                    const tat = actualTAT(r);
+                    return (
+                      <tr key={r.id} className="avoid-break text-sm">
+                        <td className="border border-black p-2 text-center font-bold">{idx + 1}</td>
+                        <td className="border border-black p-2 font-mono text-xs">
+                          {fmtDate(r.dateDelivered || r.dateRequested)}
+                        </td>
+                        <td className="border border-black p-2 text-xs">{r.client || '—'}</td>
+                        <td className="border border-black p-2 leading-relaxed">
+                          {r.title}
+                          <span className="block text-[10px] italic text-gray-600">
+                            {STREAM_META[r.stream].label}
+                            {r.serviceType ? ` · ${r.serviceType}` : ''}
+                          </span>
+                          {REQ_META[r.status].unmet && r.reason && (
+                            <span className="block text-[10px] text-gray-700">
+                              Reason: {r.reason}
+                            </span>
+                          )}
+                        </td>
+                        <td className="border border-black p-2 text-[10px] uppercase">
+                          {REQ_META[r.status].label}
+                        </td>
+                        <td className="border border-black p-2 text-center font-mono text-xs">
+                          {tat === null ? '—' : `${tat}/${SLA_WD[r.stream]}`}
+                        </td>
+                        <td className="border border-black p-2 text-center font-mono text-xs">
+                          {r.csm || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <p className="mt-1 text-[10px] italic text-gray-600">
+                TAT shown as actual/standard in working days. Standard turnaround per
+                PM-CRPD-AV-08-04 Rev 7: AV Coverage 3 WDs, AVP Production 13 WDs.
+              </p>
+            </>
+          )}
+
+          {ipcrRoles.length > 0 && (
+            <>
+              <p className="mb-1 mt-8 text-sm font-bold uppercase">
+                Part D — Roles performed per event
+              </p>
+              <table className="w-full border-collapse border border-black text-left">
+                <thead>
+                  <tr className="border-b border-black bg-gray-100 text-sm font-bold">
+                    <th className="w-10 border border-black p-2 text-center">#</th>
+                    <th className="w-28 border border-black p-2">Date</th>
+                    <th className="border border-black p-2">Event</th>
+                    <th className="border border-black p-2">Roles performed</th>
+                    <th className="w-16 border border-black p-2 text-center">Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ipcrRoles.map((a, idx) => (
+                    <tr key={a.id} className="avoid-break text-sm">
+                      <td className="border border-black p-2 text-center font-bold">{idx + 1}</td>
+                      <td className="border border-black p-2 font-mono text-xs">
+                        {fmtDate(a.dateCompleted || a.dateAssigned)}
+                      </td>
+                      <td className="border border-black p-2 leading-relaxed">
+                        {a.eventTitle || a.eventId}
+                      </td>
+                      <td className="border border-black p-2 leading-relaxed">
+                        {a.roles.join(', ') || '—'}
+                      </td>
+                      <td className="border border-black p-2 text-center font-mono">
+                        {a.roles.length}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div className="avoid-break mt-4 border border-black p-3 text-sm">
+                <p className="mb-1 font-bold uppercase">Role tally</p>
+                <p className="leading-relaxed">
+                  {ipcrRoleTally.map(([role, n]) => `${role}: ${n}`).join(' · ')}
+                </p>
+                <p className="mt-2 text-xs">
+                  Total roles performed:{' '}
+                  <b>{ipcrRoles.reduce((acc, a) => acc + a.roles.length, 0)}</b> across{' '}
+                  <b>{ipcrRoles.length}</b> event
+                  {ipcrRoles.length === 1 ? '' : 's'}.
+                </p>
               </div>
             </>
           )}
@@ -3231,7 +7078,7 @@ export default function App() {
 
       {/* ------------------------------------------------------- DOCK ---- */}
       <div className="no-print fixed bottom-5 left-1/2 z-[70] -translate-x-1/2">
-        <div className="flex items-center gap-1 rounded-2xl border border-zinc-800 bg-[#09090b]/90 p-1.5 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+        <div className="flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-[#101012] p-1">
           {SYSTEMS.map((s) => (
             <button
               key={s.id}
@@ -3250,30 +7097,43 @@ export default function App() {
           <button
             onClick={() => setPaletteOpen(true)}
             title="Quick jump"
-            className="flex h-11 items-center gap-2 rounded-xl px-4 text-xs font-bold text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
+            className="flex h-9 items-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
-            ⌘K
+            Search
           </button>
           <button
             onClick={() => setLogOpen(true)}
             title="Log a video output"
-            className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#00aeef]/15 text-lg text-[#00aeef] transition-colors hover:bg-[#00aeef]/30"
+            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
-            +
+            Output
+          </button>
+          <button
+            onClick={() => {
+              setView('events');
+              setEvModal({ open: true, editing: null });
+            }}
+            title="New event request"
+            className="relative flex h-9 items-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+          >
+            New event
+            {approvalQueue.length > 0 && (
+              <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-amber-500" />
+            )}
           </button>
           <button
             onClick={() => setKioskOn(true)}
             title="Kiosk mode — para sa office monitor"
-            className="flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-800/60 text-lg text-zinc-300 transition-colors hover:bg-zinc-700 hover:text-white"
+            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
-            📺
+            Kiosk
           </button>
           <button
             onClick={printSheet}
             title="Print IPCR"
-            className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600/15 text-red-400 transition-colors hover:bg-red-600/30"
+            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
-            🖨
+            Print
           </button>
         </div>
       </div>
@@ -3283,12 +7143,12 @@ export default function App() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`animate-slidein rounded-lg border px-4 py-3 text-xs shadow-lg backdrop-blur-md ${
+            className={`animate-slidein rounded-lg border px-4 py-3 text-xs ${
               t.tone === 'err'
                 ? 'border-red-900 bg-red-950/80 text-red-200'
                 : t.tone === 'new'
                 ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#7fdcff]'
-                : 'border-zinc-800 bg-zinc-950/90 text-zinc-300'
+                : 'border-zinc-800 bg-[#101012] text-zinc-300'
             }`}
           >
             {t.text}
@@ -3302,10 +7162,34 @@ export default function App() {
         <KioskMode
           coverages={coverages}
           outputs={outputs}
+          requests={requests}
+          kpi={kpi}
           stats={stats}
           workload={workload}
           upNext={upNext}
           onClose={() => setKioskOn(false)}
+        />
+      )}
+      {evModal.open && (
+        <EventModal
+          existing={evModal.editing}
+          onClose={() => setEvModal({ open: false, editing: null })}
+          onSubmit={submitEvent}
+          onNotify={notifyApprover}
+          submitting={submitting}
+          roster={
+            evModal.editing
+              ? assignments.filter((a) => a.eventId === evModal.editing!.id)
+              : []
+          }
+        />
+      )}
+      {reqModal.open && (
+        <RequestModal
+          existing={reqModal.editing}
+          onClose={() => setReqModal({ open: false, editing: null })}
+          onSubmit={submitRequest}
+          submitting={submitting}
         />
       )}
       {logOpen && (
@@ -3334,27 +7218,29 @@ export default function App() {
       <style
         dangerouslySetInnerHTML={{
           __html: `
-        .font-display { font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif; }
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+        /* System stack — walang web font na hihintayin, mabilis at neutral. */
+        html { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif; }
+        .font-display { font-family: inherit; letter-spacing: -0.01em; }
+        .font-mono, code, kbd { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 10px; }
-        .grain {
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-        }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #232326; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #33333a; }
         @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes riseup { from { opacity: 0; transform: translateY(14px) scale(.985) } to { opacity: 1; transform: none } }
+        @keyframes riseup { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
         @keyframes slidein { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
         @keyframes kioskbar { from { width: 0 } to { width: 100% } }
         @keyframes kioskticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
         .kiosk-ticker { animation: kioskticker 45s linear infinite; }
         .kiosk-cal { filter: invert(0.92) hue-rotate(180deg); }
         .animate-fadein { animation: fadein .2s ease-out }
-        .animate-riseup { animation: riseup .28s cubic-bezier(.16,1,.3,1) }
+        .animate-riseup { animation: riseup .18s cubic-bezier(.16,1,.3,1) }
         .animate-slidein { animation: slidein .28s cubic-bezier(.16,1,.3,1) }
         @media (prefers-reduced-motion: reduce) {
           *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
         }
-        :focus-visible { outline: 2px solid ${CYAN}; outline-offset: 2px; }
+        :focus-visible { outline: 1px solid ${CYAN}; outline-offset: 2px; }
+        ::selection { background: rgba(0,174,239,0.25); }
 
         @media print {
           .no-print { display: none !important; }
