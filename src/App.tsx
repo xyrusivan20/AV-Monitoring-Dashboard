@@ -469,7 +469,7 @@ function daysToTarget(r: ServiceRequest): number | null {
   return workingDaysBetween(ref, target);
 }
 
-type SLAState = 'ontime' | 'for production' | 'atrisk' | 'open' | 'na';
+type SLAState = 'ontime' | 'breached' | 'atrisk' | 'open' | 'na';
 
 function slaState(r: ServiceRequest): SLAState {
   if (r.status === 'disapproved' || r.status === 'cancelled') return 'na';
@@ -477,18 +477,18 @@ function slaState(r: ServiceRequest): SLAState {
   if (!target) return 'na';
 
   if (r.dateDelivered) {
-    return r.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'for production';
+    return r.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'breached';
   }
   const left = daysToTarget(r);
   if (left === null) return 'open';
-  if (left < 0) return 'for production';
+  if (left < 0) return 'breached';
   if (left <= 1) return 'atrisk';
   return 'open';
 }
 
 const SLA_META: Record<SLAState, { label: string; hex: string; chip: string }> = {
   ontime:   { label: 'ON TIME',  hex: '#22c55e', chip: 'bg-green-500/10 text-green-400 border-green-500/30' },
-  for production: { label: 'for production', hex: '#ef4444', chip: 'bg-red-500/10 text-red-400 border-red-500/30' },
+  breached: { label: 'breached', hex: '#ef4444', chip: 'bg-red-500/10 text-red-400 border-red-500/30' },
   atrisk:   { label: 'AT RISK',  hex: '#f59e0b', chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
   open:     { label: 'WITHIN',   hex: '#00aeef', chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30' },
   na:       { label: 'N/A',      hex: '#52525b', chip: 'bg-zinc-900/80 text-zinc-500 border-zinc-800' },
@@ -815,12 +815,12 @@ function eventSLA(ev: AVEvent): SLAState {
   const target = eventTarget(ev);
   if (!target) return 'na';
   if (ev.dateDelivered) {
-    return ev.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'for production';
+    return ev.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'breached';
   }
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const left = workingDaysBetween(today, target);
-  if (left < 0) return 'for production';
+  if (left < 0) return 'breached';
   if (left <= 1) return 'atrisk';
   return 'open';
 }
@@ -1775,10 +1775,10 @@ function SLABadge({ state }: { state: SLAState }) {
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide"
-      style={{ color: state === 'for production' ? m.hex : undefined }}
+      style={{ color: state === 'breached' ? m.hex : undefined }}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
-      <span className={state === 'for production' ? '' : 'text-zinc-400'}>{m.label}</span>
+      <span className={state === 'breached' ? '' : 'text-zinc-400'}>{m.label}</span>
     </span>
   );
 }
@@ -2026,7 +2026,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
     const byStream = (['coverage', 'production'] as Stream[]).map((st) => {
       const mine = requests.filter((r) => r.stream === st);
       const tats = mine.map(actualTAT).filter((v): v is number => v !== null);
-      const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'for production');
+      const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'breached');
       return {
         stream: st,
         total: mine.length,
@@ -2042,7 +2042,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
     const live = requests.filter((r) => !r.dateDelivered);
     return {
       byStream,
-      for production: requests.filter((r) => slaState(r) === 'for production'),
+      breached: requests.filter((r) => slaState(r) === 'breached'),
       atRisk: live.filter((r) => slaState(r) === 'atrisk'),
     };
   }, [requests]);
@@ -2102,13 +2102,13 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
         })}
       </div>
 
-      {(stats.for production.length > 0 || stats.atRisk.length > 0) && (
+      {(stats.breached.length > 0 || stats.atRisk.length > 0) && (
         <div className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4">
           <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-            Attention queue · {stats.for production.length} for production · {stats.atRisk.length} at risk
+            Attention queue · {stats.breached.length} breached · {stats.atRisk.length} at risk
           </p>
           <div className="space-y-2">
-            {[...stats.for production, ...stats.atRisk].slice(0, 6).map((r) => {
+            {[...stats.breached, ...stats.atRisk].slice(0, 6).map((r) => {
               const left = daysToTarget(r);
               return (
                 <div
@@ -3837,8 +3837,8 @@ function KioskMode({
   const svc = useMemo(() => {
     const served = requests.filter((r) => REQ_META[r.status].served).length;
     const unmet = requests.filter((r) => REQ_META[r.status].unmet).length;
-    const for production = requests.filter((r) => slaState(r) === 'for production').length;
-    return { demand: requests.length, served, unmet, for production };
+    const breached = requests.filter((r) => slaState(r) === 'breached').length;
+    return { demand: requests.length, served, unmet, breached };
   }, [requests]);
 
   const ticker = useMemo(() => {
@@ -4041,7 +4041,7 @@ function KioskMode({
                 { k: 'Service demand', v: svc.demand, c: '#00aeef' },
                 { k: 'Services rendered', v: svc.served, c: '#22c55e' },
                 { k: 'Unmet requests', v: svc.unmet, c: '#ef4444' },
-                { k: 'SLA breaches', v: svc.for production, c: '#f59e0b' },
+                { k: 'SLA breaches', v: svc.breached, c: '#f59e0b' },
               ].map((x) => (
                 <div
                   key={x.k}
@@ -5373,7 +5373,7 @@ export default function App() {
 
   const ipcrSLA = useMemo(() => {
     const tats = ipcrRequests.map(actualTAT).filter((v): v is number => v !== null);
-    const rated = ipcrRequests.map(slaState).filter((x) => x === 'ontime' || x === 'for production');
+    const rated = ipcrRequests.map(slaState).filter((x) => x === 'ontime' || x === 'breached');
     const csmRated = ipcrRequests.filter((r) => r.csm > 0);
     return {
       avgTAT: tats.length ? tats.reduce((a, b) => a + b, 0) / tats.length : null,
