@@ -40,7 +40,7 @@ const SCRIPT_URL =
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 /**
@@ -52,7 +52,7 @@ const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/')
  * → OAuth client ID → Web application, at idagdag ang URL ng dashboard
  * sa "Authorized JavaScript origins".
  */
-const GOOGLE_CLIENT_ID = '889974466807-eqlg343alp3vr8vtt8c9le3mql1kt3u7.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '';
 const AUTH_ENABLED = GOOGLE_CLIENT_ID.length > 0;
 
 interface SignedInUser {
@@ -1341,19 +1341,27 @@ function SignInGate({
   onMount,
   ready,
   error,
+  health,
+  onRetry,
 }: {
   onMount: (el: HTMLDivElement | null) => void;
   ready: boolean;
   error: string;
+  health: { problems: string[]; registeredAccounts: string[] } | null;
+  onRetry: () => void;
 }) {
+  const wide = !!error || (health && health.problems.length > 0);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#08080a] px-4">
-      <div className="w-full max-w-sm rounded-lg border border-zinc-800 bg-[#101012] p-8">
+    <div className="flex min-h-screen items-center justify-center bg-[#08080a] px-4 py-10">
+      <div
+        className={`w-full rounded-lg border border-zinc-800 bg-[#101012] p-8 ${
+          wide ? 'max-w-xl' : 'max-w-sm'
+        }`}
+      >
         <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
         <h1 className="text-[17px] font-semibold tracking-tight text-zinc-100">AV Nexus</h1>
-        <p className="mt-1 text-[12px] text-zinc-500">
-          Broadcast &amp; Digital Media Section
-        </p>
+        <p className="mt-1 text-[12px] text-zinc-500">Broadcast &amp; Digital Media Section</p>
 
         <p className="mt-6 text-[13px] leading-relaxed text-zinc-400">
           Sign in with your DOST-STII Google account to continue. Records can only be
@@ -1365,10 +1373,47 @@ function SignInGate({
         {!ready && (
           <p className="mt-4 text-center text-[12px] text-zinc-600">Loading sign-in…</p>
         )}
+
         {error && (
-          <p className="mt-4 rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-[12px] text-red-300">
-            {error}
-          </p>
+          <div className="mt-5 rounded border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+            <p>{error}</p>
+            {health && health.registeredAccounts.length > 0 && (
+              <>
+                <p className="mt-3 text-red-300/70">Registered accounts:</p>
+                <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-red-300/60">
+                  {health.registeredAccounts.map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p className="mt-3 text-red-300/70">
+              To use a different Google account, sign out of Google in this browser or
+              open the dashboard in a private window.
+            </p>
+          </div>
+        )}
+
+        {health && health.problems.length > 0 && (
+          <div className="mt-5 rounded border border-amber-900/60 bg-amber-950/20 px-4 py-3 text-[12px] leading-relaxed text-amber-200">
+            <p className="mb-2 font-medium">
+              Backend setup needs attention ({health.problems.length})
+            </p>
+            <ul className="space-y-2">
+              {health.problems.map((prob, i) => (
+                <li key={i} className="flex gap-2">
+                  <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
+                  <span>{prob}</span>
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={onRetry}
+              className="mt-3 text-[11px] text-amber-300/70 underline transition-colors hover:text-amber-200"
+            >
+              Check again
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -4926,6 +4971,45 @@ export default function App() {
   const [user, setUser] = useState<SignedInUser | null>(null);
   const [authError, setAuthError] = useState('');
   const [setupError, setSetupError] = useState('');
+  const [health, setHealth] = useState<{
+    ok: boolean;
+    problems: string[];
+    registeredAccounts: string[];
+    signIn: string;
+    tokenVerification: string;
+    tabs: Record<string, boolean>;
+  } | null>(null);
+  const [healthChecked, setHealthChecked] = useState(false);
+
+  /**
+   * Tinatanong ang backend kung ano talaga ang kalagayan nito.
+   * Ito ang pumapalit sa panghuhula kapag may "Load failed".
+   */
+  const checkHealth = useCallback(async () => {
+    if (!PROD_CONFIGURED) return;
+    try {
+      const res = await fetch(`${PROD_SCRIPT_URL}?action=health`, { cache: 'no-store' });
+      const out = await res.json();
+      setHealth(out);
+    } catch {
+      // Kapag pati ito ay hindi maabot, ang URL o ang deployment ang mali.
+      setHealth({
+        ok: false,
+        problems: [
+          'The dashboard cannot reach the Apps Script backend at all. Two usual causes: ' +
+            'PROD_SCRIPT_URL points at the wrong deployment, or that deployment is set to ' +
+            '"Execute as: User accessing" — which forces a Google login and blocks the ' +
+            'dashboard. The reading deployment must be "Execute as: Me" and "Anyone".',
+        ],
+        registeredAccounts: [],
+        signIn: 'unknown',
+        tokenVerification: 'unknown',
+        tabs: {},
+      });
+    } finally {
+      setHealthChecked(true);
+    }
+  }, []);
   const gateRef = useRef<HTMLDivElement | null>(null);
 
   const { ready: gsiReady, renderButton } = useGoogleSignIn((u) => {
@@ -4937,6 +5021,10 @@ export default function App() {
   useEffect(() => {
     if (AUTH_ENABLED && !user && gsiReady) renderButton(gateRef.current);
   }, [gsiReady, user, renderButton]);
+
+  useEffect(() => {
+    checkHealth();
+  }, [checkHealth]);
 
   const signOut = useCallback(() => {
     const w = window as any;
@@ -6028,6 +6116,8 @@ export default function App() {
         }}
         ready={gsiReady}
         error={authError}
+        health={health}
+        onRetry={checkHealth}
       />
     );
   }
@@ -6183,6 +6273,30 @@ export default function App() {
               })}
             </nav>
 
+            {healthChecked && health && health.problems.length > 0 && (
+              <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-4 py-3 text-[12px] leading-relaxed text-amber-200">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="font-medium">
+                    Backend setup needs attention ({health.problems.length})
+                  </p>
+                  <button
+                    onClick={checkHealth}
+                    className="shrink-0 text-[11px] text-amber-300/70 underline transition-colors hover:text-amber-200"
+                  >
+                    Check again
+                  </button>
+                </div>
+                <ul className="space-y-1.5">
+                  {health.problems.map((prob, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
+                      <span>{prob}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {setupError && (
               <div className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
                 <p className="mb-1 font-medium">Setup incomplete</p>
@@ -6212,8 +6326,10 @@ export default function App() {
 
             {conn === 'error' && (
               <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-300">
-                Could not load records — {errMsg}. Showing the last data received. Check that the
-                Apps Script web app is deployed with access set to “Anyone”.
+                Could not load records — {errMsg}. Showing the last data received.
+                {' '}The reading deployment must be “Execute as: Me” with access “Anyone”.
+                A deployment set to “Execute as: User accessing” forces a Google login and
+                will always fail here.
               </div>
             )}
 
