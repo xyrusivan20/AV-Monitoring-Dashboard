@@ -594,10 +594,10 @@ function monthLabel(key: string): string {
  * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3:
  *   for-approval → Division Chief acts
  *   approved     → cleared by the Division Chief, awaiting endorsement
- *   endorsed     → released to the AV Team by the Supervising SRS
+ *   Endorsed     → released to the AV Team by the Supervising SRS
  */
 type ApprovalKey =
-  | 'for-approval' | 'approved' | 'endorsed'
+  | 'for-approval' | 'approved' | 'Endorsed'
   | 'declined' | 'cancelled' | 'rescheduled';
 
 /** Kinakalkula, hindi ini-input. */
@@ -620,7 +620,7 @@ interface AVEvent {
   reason: string;
   approval: ApprovalKey;
   approvalRaw: string;
-  endorsedBy: string;
+  EndorsedBy: string;
   dateEndorsed: Date | null;
   approvedBy: string;
   dateApproved: Date | null;
@@ -701,7 +701,7 @@ const HEAVY_SERVICES = [
 ];
 
 const APPROVAL_ORDER: ApprovalKey[] = [
-  'for-approval', 'approved', 'endorsed', 'declined', 'rescheduled', 'cancelled',
+  'for-approval', 'approved', 'Endorsed', 'declined', 'rescheduled', 'cancelled',
 ];
 
 const APPROVAL_META: Record<
@@ -716,7 +716,7 @@ const APPROVAL_META: Record<
     label: 'Approved', short: 'FOR SRS', hex: '#f59e0b',
     chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', live: true,
   },
-  endorsed: {
+  Endorsed: {
     label: 'Endorsed', short: 'CLEARED', hex: '#00aeef',
     chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', live: true,
   },
@@ -836,12 +836,12 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
  * so both states must count here.
  */
 function isAuthorised(ev: AVEvent): boolean {
-  return ev.approval === 'approved' || ev.approval === 'endorsed';
+  return ev.approval === 'approved' || ev.approval === 'Endorsed';
 }
 
 /** Still needs a signature from either the Division Chief or the SRS. */
 function awaitingAction(ev: AVEvent): boolean {
-  return APPROVAL_META[ev.approval].live && ev.approval !== 'endorsed';
+  return APPROVAL_META[ev.approval].live && ev.approval !== 'Endorsed';
 }
 
 function classifyApproval(raw: string): ApprovalKey {
@@ -851,7 +851,7 @@ function classifyApproval(raw: string): ApprovalKey {
   if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
   // "For Approval" must be tested before "approved" — it contains the word.
   if (s.includes('For Approval') || s.includes('for endorsement')) return 'for-approval';
-  if (s.includes('endorsed')) return 'endorsed';
+  if (s.includes('Endorsed')) return 'Endorsed';
   if (s.includes('approved')) return 'approved';
   return 'for-approval';
 }
@@ -4005,11 +4005,11 @@ function EventModal({
 
               {existing && (
                 <p className="mt-3 font-mono text-[10px] text-zinc-600">
-                  {existing.endorsedBy
-                    ? `Endorsed by ${existing.endorsedBy}${
+                  {existing.EndorsedBy
+                    ? `Endorsed by ${existing.EndorsedBy}${
                         existing.dateEndorsed ? ` · ${fmtDate(existing.dateEndorsed)}` : ''
                       }`
-                    : 'Not yet endorsed'}
+                    : 'Not yet Endorsed'}
                   {' — '}
                   {existing.approvedBy
                     ? `Approved by ${existing.approvedBy}${
@@ -5584,7 +5584,7 @@ export default function App() {
               reason: String(r['Reason for Gap'] || ''),
               approval: classifyApproval(approvalRaw),
               approvalRaw,
-              endorsedBy: String(r['Endorsed By'] || ''),
+              EndorsedBy: String(r['Endorsed By'] || ''),
               dateEndorsed: parseDate(r['Date Endorsed']),
               approvedBy: String(r['Approved By'] || ''),
               dateApproved: parseDate(r['Date Approved']),
