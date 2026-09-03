@@ -40,8 +40,50 @@ const SCRIPT_URL =
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
+
+/**
+ * Google Sign-In. Ilagay ang parehong Client ID na nasa AVNexus.gs.
+ * Habang blangko ito, tumatakbo ang dashboard sa attribution mode —
+ * naitatala kung sino ang gumawa, pero walang pinipigilan.
+ *
+ * Kunin ito sa console.cloud.google.com → APIs & Services → Credentials
+ * → OAuth client ID → Web application, at idagdag ang URL ng dashboard
+ * sa "Authorized JavaScript origins".
+ */
+const GOOGLE_CLIENT_ID = '';
+const AUTH_ENABLED = GOOGLE_CLIENT_ID.length > 0;
+
+interface SignedInUser {
+  email: string;
+  name: string;
+  picture: string;
+  idToken: string;
+  expiresAt: number;
+}
+
+/** Binabasa ang payload ng JWT para sa pangalan at larawan lamang. */
+function readIdToken(jwt: string): { email: string; name: string; picture: string; exp: number } | null {
+  try {
+    const part = jwt.split('.')[1];
+    const json = decodeURIComponent(
+      atob(part.replace(/-/g, '+').replace(/_/g, '/'))
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const p = JSON.parse(json);
+    return {
+      email: String(p.email || ''),
+      name: String(p.name || p.email || ''),
+      picture: String(p.picture || ''),
+      exp: Number(p.exp || 0),
+    };
+  } catch {
+    return null;
+  }
+}
 
 const PRE_ARCHIVAL_LINK =
   'https://docs.google.com/spreadsheets/d/1Q2H3AelKocMLImvjkXpy9j1z89qWYYok0-BPj68QPCE/edit?gid=0#gid=0';
@@ -555,6 +597,7 @@ interface AVEvent {
   link: string;
   remarks: string;
   history: string[];
+  createdBy: string;
 }
 
 /**
@@ -1192,6 +1235,143 @@ function SystemFrame({ app }: { app: SystemApp }) {
         </p>
       )}
     </section>
+  );
+}
+
+type Capability = 'edit' | 'approve' | 'endorse';
+
+/**
+ * Kaparehong panuntunan ng server, ginagamit lang para itago ang mga
+ * button na hindi naman gagana. Ang server pa rin ang huling hukom —
+ * ito ay kaginhawahan, hindi seguridad.
+ */
+function roleOf(user: SignedInUser | null, actor: string): string {
+  if (!AUTH_ENABLED) return 'admin';
+  if (!user) return 'none';
+  const n = (user.name || actor || '').toLowerCase();
+  if (n.includes('division chief')) return 'dc';
+  if (n.includes('srs') || n.includes('supervising')) return 'srs';
+  if (n.includes('xyrus')) return 'admin';
+  return 'staff';
+}
+
+function can(cap: Capability, role: string, createdBy?: string, me?: string): boolean {
+  if (role === 'admin') return cap === 'edit' || cap === 'approve' || cap === 'endorse';
+  if (cap === 'edit') {
+    if (role !== 'staff') return false;
+    if (!createdBy) return true;
+    return createdBy.toLowerCase() === String(me || '').toLowerCase();
+  }
+  if (cap === 'approve') return role === 'dc';
+  if (cap === 'endorse') return role === 'srs';
+  return false;
+}
+
+/**
+ * Google Sign-In. Ang browser ang kumukuha ng token; ang backend ang
+ * nagsusuri nito. Wala tayong pinagkakatiwalaan dito bukod sa pagpapakita.
+ */
+function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
+  const [ready, setReady] = useState(false);
+  const cb = useRef(onUser);
+  cb.current = onUser;
+
+  useEffect(() => {
+    if (!AUTH_ENABLED) return;
+    const w = window as any;
+
+    const init = () => {
+      if (!w.google?.accounts?.id) return;
+      w.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (res: { credential?: string }) => {
+          const jwt = res?.credential;
+          if (!jwt) return;
+          const p = readIdToken(jwt);
+          if (!p) return;
+          cb.current({
+            email: p.email,
+            name: p.name,
+            picture: p.picture,
+            idToken: jwt,
+            expiresAt: p.exp * 1000,
+          });
+        },
+        auto_select: true,
+        cancel_on_tap_outside: false,
+      });
+      setReady(true);
+    };
+
+    if (w.google?.accounts?.id) {
+      init();
+      return;
+    }
+    const tag = document.createElement('script');
+    tag.src = 'https://accounts.google.com/gsi/client';
+    tag.async = true;
+    tag.defer = true;
+    tag.onload = init;
+    document.head.appendChild(tag);
+  }, []);
+
+  const prompt = useCallback(() => {
+    const w = window as any;
+    w.google?.accounts?.id?.prompt();
+  }, []);
+
+  const renderButton = useCallback((el: HTMLElement | null) => {
+    const w = window as any;
+    if (!el || !w.google?.accounts?.id) return;
+    el.innerHTML = '';
+    w.google.accounts.id.renderButton(el, {
+      theme: 'filled_black',
+      size: 'large',
+      shape: 'rectangular',
+      text: 'signin_with',
+      width: 260,
+    });
+  }, []);
+
+  return { ready, prompt, renderButton };
+}
+
+/** Ang buong screen bago ka makapasok. */
+function SignInGate({
+  onMount,
+  ready,
+  error,
+}: {
+  onMount: (el: HTMLDivElement | null) => void;
+  ready: boolean;
+  error: string;
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#08080a] px-4">
+      <div className="w-full max-w-sm rounded-lg border border-zinc-800 bg-[#101012] p-8">
+        <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
+        <h1 className="text-[17px] font-semibold tracking-tight text-zinc-100">AV Nexus</h1>
+        <p className="mt-1 text-[12px] text-zinc-500">
+          Broadcast &amp; Digital Media Section
+        </p>
+
+        <p className="mt-6 text-[13px] leading-relaxed text-zinc-400">
+          Sign in with your DOST-STII Google account to continue. Records can only be
+          edited by the person who created them.
+        </p>
+
+        <div ref={onMount} className="mt-6 flex justify-center" />
+
+        {!ready && (
+          <p className="mt-4 text-center text-[12px] text-zinc-600">Loading sign-in…</p>
+        )}
+        {error && (
+          <p className="mt-4 rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-[12px] text-red-300">
+            {error}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2950,12 +3130,15 @@ function PipelineTrack({
   ev,
   onStep,
   compact = false,
+  readOnly = false,
 }: {
   ev: AVEvent;
   onStep?: (key: PipelineKey, next: PipelineState) => void;
   compact?: boolean;
+  readOnly?: boolean;
 }) {
-  const locked = !isAuthorised(ev);
+  // Naka-lock hangga't walang aprubasyon, o kapag hindi ikaw ang may-ari.
+  const locked = !isAuthorised(ev) || readOnly;
   const cycle: PipelineState[] = ['not-started', 'in-progress', 'done', 'na'];
 
   return (
@@ -3006,11 +3189,13 @@ function PipelineTrack({
 function EventCard({
   ev,
   crew,
+  canEdit,
   onOpen,
   onStep,
 }: {
   ev: AVEvent;
   crew: Assignment[];
+  canEdit: boolean;
   onOpen: () => void;
   onStep: (key: PipelineKey, next: PipelineState) => void;
 }) {
@@ -3027,12 +3212,21 @@ function EventCard({
     >
       <div className="p-5">
         <div className="mb-3 flex items-start justify-between gap-4">
-          <button onClick={onOpen} className="min-w-0 flex-1 text-left">
+          <button
+            onClick={onOpen}
+            title={canEdit ? 'Open this event' : 'View only — created by someone else'}
+            className="min-w-0 flex-1 text-left"
+          >
             <h3 className="truncate text-base font-bold leading-snug text-zinc-100 transition-colors group-hover:text-white">
               {ev.title || 'Untitled event'}
             </h3>
             <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-600">
               {ev.id} · {ev.client || 'no client'}
+            {ev.createdBy && (
+              <span className={canEdit ? 'text-zinc-600' : 'text-amber-600/80'}>
+                {' '}· {canEdit ? 'yours' : ev.createdBy}
+              </span>
+            )}
               {ev.venue ? ` · ${ev.venue}` : ''}
             </p>
           </button>
@@ -3060,7 +3254,7 @@ function EventCard({
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-900 pt-3">
-          <PipelineTrack ev={ev} onStep={onStep} compact />
+          <PipelineTrack ev={ev} onStep={onStep} compact readOnly={!canEdit} />
           <div className="flex items-center gap-2">
             {sla !== 'na' && <SLABadge state={sla} />}
             <span className="font-mono text-[10px] text-zinc-600">
@@ -3158,6 +3352,8 @@ function EventModal({
   onNotify,
   submitting,
   roster,
+  role,
+  canEdit,
 }: {
   existing: AVEvent | null;
   onClose: () => void;
@@ -3169,6 +3365,8 @@ function EventModal({
   onNotify: (id: string) => void;
   submitting: boolean;
   roster: Assignment[];
+  role: string;
+  canEdit: boolean;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
@@ -3255,10 +3453,18 @@ function EventModal({
     return d ? dayKey(addWorkingDays(d, sla)) : '';
   }, [f.targetDate, f.dateRequested, sla]);
 
-  const canSave = !!f.title.trim() && !reasonMissing && !submitting;
+  // Ang mga approver ay maaaring mag-aprub, pero hindi mag-edit ng nilalaman.
+  const isApprover = role === 'dc' || role === 'srs';
+  const approvalOnly = isApprover && !!existing;
+  const readOnly = !!existing && !canEdit && !isApprover;
+
+  const canSave =
+    !!f.title.trim() && !reasonMissing && !submitting && (canEdit || approvalOnly);
 
   const field =
-    'w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
+    `w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none${
+      readOnly || approvalOnly ? ' pointer-events-none opacity-50' : ''
+    }`;
   const lab = 'mb-1.5 block text-[11px] font-medium text-zinc-500';
 
   const submit = () =>
@@ -3692,7 +3898,13 @@ function EventModal({
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
           <p className="text-[10px] text-zinc-600">
-            {reasonMissing ? 'A reason is required before saving.' : 'Saved directly to the Events sheet.'}
+            {readOnly
+              ? `View only — this event belongs to ${existing?.createdBy || 'someone else'}.`
+              : approvalOnly
+              ? 'You may approve or decline. Editing the record is done by its owner.'
+              : reasonMissing
+              ? 'A reason is required before saving.'
+              : 'Saved directly to the Events sheet.'}
           </p>
           <div className="flex gap-2">
             <button
@@ -3706,7 +3918,13 @@ function EventModal({
               onClick={submit}
               className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {submitting ? 'Saving…' : existing ? 'Save changes' : 'Create event'}
+              {submitting
+                ? 'Saving…'
+                : approvalOnly
+                ? 'Record decision'
+                : existing
+                ? 'Save changes'
+                : 'Create event'}
             </button>
           </div>
         </div>
@@ -4688,6 +4906,7 @@ export default function App() {
    * ng ibang pangalan. Para sa tunay na account, kailangan ng Google sign-in.
    */
   const [actor, setActor] = useState<string>(() => {
+    if (AUTH_ENABLED) return '';
     try {
       return window.localStorage.getItem('avnexus.actor') || '';
     } catch {
@@ -4703,6 +4922,61 @@ export default function App() {
       /* private mode — attribution lasts for this session only */
     }
   }, []);
+
+  const [user, setUser] = useState<SignedInUser | null>(null);
+  const [authError, setAuthError] = useState('');
+  const gateRef = useRef<HTMLDivElement | null>(null);
+
+  const { ready: gsiReady, renderButton } = useGoogleSignIn((u) => {
+    setUser(u);
+    setAuthError('');
+    if (u) setActor(u.name);
+  });
+
+  useEffect(() => {
+    if (AUTH_ENABLED && !user && gsiReady) renderButton(gateRef.current);
+  }, [gsiReady, user, renderButton]);
+
+  const signOut = useCallback(() => {
+    const w = window as any;
+    try {
+      w.google?.accounts?.id?.disableAutoSelect();
+    } catch {
+      /* ignore */
+    }
+    setUser(null);
+    setActor('');
+  }, []);
+
+  /** Ang lahat ng pagsulat ay dumadaan dito para masama ang token. */
+  const myRole = useMemo(() => roleOf(user, actor), [user, actor]);
+  const myName = user?.name || actor;
+
+  const authedPost = useCallback(
+    async (body: Record<string, unknown>) => {
+      const res = await fetch(PROD_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ ...body, actor, idToken: user?.idToken || '' }),
+      });
+
+      let out: any = null;
+      try {
+        out = await res.json();
+      } catch {
+        return { ok: true } as any; // opaque response — assume queued
+      }
+      if (out && out.ok === false) {
+        if (out.needsSignIn) {
+          setAuthError(out.error || 'Please sign in again.');
+          setUser(null);
+        }
+        throw new Error(out.error || 'The server rejected this change.');
+      }
+      return out;
+    },
+    [actor, user]
+  );
 
   const [outputs, setOutputs] = useState<Output[]>([]);
   const [prodReady, setProdReady] = useState<'unknown' | 'ok' | 'missing'>('unknown');
@@ -4860,6 +5134,7 @@ export default function App() {
               csm: parseCSM(r['CSM Rating']),
               link: String(r['Output Link'] || ''),
               remarks: String(r['Remarks'] || ''),
+              createdBy: String(r['Created By'] || ''),
               history: String(r['Action Log'] || '')
                 .split('\n')
                 .map((x: string) => x.trim())
@@ -4958,14 +5233,10 @@ export default function App() {
       }
       setSubmitting(true);
       try {
-        await fetch(PROD_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'addOutput', payload }),
-        });
+        await authedPost({ action: 'addOutput', payload });
         toast('Output saved to the Production Log', 'ok');
-      } catch {
-        toast('Submitted — refreshing the board', 'info');
+      } catch (err) {
+        toast(err instanceof Error ? err.message : 'Could not save.', 'err');
       } finally {
         setSubmitting(false);
         setLogOpen(false);
@@ -5016,37 +5287,20 @@ export default function App() {
         : { action: 'addEvent', payload: { ...payload, actor } };
 
       try {
-        const res = await fetch(PROD_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(body),
-        });
+        const out = await authedPost(body);
 
-        // Ang roster ay hiwalay na sulat — kailangan muna ng Event ID.
-        let eventId = id;
-        if (!eventId) {
-          try {
-            const out = await res.json();
-            if (out && out.id) eventId = String(out.id);
-          } catch {
-            /* kung hindi mabasa ang sagot, laktawan na lang ang roster */
-          }
-        }
+        // The roster is a separate write — it needs the Event ID first.
+        const eventId = id || (out && out.id ? String(out.id) : null);
         if (eventId && roster) {
-          await fetch(PROD_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'setAssignments',
-              actor,
-              eventId,
-              rows: roster.filter((r) => r.personnel && r.roles.length),
-            }),
+          await authedPost({
+            action: 'setAssignments',
+            eventId,
+            rows: roster.filter((r) => r.personnel && r.roles.length),
           });
         }
         toast(id ? 'Event updated' : 'Event created — sent to the Division Chief', 'ok');
-      } catch {
-        toast('Submitted — refreshing the board', 'info');
+      } catch (err) {
+        toast(err instanceof Error ? err.message : 'Could not save.', 'err');
       } finally {
         setSubmitting(false);
         setEvModal({ open: false, editing: null });
@@ -5063,11 +5317,7 @@ export default function App() {
         return;
       }
       try {
-        await fetch(PROD_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'notify', id }),
-        });
+        await authedPost({ action: 'notify', id });
         toast('Approval email ipinadala', 'ok');
       } catch {
         toast('Could not reach the backend', 'err');
@@ -5094,17 +5344,15 @@ export default function App() {
         archiving: 'archiving',
       };
       try {
-        await fetch(PROD_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
+        await authedPost({
             action: 'updateEvent',
             id: ev.id,
             patch: { [fieldMap[key]]: PIPELINE_META[next].label },
-          }),
-        });
-      } catch {
-        /* optimistic — ire-reconcile ng susunod na refetch */
+          });
+      } catch (err) {
+        // Ang optimistic na pagbabago ay bumalik sa dating anyo kapag
+        // tinanggihan — dapat makita ng tao kung bakit.
+        toast(err instanceof Error ? err.message : 'Could not update.', 'err');
       }
       setTimeout(() => fetchProduction(), 1600);
     },
@@ -5136,14 +5384,10 @@ export default function App() {
         : { action: 'addRequest', payload: form };
 
       try {
-        await fetch(PROD_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(body),
-        });
+        await authedPost(body);
         toast(id ? 'Request updated' : 'Request logged', 'ok');
-      } catch {
-        toast('Submitted — refreshing the register', 'info');
+      } catch (err) {
+        toast(err instanceof Error ? err.message : 'Could not save.', 'err');
       } finally {
         setSubmitting(false);
         setReqModal({ open: false, editing: null });
@@ -5167,13 +5411,9 @@ export default function App() {
         prev.map((x) => (x.id === o.id ? { ...x, stage: next, stageRaw: STAGE_META[next].label } : x))
       );
       try {
-        await fetch(PROD_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'updateStage', id: o.id, stage: STAGE_META[next].label }),
-        });
-      } catch {
-        /* optimistic — ire-reconcile ng refetch sa baba */
+        await authedPost({ action: 'updateStage', id: o.id, stage: STAGE_META[next].label });
+      } catch (err) {
+        toast(err instanceof Error ? err.message : 'Could not update.', 'err');
       }
       setTimeout(() => {
         fetchProduction();
@@ -5772,6 +6012,21 @@ export default function App() {
       }[conn];
 
   /* --------------------------------------------------------------- VIEW -- */
+
+  // Walang makikita hangga't hindi naka-sign in, kapag naka-on ang auth.
+  if (AUTH_ENABLED && !user) {
+    return (
+      <SignInGate
+        onMount={(el) => {
+          gateRef.current = el;
+          if (gsiReady) renderButton(el);
+        }}
+        ready={gsiReady}
+        error={authError}
+      />
+    );
+  }
+
   return (
     <div className="relative min-h-screen bg-[#08080a] font-sans text-[13px] text-zinc-300 antialiased selection:bg-[#00aeef]/25">
       <div className="relative z-10 px-4 pb-28 pt-5 md:px-8">
@@ -5819,23 +6074,50 @@ export default function App() {
                   DMC Sheet
                 </a>
 
-                <select
-                  value={actor}
-                  onChange={(e) => chooseActor(e.target.value)}
-                  title="Changes you make are recorded under this name"
-                  className={`rounded border bg-[#101012] px-2.5 py-1.5 text-[12px] focus:border-[#00aeef] focus:outline-none ${
-                    actor
-                      ? 'border-zinc-800 text-zinc-300'
-                      : 'border-amber-600/50 text-amber-400'
-                  }`}
-                >
-                  <option value="">Sign in as…</option>
-                  {Object.keys(OFFICIAL).map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
+                {AUTH_ENABLED && user ? (
+                  <div className="flex items-center gap-2 rounded border border-zinc-800 bg-[#101012] py-1 pl-1 pr-2.5">
+                    {user.picture ? (
+                      <img
+                        src={user.picture}
+                        alt=""
+                        className="h-6 w-6 rounded-full"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-[11px] text-zinc-300">
+                        {user.name.slice(0, 1)}
+                      </span>
+                    )}
+                    <span className="max-w-[130px] truncate text-[12px] text-zinc-300">
+                      {user.name}
+                    </span>
+                    <button
+                      onClick={signOut}
+                      title="Sign out"
+                      className="text-[11px] text-zinc-600 transition-colors hover:text-zinc-300"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    value={actor}
+                    onChange={(e) => chooseActor(e.target.value)}
+                    title="Changes are recorded under this name. Not a security control."
+                    className={`rounded border bg-[#101012] px-2.5 py-1.5 text-[12px] focus:border-[#00aeef] focus:outline-none ${
+                      actor
+                        ? 'border-zinc-800 text-zinc-300'
+                        : 'border-amber-600/50 text-amber-400'
+                    }`}
+                  >
+                    <option value="">Working as…</option>
+                    {Object.keys(OFFICIAL).map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                )}
 
                 <button
                   onClick={() => {
@@ -5895,6 +6177,16 @@ export default function App() {
                 );
               })}
             </nav>
+
+            {!AUTH_ENABLED && (
+              <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-4 py-2.5 text-[12px] text-amber-300">
+                <span className="font-medium">Attribution mode.</span> Changes are recorded
+                under the selected name, but nothing is enforced — anyone with this link can
+                edit any record. Set{' '}
+                <span className="font-mono">GOOGLE_CLIENT_ID</span> in App.tsx and AVNexus.gs
+                to require sign-in.
+              </div>
+            )}
 
             {conn === 'error' && (
               <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-300">
@@ -6564,6 +6856,7 @@ export default function App() {
                               key={ev.id}
                               ev={ev}
                               crew={assignments.filter((a) => a.eventId === ev.id)}
+                              canEdit={can('edit', myRole, ev.createdBy, myName)}
                               onOpen={() => setEvModal({ open: true, editing: ev })}
                               onStep={(k, next) => stepEvent(ev, k, next)}
                             />
@@ -7420,6 +7713,10 @@ export default function App() {
             evModal.editing
               ? assignments.filter((a) => a.eventId === evModal.editing!.id)
               : []
+          }
+          role={myRole}
+          canEdit={
+            !evModal.editing || can('edit', myRole, evModal.editing.createdBy, myName)
           }
         />
       )}
