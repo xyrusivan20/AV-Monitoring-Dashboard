@@ -1274,7 +1274,10 @@ function can(cap: Capability, role: string, createdBy?: string, me?: string): bo
 function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
   const [ready, setReady] = useState(false);
   const cb = useRef(onUser);
-  cb.current = onUser;
+
+  useEffect(() => {
+    cb.current = onUser;
+  }, [onUser]);
 
   useEffect(() => {
     if (!AUTH_ENABLED) return;
@@ -1315,10 +1318,25 @@ function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
     document.head.appendChild(tag);
   }, []);
 
-  const prompt = useCallback(() => {
+  /**
+   * Tahimik na paghingi ng bagong token.
+   * Ang Google ID token ay tumatagal lamang ng isang oras at hindi
+   * kusang nagre-refresh. Kapag hindi ito hiningi muli, mapapalitan
+   * ng biglaang pag-logout — 'yon ang dating nangyayari.
+   */
+  const refresh = useCallback(() => {
     const w = window as any;
-    w.google?.accounts?.id?.prompt();
+    if (!w.google?.accounts?.id) return;
+    try {
+      // Buhay pa ang Google session, kaya walang lalabas na dialog —
+      // ang callback lang ang tatakbo kasama ang bagong token.
+      w.google.accounts.id.prompt();
+    } catch {
+      /* walang magagawa; hahayaan ang normal na daloy ng pag-sign in */
+    }
   }, []);
+
+  const prompt = refresh;
 
   const renderButton = useCallback((el: HTMLElement | null) => {
     const w = window as any;
@@ -1333,10 +1351,160 @@ function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
     });
   }, []);
 
-  return { ready, prompt, renderButton };
+  return { ready, prompt, refresh, renderButton };
 }
 
 /** Ang buong screen bago ka makapasok. */
+type ProbeResult = {
+  name: string;
+  url: string;
+  ok: boolean;
+  detail: string;
+  hint: string;
+};
+
+/**
+ * Sapat na bahagi ng deployment ID para maihambing sa Manage deployments.
+ * Ang lahat ng Apps Script ID ay nagsisimula sa "AKfycb", kaya kulang ang
+ * anim na titik — magkamukha ang dalawang magkaibang deployment.
+ */
+function shortUrl(url: string): string {
+  const m = url.match(/\/macros\/s\/([^/]+)\/(\w+)/);
+  if (!m) return url.slice(0, 56);
+  const id = m[1];
+  const head = id.slice(0, 16);
+  const tail = id.length > 20 ? '…' + id.slice(-4) : '';
+  return `${head}${tail}/${m[2]}`;
+}
+
+/**
+ * Sinusubukan ang isang endpoint at sinasabi kung ANO talaga ang nangyari.
+ * Ang "Load failed" ay walang sinasabi; ito ay may sinasabi.
+ */
+async function probeEndpoint(name: string, url: string): Promise<ProbeResult> {
+  if (!url.startsWith('https://script.google.com/')) {
+    return {
+      name,
+      url,
+      ok: false,
+      detail: 'Not set',
+      hint: 'This URL has not been filled in yet.',
+    };
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, { cache: 'no-store' });
+  } catch (err) {
+    return {
+      name,
+      url,
+      ok: false,
+      detail: 'Cannot be reached',
+      hint:
+        'The browser could not load this URL at all. Either the deployment was ' +
+        'deleted, or it is set to "Execute as: User accessing" — which forces a ' +
+        'Google login the dashboard cannot follow. It must be "Execute as: Me" ' +
+        'with access "Anyone".',
+    };
+  }
+
+  if (!res.ok) {
+    return {
+      name,
+      url,
+      ok: false,
+      detail: `HTTP ${res.status}`,
+      hint:
+        res.status === 404
+          ? 'This deployment no longer exists. Copy the current URL from Deploy → Manage deployments.'
+          : 'The script returned an error. Check the Apps Script execution log.',
+    };
+  }
+
+  const text = await res.text();
+  const looksLikeHtml = text.trimStart().startsWith('<');
+  if (looksLikeHtml) {
+    return {
+      name,
+      url,
+      ok: false,
+      detail: 'Returned a web page, not data',
+      hint:
+        'This is almost always a Google sign-in page. Set that deployment to ' +
+        '"Execute as: Me" and access "Anyone", then deploy a new version.',
+    };
+  }
+
+  try {
+    JSON.parse(text);
+  } catch {
+    return {
+      name,
+      url,
+      ok: false,
+      detail: 'Response was not valid data',
+      hint: 'The script ran but did not return JSON. Check the Apps Script execution log.',
+    };
+  }
+
+  return { name, url, ok: true, detail: 'Working', hint: '' };
+}
+
+/** Ipinapakita ang kalagayan ng bawat endpoint nang hiwalay. */
+function ConnectionPanel({
+  probes,
+  busy,
+  onRetry,
+}: {
+  probes: ProbeResult[];
+  busy: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-medium text-zinc-400">Connections</p>
+        <button
+          onClick={onRetry}
+          disabled={busy}
+          className="text-[11px] text-zinc-500 underline transition-colors hover:text-zinc-300 disabled:opacity-50"
+        >
+          {busy ? 'Testing…' : 'Test again'}
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {probes.map((pr) => (
+          <div key={pr.name} className="flex gap-3">
+            <span
+              className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: pr.ok ? '#22c55e' : '#ef4444' }}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-[12px] font-medium text-zinc-200">{pr.name}</span>
+                <span
+                  className="text-[11px]"
+                  style={{ color: pr.ok ? '#22c55e' : '#ef4444' }}
+                >
+                  {pr.detail}
+                </span>
+              </div>
+              <p className="truncate font-mono text-[10px] text-zinc-600">
+                {shortUrl(pr.url)}
+              </p>
+              {pr.hint && (
+                <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">{pr.hint}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SignInGate({
   onMount,
   ready,
@@ -4969,6 +5137,14 @@ export default function App() {
   }, []);
 
   const [user, setUser] = useState<SignedInUser | null>(null);
+
+  // Ang refresh ay dumarating nang asynchronous. Kailangan ng ref para
+  // makuha ng authedPost ang PINAKABAGONG token, hindi 'yung naka-capture
+  // noong ginawa ang callback.
+  const userRef = useRef<SignedInUser | null>(null);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
   const [authError, setAuthError] = useState('');
   const [setupError, setSetupError] = useState('');
   const [health, setHealth] = useState<{
@@ -4980,6 +5156,22 @@ export default function App() {
     tabs: Record<string, boolean>;
   } | null>(null);
   const [healthChecked, setHealthChecked] = useState(false);
+  const [probes, setProbes] = useState<ProbeResult[]>([]);
+  const [probing, setProbing] = useState(false);
+
+  /** Sinusubukan ang dalawang endpoint nang hiwalay, para tumpak ang sisi. */
+  const runProbes = useCallback(async () => {
+    setProbing(true);
+    try {
+      const out = await Promise.all([
+        probeEndpoint('DMC coverage sheet', SCRIPT_URL),
+        probeEndpoint('AV Nexus backend', PROD_SCRIPT_URL),
+      ]);
+      setProbes(out);
+    } finally {
+      setProbing(false);
+    }
+  }, []);
 
   /**
    * Tinatanong ang backend kung ano talaga ang kalagayan nito.
@@ -5012,11 +5204,35 @@ export default function App() {
   }, []);
   const gateRef = useRef<HTMLDivElement | null>(null);
 
-  const { ready: gsiReady, renderButton } = useGoogleSignIn((u) => {
+  const { ready: gsiReady, renderButton, refresh } = useGoogleSignIn((u) => {
     setUser(u);
     setAuthError('');
     if (u) setActor(u.name);
   });
+
+  /**
+   * Ang token ay tumatagal ng isang oras. Kinukuha natin ang bago limang
+   * minuto bago ito mag-expire — tahimik, walang makikitang dialog.
+   * Dito nawawala ang biglaang pag-logout.
+   */
+  useEffect(() => {
+    if (!AUTH_ENABLED || !user) return;
+    const msLeft = user.expiresAt - Date.now();
+    const fireIn = Math.max(15000, msLeft - 5 * 60 * 1000);
+    const t = setTimeout(() => refresh(), fireIn);
+    return () => clearTimeout(t);
+  }, [user, refresh]);
+
+  // Pagbalik sa tab pagkatapos ng matagal, baka expired na ang token.
+  useEffect(() => {
+    if (!AUTH_ENABLED) return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (user && user.expiresAt - Date.now() < 5 * 60 * 1000) refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [user, refresh]);
 
   useEffect(() => {
     if (AUTH_ENABLED && !user && gsiReady) renderButton(gateRef.current);
@@ -5024,7 +5240,8 @@ export default function App() {
 
   useEffect(() => {
     checkHealth();
-  }, [checkHealth]);
+    runProbes();
+  }, [checkHealth, runProbes]);
 
   const signOut = useCallback(() => {
     const w = window as any;
@@ -5038,23 +5255,74 @@ export default function App() {
   }, []);
 
   /** Ang lahat ng pagsulat ay dumadaan dito para masama ang token. */
-  const myRole = useMemo(() => roleOf(user, actor), [user, actor]);
+  /**
+   * Ang papel ay galing sa SERVER, hindi sa paghula base sa pangalan.
+   * Kung hindi pa dumarating, huhulaan muna para may maipakita, pero
+   * ang server pa rin ang huling hukom sa bawat pagsulat.
+   */
+  const [serverRole, setServerRole] = useState<string>('');
+  const myRole = serverRole || roleOf(user, actor);
   const myName = user?.name || actor;
+
+  useEffect(() => {
+    if (!AUTH_ENABLED || !user) {
+      setServerRole('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const out = await authedPost({ action: 'whoami' });
+        if (!cancelled && out && out.role) setServerRole(String(out.role));
+      } catch {
+        /* hahayaan ang hulang papel; ang server pa rin ang magpapatupad */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email]);
 
   const authedPost = useCallback(
     async (body: Record<string, unknown>) => {
-      const res = await fetch(PROD_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ ...body, actor, idToken: user?.idToken || '' }),
-      });
-
-      let out: any = null;
-      try {
-        out = await res.json();
-      } catch {
-        return { ok: true } as any; // opaque response — assume queued
+      // Malapit nang mag-expire? Kumuha muna ng bago bago pa magkaproblema.
+      if (AUTH_ENABLED && user && user.expiresAt - Date.now() < 60000) {
+        refresh();
+        await new Promise((r) => setTimeout(r, 900));
       }
+
+      const send = async (token: string) => {
+        const res = await fetch(PROD_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ ...body, actor, idToken: token }),
+        });
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          // HTML ang isinagot — halos palaging sign-in page ito.
+          throw new Error(
+            'The backend returned a web page instead of data. The deployment must be ' +
+              '"Execute as: Me" with access "Anyone".'
+          );
+        }
+      };
+
+      let out = await send(userRef.current?.idToken || '');
+
+      // Isang tahimik na pagsubok muli bago sumuko — dito nawawala ang
+      // pag-logout dahil lang sa lumang token.
+      if (out && out.ok === false && out.needsSignIn && !out.serverError) {
+        refresh();
+        await new Promise((r) => setTimeout(r, 1200));
+        const fresh = userRef.current?.idToken || '';
+        if (fresh && fresh !== (user?.idToken || '')) {
+          out = await send(fresh);
+        }
+      }
+
       if (out && out.ok === false) {
         if (out.serverError) {
           // Kasalanan ng pagkaka-set up, hindi ng gumagamit — panatilihin
@@ -5068,7 +5336,7 @@ export default function App() {
       }
       return out;
     },
-    [actor, user]
+    [actor, user, refresh]
   );
 
   const [outputs, setOutputs] = useState<Output[]>([]);
@@ -6324,46 +6592,62 @@ export default function App() {
               </div>
             )}
 
-            {conn === 'error' && (
-              <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-300">
-                Could not load records — {errMsg}. Showing the last data received.
-                {' '}The reading deployment must be “Execute as: Me” with access “Anyone”.
-                A deployment set to “Execute as: User accessing” forces a Google login and
-                will always fail here.
+            {(conn === 'error' || probes.some((pr) => !pr.ok)) && (
+              <div className="space-y-3">
+                {conn === 'error' && (
+                  <p className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-2.5 text-[12px] text-red-200">
+                    Could not load records — {errMsg}. Showing the last data received.
+                  </p>
+                )}
+                <ConnectionPanel probes={probes} busy={probing} onRetry={runProbes} />
               </div>
             )}
 
             {view === 'pulse' && (
             <>
-            {/* ------------------------------------- SOURCE SHEETS ----- */}
+            {/* --------------------------------- ARCHIVING TOOLS ------- */}
             <section>
               <SectionHead
-                title="Source sheets"
-                hint="The DMC archive is maintained in these Google Sheets."
+                title="Archiving tools"
+                hint="The DMC archive, its source sheets, and the AppSheet tasking app."
               />
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 {[
+                  {
+                    name: 'Tasking System',
+                    role: 'AppSheet — DMC transfer and archiving log',
+                    url: SYSTEMS.find((x) => x.id === 'tasking')?.url || '',
+                    accent: '#f59e0b',
+                  },
                   {
                     name: 'DMC Monitoring',
                     role: 'Master archive of transferred coverage',
                     url: DMC_MONITORING_LINK,
+                    accent: CYAN,
                   },
                   {
                     name: 'Pre-Archival',
                     role: 'Staging list before DMC transfer',
                     url: PRE_ARCHIVAL_LINK,
+                    accent: '#71717a',
                   },
-                ].map((sheet) => (
+                ].map((tool) => (
                   <a
-                    key={sheet.name}
-                    href={sheet.url}
+                    key={tool.name}
+                    href={tool.url}
                     target="_blank"
                     rel="noreferrer"
                     className="group flex items-center justify-between gap-4 rounded-md border border-zinc-800/80 bg-[#101012] px-4 py-3.5 transition-colors hover:border-zinc-700"
                   >
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-medium text-zinc-100">{sheet.name}</p>
-                      <p className="truncate text-[11px] text-zinc-600">{sheet.role}</p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: tool.accent }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium text-zinc-100">{tool.name}</p>
+                        <p className="truncate text-[11px] text-zinc-600">{tool.role}</p>
+                      </div>
                     </div>
                     <span className="shrink-0 text-[12px] text-zinc-600 transition-colors group-hover:text-[#00aeef]">
                       Open
