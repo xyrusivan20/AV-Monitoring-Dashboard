@@ -3708,8 +3708,31 @@ function EventModal({
   const approvalOnly = isApprover && !!existing;
   const readOnly = !!existing && !canEdit && !isApprover;
 
+  /**
+   * Ang parehong panuntunan ng server, ipinapakita bago pa mag-save.
+   * Ang server pa rin ang huling hukom — ito ay para malaman mo agad kung
+   * ano ang kulang, hindi para lampasan ang tseke.
+   */
+  const missingFields = useMemo(() => {
+    const out: string[] = [];
+    if (!f.title.trim()) out.push('Event title');
+    if (!f.client.trim()) out.push('Client');
+    if (!f.eventDate) out.push('Event date');
+    if (requested.length === 0) out.push('At least one requested service');
+    return out;
+  }, [f.title, f.client, f.eventDate, requested]);
+
+  // Hindi maaaring maibigay ang hindi naman hiniling.
+  const strayDelivered = useMemo(
+    () => delivered.filter((d) => !requested.includes(d)),
+    [delivered, requested]
+  );
+
   const canSave =
-    !!f.title.trim() && !reasonMissing && !submitting && (canEdit || approvalOnly);
+    !reasonMissing &&
+    !submitting &&
+    strayDelivered.length === 0 &&
+    (approvalOnly || (canEdit && missingFields.length === 0));
 
   const field =
     `w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none${
@@ -4147,11 +4170,15 @@ function EventModal({
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
-          <p className="text-[10px] text-zinc-600">
+          <p className="max-w-md text-[10px] leading-relaxed text-zinc-600">
             {readOnly
               ? `View only — this event belongs to ${existing?.createdBy || 'someone else'}.`
               : approvalOnly
               ? 'You may approve or decline. Editing the record is done by its owner.'
+              : strayDelivered.length > 0
+              ? `Marked delivered but never requested: ${strayDelivered.join(', ')}. Add them to the requested services first.`
+              : missingFields.length > 0
+              ? `Still required: ${missingFields.join(', ')}.`
               : reasonMissing
               ? 'A reason is required before saving.'
               : 'Saved directly to the Events sheet.'}
@@ -5770,7 +5797,17 @@ export default function App() {
         }
         // Huwag sabihing naipadala ang email kung hindi naman.
         if (id) {
-          toast('Event updated', 'ok');
+          if (out?.emailed) {
+            toast(`Event updated — email sent to ${out.emailTo}`, 'ok');
+          } else {
+            toast('Event updated', 'ok');
+            if (out?.emailError) {
+              setLastError({
+                what: 'Approval email',
+                detail: `The change was saved, but no email went out. ${out.emailError}`,
+              });
+            }
+          }
         } else if (out?.emailed) {
           toast(`Event created — approval email sent to ${out.emailTo || 'the Division Chief'}`, 'ok');
         } else {
