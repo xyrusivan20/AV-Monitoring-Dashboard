@@ -55,6 +55,43 @@ const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/')
 const GOOGLE_CLIENT_ID = '889974466807-eqlg343alp3vr8vtt8c9le3mql1kt3u7.apps.googleusercontent.com';
 const AUTH_ENABLED = GOOGLE_CLIENT_ID.length > 0;
 
+/**
+ * Ang session na binibigay ng backend pagkatapos ng isang matagumpay na
+ * Google sign-in. Ito ang ginagamit sa bawat pagsulat — hindi na ang
+ * Google ID token, na isang oras lang ang buhay at hindi kayang i-refresh
+ * nang tahimik ng browser.
+ */
+interface StoredSession {
+  token: string;
+  email: string;
+  name: string;
+  role: string;
+  expiresAt: number;
+}
+
+const SESSION_KEY = 'avnexus.session';
+
+function loadSession(): StoredSession | null {
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as StoredSession;
+    if (!s?.token || !s.expiresAt || s.expiresAt < Date.now()) return null;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(s: StoredSession | null) {
+  try {
+    if (s) window.localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    else window.localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* private mode — the session lasts for this tab only */
+  }
+}
+
 interface SignedInUser {
   email: string;
   name: string;
@@ -1571,7 +1608,7 @@ function SignInGate({
               {health.problems.map((prob, i) => (
                 <li key={i} className="flex gap-2">
                   <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
-                  <span>{prob}</span>
+                  <span className="whitespace-pre-line">{prob}</span>
                 </li>
               ))}
             </ul>
@@ -5138,13 +5175,26 @@ export default function App() {
 
   const [user, setUser] = useState<SignedInUser | null>(null);
 
-  // Ang refresh ay dumarating nang asynchronous. Kailangan ng ref para
-  // makuha ng authedPost ang PINAKABAGONG token, hindi 'yung naka-capture
-  // noong ginawa ang callback.
+  /**
+   * Ang session ang totoong sumusuporta sa pananatiling naka-sign in.
+   * Labindalawang oras ito, naka-imbak sa browser, at hindi kailangang
+   * kausapin ang Google kada pagsulat.
+   */
+  const [session, setSession] = useState<StoredSession | null>(() => loadSession());
+  const sessionRef = useRef<StoredSession | null>(null);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   const userRef = useRef<SignedInUser | null>(null);
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  const endSession = useCallback(() => {
+    setSession(null);
+    saveSession(null);
+  }, []);
   const [authError, setAuthError] = useState('');
   const [setupError, setSetupError] = useState('');
   const [health, setHealth] = useState<{
@@ -5154,8 +5204,14 @@ export default function App() {
     signIn: string;
     tokenVerification: string;
     tabs: Record<string, boolean>;
+    clientId?: string;
   } | null>(null);
   const [healthChecked, setHealthChecked] = useState(false);
+  /**
+   * Ang toast ay nawawala sa loob ng ilang segundo. Ang mga error na
+   * kailangan pang basahin at ayusin ay dapat manatili sa screen.
+   */
+  const [lastError, setLastError] = useState<{ what: string; detail: string } | null>(null);
   const [probes, setProbes] = useState<ProbeResult[]>([]);
   const [probing, setProbing] = useState(false);
 
@@ -5182,6 +5238,31 @@ export default function App() {
     try {
       const res = await fetch(`${PROD_SCRIPT_URL}?action=health`, { cache: 'no-store' });
       const out = await res.json();
+
+      // Ang pinakakaraniwang sanhi ng "not issued for AV Nexus": magkaiba
+      // ang client ID sa dalawang file. Nahuhuli ito bago pa mag-sign in.
+      const backendId = String(out?.clientId || '').trim();
+      const frontId = GOOGLE_CLIENT_ID.trim();
+      if (AUTH_ENABLED && backendId && backendId !== frontId) {
+        out.problems = [
+          'The Client ID in App.tsx does not match the one in AVNexus.gs, so no ' +
+            'sign-in can ever succeed.\n' +
+            `App.tsx:    ${frontId}\n` +
+            `AVNexus.gs: ${backendId}\n` +
+            'Make them identical, then redeploy both.',
+          ...(out.problems || []),
+        ];
+        out.ok = false;
+      }
+      if (AUTH_ENABLED && !backendId && out?.signIn === 'attribution-only') {
+        out.problems = [
+          'The dashboard requires sign-in but AVNexus.gs has no GOOGLE_CLIENT_ID, ' +
+            'so the script cannot verify anyone. Put the same Client ID in both files.',
+          ...(out.problems || []),
+        ];
+        out.ok = false;
+      }
+
       setHealth(out);
     } catch {
       // Kapag pati ito ay hindi maabot, ang URL o ang deployment ang mali.
@@ -5204,35 +5285,56 @@ export default function App() {
   }, []);
   const gateRef = useRef<HTMLDivElement | null>(null);
 
-  const { ready: gsiReady, renderButton, refresh } = useGoogleSignIn((u) => {
+  const { ready: gsiReady, renderButton } = useGoogleSignIn((u) => {
     setUser(u);
     setAuthError('');
     if (u) setActor(u.name);
   });
 
   /**
-   * Ang token ay tumatagal ng isang oras. Kinukuha natin ang bago limang
-   * minuto bago ito mag-expire — tahimik, walang makikitang dialog.
-   * Dito nawawala ang biglaang pag-logout.
+   * Isang beses lang: ipinapalit ang Google ID token sa isang session na
+   * tumatagal ng labindalawang oras. Pagkatapos nito, hindi na kailangang
+   * kausapin ang Google.
    */
   useEffect(() => {
-    if (!AUTH_ENABLED || !user) return;
-    const msLeft = user.expiresAt - Date.now();
-    const fireIn = Math.max(15000, msLeft - 5 * 60 * 1000);
-    const t = setTimeout(() => refresh(), fireIn);
-    return () => clearTimeout(t);
-  }, [user, refresh]);
-
-  // Pagbalik sa tab pagkatapos ng matagal, baka expired na ang token.
-  useEffect(() => {
-    if (!AUTH_ENABLED) return;
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (user && user.expiresAt - Date.now() < 5 * 60 * 1000) refresh();
+    if (!AUTH_ENABLED || !user || session) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const out = await authedPost({ action: 'signIn' });
+        if (!cancelled && out?.role) setServerRole(String(out.role));
+      } catch (err) {
+        if (!cancelled) {
+          setAuthError(
+            err instanceof Error ? err.message : 'Could not complete sign-in.'
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [user, refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, session]);
+
+  /**
+   * Wala nang refresh timer. Ang google.accounts.id.prompt() ay para sa
+   * unang pag-sign in lamang — may cooldown ito at madalas walang ginagawa,
+   * kaya hindi ito maaasahan para kumuha ng bagong token. Ang session na
+   * galing sa backend ang humahawak ng pananatili, at labindalawang oras
+   * ang buhay nito.
+   */
+  useEffect(() => {
+    if (!AUTH_ENABLED || !session) return;
+    // Kapag natapos ang labindalawang oras, isang beses lang mag-si-sign in.
+    const msLeft = session.expiresAt - Date.now();
+    if (msLeft <= 0) {
+      endSession();
+      return;
+    }
+    const t = setTimeout(() => endSession(), msLeft);
+    return () => clearTimeout(t);
+  }, [session, endSession]);
 
   useEffect(() => {
     if (AUTH_ENABLED && !user && gsiReady) renderButton(gateRef.current);
@@ -5252,7 +5354,8 @@ export default function App() {
     }
     setUser(null);
     setActor('');
-  }, []);
+    endSession();
+  }, [endSession]);
 
   /** Ang lahat ng pagsulat ay dumadaan dito para masama ang token. */
   /**
@@ -5261,8 +5364,8 @@ export default function App() {
    * ang server pa rin ang huling hukom sa bawat pagsulat.
    */
   const [serverRole, setServerRole] = useState<string>('');
-  const myRole = serverRole || roleOf(user, actor);
-  const myName = user?.name || actor;
+  const myRole = serverRole || session?.role || roleOf(user, actor);
+  const myName = user?.name || session?.name || actor;
 
   useEffect(() => {
     if (!AUTH_ENABLED || !user) {
@@ -5286,17 +5389,18 @@ export default function App() {
 
   const authedPost = useCallback(
     async (body: Record<string, unknown>) => {
-      // Malapit nang mag-expire? Kumuha muna ng bago bago pa magkaproblema.
-      if (AUTH_ENABLED && user && user.expiresAt - Date.now() < 60000) {
-        refresh();
-        await new Promise((r) => setTimeout(r, 900));
-      }
-
-      const send = async (token: string) => {
+      const send = async () => {
         const res = await fetch(PROD_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ ...body, actor, idToken: token }),
+          body: JSON.stringify({
+            ...body,
+            actor,
+            // Ang session ang pangunahing patunay. Ang Google token ay
+            // ginagamit lang sa unang pagkakataon o kapag expired na.
+            session: sessionRef.current?.token || '',
+            idToken: userRef.current?.idToken || '',
+          }),
         });
         const text = await res.text();
         try {
@@ -5310,17 +5414,19 @@ export default function App() {
         }
       };
 
-      let out = await send(userRef.current?.idToken || '');
+      const out = await send();
 
-      // Isang tahimik na pagsubok muli bago sumuko — dito nawawala ang
-      // pag-logout dahil lang sa lumang token.
-      if (out && out.ok === false && out.needsSignIn && !out.serverError) {
-        refresh();
-        await new Promise((r) => setTimeout(r, 1200));
-        const fresh = userRef.current?.idToken || '';
-        if (fresh && fresh !== (user?.idToken || '')) {
-          out = await send(fresh);
-        }
+      // Bagong session mula sa server — itago para sa susunod na labindalawang oras.
+      if (out && out.ok && out.session) {
+        const next: StoredSession = {
+          token: String(out.session),
+          email: String(out.email || ''),
+          name: String(out.name || ''),
+          role: String(out.role || ''),
+          expiresAt: Date.now() + (Number(out.expiresIn) || 43200) * 1000,
+        };
+        setSession(next);
+        saveSession(next);
       }
 
       if (out && out.ok === false) {
@@ -5331,12 +5437,13 @@ export default function App() {
         } else if (out.needsSignIn) {
           setAuthError(out.error || 'Please sign in again.');
           setUser(null);
+          endSession();
         }
         throw new Error(out.error || 'The server rejected this change.');
       }
       return out;
     },
-    [actor, user, refresh]
+    [actor, endSession]
   );
 
   const [outputs, setOutputs] = useState<Output[]>([]);
@@ -5597,7 +5704,9 @@ export default function App() {
         await authedPost({ action: 'addOutput', payload });
         toast('Output saved to the Production Log', 'ok');
       } catch (err) {
-        toast(err instanceof Error ? err.message : 'Could not save.', 'err');
+        const msg = err instanceof Error ? err.message : 'Could not save.';
+        toast(msg, 'err');
+        setLastError({ what: 'Log video output', detail: msg });
       } finally {
         setSubmitting(false);
         setLogOpen(false);
@@ -5661,7 +5770,9 @@ export default function App() {
         }
         toast(id ? 'Event updated' : 'Event created — sent to the Division Chief', 'ok');
       } catch (err) {
-        toast(err instanceof Error ? err.message : 'Could not save.', 'err');
+        const msg = err instanceof Error ? err.message : 'Could not save.';
+        toast(msg, 'err');
+        setLastError({ what: id ? 'Update event' : 'Create event', detail: msg });
       } finally {
         setSubmitting(false);
         setEvModal({ open: false, editing: null });
@@ -5678,10 +5789,13 @@ export default function App() {
         return;
       }
       try {
-        await authedPost({ action: 'notify', id });
-        toast('Approval email ipinadala', 'ok');
-      } catch {
-        toast('Could not reach the backend', 'err');
+        const out = await authedPost({ action: 'notify', id });
+        toast(out?.to ? `Approval email sent to ${out.to}` : 'Approval email sent', 'ok');
+      } catch (err) {
+        // Ang server ay nagsasabi ng eksaktong dahilan. Huwag itong itapon.
+        const msg = err instanceof Error ? err.message : 'Could not send the email.';
+        toast(msg, 'err');
+        setLastError({ what: 'Send approval email', detail: msg });
       }
     },
     [toast]
@@ -6375,7 +6489,9 @@ export default function App() {
   /* --------------------------------------------------------------- VIEW -- */
 
   // Walang makikita hangga't hindi naka-sign in, kapag naka-on ang auth.
-  if (AUTH_ENABLED && !user) {
+  // Sapat na ang buhay na session — hindi na kailangang muling mag-sign in
+  // hangga't hindi ito nag-e-expire.
+  if (AUTH_ENABLED && !user && !session) {
     return (
       <SignInGate
         onMount={(el) => {
@@ -6437,9 +6553,9 @@ export default function App() {
                   DMC Sheet
                 </a>
 
-                {AUTH_ENABLED && user ? (
+                {AUTH_ENABLED && (user || session) ? (
                   <div className="flex items-center gap-2 rounded border border-zinc-800 bg-[#101012] py-1 pl-1 pr-2.5">
-                    {user.picture ? (
+                    {user?.picture ? (
                       <img
                         src={user.picture}
                         alt=""
@@ -6448,11 +6564,11 @@ export default function App() {
                       />
                     ) : (
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-[11px] text-zinc-300">
-                        {user.name.slice(0, 1)}
+                        {(myName || '?').slice(0, 1)}
                       </span>
                     )}
                     <span className="max-w-[130px] truncate text-[12px] text-zinc-300">
-                      {user.name}
+                      {myName}
                     </span>
                     <button
                       onClick={signOut}
@@ -6558,10 +6674,27 @@ export default function App() {
                   {health.problems.map((prob, i) => (
                     <li key={i} className="flex gap-2">
                       <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
-                      <span>{prob}</span>
+                      <span className="whitespace-pre-line">{prob}</span>
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {lastError && (
+              <div className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+                <div className="mb-1 flex items-start justify-between gap-3">
+                  <p className="font-medium">{lastError.what} failed</p>
+                  <button
+                    onClick={() => setLastError(null)}
+                    className="shrink-0 text-[11px] text-red-300/60 underline transition-colors hover:text-red-200"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <p className="font-mono text-[11px] leading-relaxed text-red-200/90">
+                  {lastError.detail}
+                </p>
               </div>
             )}
 
