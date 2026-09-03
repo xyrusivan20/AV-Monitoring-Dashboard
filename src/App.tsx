@@ -52,7 +52,7 @@ const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/')
  * → OAuth client ID → Web application, at idagdag ang URL ng dashboard
  * sa "Authorized JavaScript origins".
  */
-const GOOGLE_CLIENT_ID = '889974466807-eqlg343alp3vr8vtt8c9le3mql1kt3u7.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = 'http://889974466807-eqlg343alp3vr8vtt8c9le3mql1kt3u7.apps.googleusercontent.com';
 const AUTH_ENABLED = GOOGLE_CLIENT_ID.length > 0;
 
 interface SignedInUser {
