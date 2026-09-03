@@ -40,7 +40,7 @@ const SCRIPT_URL =
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 /**
@@ -52,7 +52,7 @@ const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/')
  * → OAuth client ID → Web application, at idagdag ang URL ng dashboard
  * sa "Authorized JavaScript origins".
  */
-const GOOGLE_CLIENT_ID = '889974466807-eqlg343alp3vr8vtt8c9le3mql1kt3u7.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '';
 const AUTH_ENABLED = GOOGLE_CLIENT_ID.length > 0;
 
 interface SignedInUser {
@@ -4925,6 +4925,7 @@ export default function App() {
 
   const [user, setUser] = useState<SignedInUser | null>(null);
   const [authError, setAuthError] = useState('');
+  const [setupError, setSetupError] = useState('');
   const gateRef = useRef<HTMLDivElement | null>(null);
 
   const { ready: gsiReady, renderButton } = useGoogleSignIn((u) => {
@@ -4967,7 +4968,11 @@ export default function App() {
         return { ok: true } as any; // opaque response — assume queued
       }
       if (out && out.ok === false) {
-        if (out.needsSignIn) {
+        if (out.serverError) {
+          // Kasalanan ng pagkaka-set up, hindi ng gumagamit — panatilihin
+          // siyang naka-sign in at ipakita kung ano ang dapat ayusin.
+          setSetupError(out.error || 'The server could not process this request.');
+        } else if (out.needsSignIn) {
           setAuthError(out.error || 'Please sign in again.');
           setUser(null);
         }
@@ -6177,6 +6182,23 @@ export default function App() {
                 );
               })}
             </nav>
+
+            {setupError && (
+              <div className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+                <p className="mb-1 font-medium">Setup incomplete</p>
+                <p>{setupError}</p>
+                <p className="mt-2 text-red-300/70">
+                  In Apps Script: Run → <span className="font-mono">authorize()</span>, accept
+                  the permission prompt, then Deploy → Manage deployments → New version.
+                </p>
+                <button
+                  onClick={() => setSetupError('')}
+                  className="mt-2 text-[11px] text-red-300/60 underline transition-colors hover:text-red-200"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {!AUTH_ENABLED && (
               <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-4 py-2.5 text-[12px] text-amber-300">
