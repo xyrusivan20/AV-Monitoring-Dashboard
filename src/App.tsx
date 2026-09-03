@@ -33,14 +33,14 @@ interface SystemApp {
 /* ---------------------------------------------------------------- CONFIG -- */
 
 const SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec';
+  'https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec';
 
 /**
  * BAGONG production backend — HIWALAY na spreadsheet, hiwalay na script.
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxeTNINrKnTjQfdJ9RPVyYGUYgAGIlT2aOVuGxxPwocEXyR6sfiFR_amTV7LOydBRcEQ/exec';
+const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 /**
@@ -52,7 +52,7 @@ const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/')
  * → OAuth client ID → Web application, at idagdag ang URL ng dashboard
  * sa "Authorized JavaScript origins".
  */
-const GOOGLE_CLIENT_ID = '889974466807-eqlg343alp3vr8vtt8c9le3mql1kt3u7.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = '';
 const AUTH_ENABLED = GOOGLE_CLIENT_ID.length > 0;
 
 /**
@@ -594,10 +594,10 @@ function monthLabel(key: string): string {
  * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3:
  *   for-approval → Division Chief acts
  *   approved     → cleared by the Division Chief, awaiting endorsement
- *   Endorsed     → released to the AV Team by the Supervising SRS
+ *   endorsed     → released to the AV Team by the Supervising SRS
  */
 type ApprovalKey =
-  | 'for-approval' | 'approved' | 'Endorsed'
+  | 'for-approval' | 'approved' | 'endorsed'
   | 'declined' | 'cancelled' | 'rescheduled';
 
 /** Kinakalkula, hindi ini-input. */
@@ -620,7 +620,7 @@ interface AVEvent {
   reason: string;
   approval: ApprovalKey;
   approvalRaw: string;
-  EndorsedBy: string;
+  endorsedBy: string;
   dateEndorsed: Date | null;
   approvedBy: string;
   dateApproved: Date | null;
@@ -701,7 +701,7 @@ const HEAVY_SERVICES = [
 ];
 
 const APPROVAL_ORDER: ApprovalKey[] = [
-  'for-approval', 'approved', 'Endorsed', 'declined', 'rescheduled', 'cancelled',
+  'for-approval', 'approved', 'endorsed', 'declined', 'rescheduled', 'cancelled',
 ];
 
 const APPROVAL_META: Record<
@@ -709,14 +709,14 @@ const APPROVAL_META: Record<
   { label: string; short: string; hex: string; chip: string; live: boolean }
 > = {
   'for-approval': {
-    label: 'For Approval', short: 'FOR DC', hex: '#a1a1aa',
+    label: 'For approval', short: 'FOR DC', hex: '#a1a1aa',
     chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700', live: true,
   },
   approved: {
     label: 'Approved', short: 'FOR SRS', hex: '#f59e0b',
     chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', live: true,
   },
-  Endorsed: {
+  endorsed: {
     label: 'Endorsed', short: 'CLEARED', hex: '#00aeef',
     chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', live: true,
   },
@@ -836,12 +836,12 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
  * so both states must count here.
  */
 function isAuthorised(ev: AVEvent): boolean {
-  return ev.approval === 'approved' || ev.approval === 'Endorsed';
+  return ev.approval === 'approved' || ev.approval === 'endorsed';
 }
 
 /** Still needs a signature from either the Division Chief or the SRS. */
 function awaitingAction(ev: AVEvent): boolean {
-  return APPROVAL_META[ev.approval].live && ev.approval !== 'Endorsed';
+  return APPROVAL_META[ev.approval].live && ev.approval !== 'endorsed';
 }
 
 function classifyApproval(raw: string): ApprovalKey {
@@ -849,9 +849,9 @@ function classifyApproval(raw: string): ApprovalKey {
   if (s.includes('declin') || s.includes('disapprove') || s.includes('reject')) return 'declined';
   if (s.includes('cancel')) return 'cancelled';
   if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
-  // "For Approval" must be tested before "approved" — it contains the word.
-  if (s.includes('For Approval') || s.includes('for endorsement')) return 'for-approval';
-  if (s.includes('Endorsed')) return 'Endorsed';
+  // "For approval" must be tested before "approved" — it contains the word.
+  if (s.includes('for approval') || s.includes('for endorsement')) return 'for-approval';
+  if (s.includes('endorsed')) return 'endorsed';
   if (s.includes('approved')) return 'approved';
   return 'for-approval';
 }
@@ -4005,11 +4005,11 @@ function EventModal({
 
               {existing && (
                 <p className="mt-3 font-mono text-[10px] text-zinc-600">
-                  {existing.EndorsedBy
-                    ? `Endorsed by ${existing.EndorsedBy}${
+                  {existing.endorsedBy
+                    ? `Endorsed by ${existing.endorsedBy}${
                         existing.dateEndorsed ? ` · ${fmtDate(existing.dateEndorsed)}` : ''
                       }`
-                    : 'Not yet Endorsed'}
+                    : 'Not yet endorsed'}
                   {' — '}
                   {existing.approvedBy
                     ? `Approved by ${existing.approvedBy}${
@@ -5584,7 +5584,7 @@ export default function App() {
               reason: String(r['Reason for Gap'] || ''),
               approval: classifyApproval(approvalRaw),
               approvalRaw,
-              EndorsedBy: String(r['Endorsed By'] || ''),
+              endorsedBy: String(r['Endorsed By'] || ''),
               dateEndorsed: parseDate(r['Date Endorsed']),
               approvedBy: String(r['Approved By'] || ''),
               dateApproved: parseDate(r['Date Approved']),
@@ -5768,7 +5768,21 @@ export default function App() {
             rows: roster.filter((r) => r.personnel && r.roles.length),
           });
         }
-        toast(id ? 'Event updated' : 'Event created — sent to the Division Chief', 'ok');
+        // Huwag sabihing naipadala ang email kung hindi naman.
+        if (id) {
+          toast('Event updated', 'ok');
+        } else if (out?.emailed) {
+          toast(`Event created — approval email sent to ${out.emailTo || 'the Division Chief'}`, 'ok');
+        } else {
+          toast('Event created', 'ok');
+          if (out?.emailError) {
+            setLastError({
+              what: 'Approval email',
+              detail:
+                `The event was saved, but the approval email was not sent. ${out.emailError}`,
+            });
+          }
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Could not save.';
         toast(msg, 'err');
