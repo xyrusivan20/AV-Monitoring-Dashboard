@@ -709,7 +709,7 @@ const APPROVAL_META: Record<
   { label: string; short: string; hex: string; chip: string; live: boolean }
 > = {
   'for-approval': {
-    label: 'For approval', short: 'FOR DC', hex: '#a1a1aa',
+    label: 'For Approval', short: 'FOR DC', hex: '#a1a1aa',
     chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700', live: true,
   },
   approved: {
@@ -849,8 +849,8 @@ function classifyApproval(raw: string): ApprovalKey {
   if (s.includes('declin') || s.includes('disapprove') || s.includes('reject')) return 'declined';
   if (s.includes('cancel')) return 'cancelled';
   if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
-  // "For approval" must be tested before "approved" — it contains the word.
-  if (s.includes('for approval') || s.includes('for endorsement')) return 'for-approval';
+  // "For Approval" must be tested before "approved" — it contains the word.
+  if (s.includes('For Approval') || s.includes('for endorsement')) return 'for-approval';
   if (s.includes('endorsed')) return 'endorsed';
   if (s.includes('approved')) return 'approved';
   return 'for-approval';
