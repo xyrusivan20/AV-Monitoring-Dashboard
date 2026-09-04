@@ -3,6 +3,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 /* ============================================================================
    AV NEXUS — Broadcast & Digital Media Section (DOST-STII)
    Master Control Room for coverage, DMC monitoring, and AV systems.
+
+   UI: light mode. Slate ground, white panels, DOST blue accent.
+   COA: turnaround time is measured from the date the request was RECEIVED.
    ========================================================================== */
 
 interface Coverage {
@@ -130,7 +133,8 @@ const DMC_MONITORING_LINK =
 const CAL_EMBED =
   'https://calendar.google.com/calendar/embed?src=av%40stii.dost.gov.ph&ctz=Asia%2FSingapore';
 
-const CYAN = '#00aeef';
+/** DOST corporate blue — blue-600. Pumalit sa dating neon cyan. */
+const CYAN = '#2563eb'; // DOST corporate blue (blue-600)
 
 const SYSTEMS: SystemApp[] = [
   {
@@ -150,7 +154,7 @@ const SYSTEMS: SystemApp[] = [
     role: 'Public capability page',
     url: 'https://bdms-av-portfolio.vercel.app',
     tag: 'PUBLIC FACING',
-    accent: '#ef4444',
+    accent: '#dc2626',
     glyph: 'AV',
     embeddable: true,
     points: ['Service catalogue', 'Camera & lens kit', 'Showreel embeds'],
@@ -161,7 +165,7 @@ const SYSTEMS: SystemApp[] = [
     role: 'Field assignment log',
     url: 'https://www.appsheet.com/start/013e44a8-f18a-49f5-98b6-b28f027dd3b7?platform=desktop#appName=DMCUploadingMonitoringBackend-264496452&vss=H4sIAAAAAAAAA6XOsQrCMBQF0F-RO-cLsok4iNhF6WIcYvMKwTYpJtWWkH_3VS3O6pgbzn034Wbpvo-6ukAe0-e1pRESSeEwdqQgFVbexatvFIRCodtXuCwXBQ19UMjIJzH7SAEyfcflf9cFrCEXbW3pOnVNkjvejr8nxcFskAXaPupzQ8_BbHLmrPZVH8iUPOWHCWHj1kOnndl5w5W1bgLlB_LM-uFlAQAA&view=AV%20Nexus',
     tag: 'APPSHEET',
-    accent: '#f59e0b',
+    accent: '#d97706',
     glyph: 'TS',
     embeddable: false,
     points: ['Assignment queue', 'Mobile field capture', 'Feeds this dashboard'],
@@ -190,32 +194,32 @@ const STATUS_META: Record<
   pending: {
     label: 'PENDING',
     icon: '',
-    chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700',
-    hex: '#a1a1aa',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200',
+    hex: '#94a3b8',
   },
   upcoming: {
     label: 'UPCOMING',
     icon: '',
-    chip: 'bg-red-500/10 text-red-400 border-red-500/30',
-    hex: '#ef4444',
+    chip: 'bg-red-100 text-red-800 border-red-200',
+    hex: '#dc2626',
   },
   checked: {
     label: 'CHECKED',
     icon: '',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
-    hex: '#0e7fae',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
+    hex: '#1d4ed8',
   },
   transferred: {
     label: 'DMC TRANSFERRED',
     icon: '',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
-    hex: '#00aeef',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
+    hex: '#2563eb',
   },
   archived: {
     label: 'ARCHIVED',
     icon: '',
-    chip: 'bg-zinc-900/80 text-zinc-400 border-zinc-800',
-    hex: '#52525b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
+    hex: '#94a3b8',
   },
 };
 
@@ -252,38 +256,38 @@ const STAGE_META: Record<StageKey, { label: string; short: string; hex: string; 
   assigned: {
     label: 'Assigned',
     short: 'QUEUE',
-    hex: '#71717a',
-    chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700',
+    hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200',
   },
   shooting: {
     label: 'Shooting',
     short: 'FIELD',
-    hex: '#ef4444',
-    chip: 'bg-red-500/10 text-red-400 border-red-500/30',
+    hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200',
   },
   editing: {
     label: 'Editing',
     short: 'POST',
-    hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   review: {
     label: 'For Review',
     short: 'REVIEW',
-    hex: '#a855f7',
-    chip: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
+    hex: '#9333ea',
+    chip: 'bg-purple-100 text-purple-800 border-purple-200',
   },
   approved: {
     label: 'Approved',
     short: 'CLEARED',
-    hex: '#00aeef',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
+    hex: '#2563eb',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
   },
   published: {
     label: 'Published',
     short: 'ON AIR',
-    hex: '#22c55e',
-    chip: 'bg-green-500/10 text-green-400 border-green-500/30',
+    hex: '#16a34a',
+    chip: 'bg-green-100 text-green-800 border-green-200',
   },
 };
 
@@ -354,8 +358,8 @@ interface ServiceRequest {
 const SLA_WD: Record<Stream, number> = { coverage: 3, production: 13 };
 
 const STREAM_META: Record<Stream, { label: string; short: string; hex: string }> = {
-  coverage:   { label: 'AV Coverage',    short: 'COVERAGE',   hex: '#00aeef' },
-  production: { label: 'AVP Production', short: 'PRODUCTION', hex: '#a855f7' },
+  coverage:   { label: 'AV Coverage',    short: 'COVERAGE',   hex: '#2563eb' },
+  production: { label: 'AVP Production', short: 'PRODUCTION', hex: '#9333ea' },
 };
 
 const REQ_ORDER: ReqStatus[] = [
@@ -367,32 +371,32 @@ const REQ_META: Record<
   { label: string; hex: string; chip: string; served: boolean; unmet: boolean }
 > = {
   pending: {
-    label: 'Pending', hex: '#a1a1aa',
-    chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700', served: false, unmet: false,
+    label: 'Pending', hex: '#94a3b8',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200', served: false, unmet: false,
   },
   approved: {
-    label: 'Approved', hex: '#0e7fae',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', served: false, unmet: false,
+    label: 'Approved', hex: '#1d4ed8',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200', served: false, unmet: false,
   },
   ongoing: {
-    label: 'Ongoing', hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', served: false, unmet: false,
+    label: 'Ongoing', hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200', served: false, unmet: false,
   },
   completed: {
-    label: 'Completed', hex: '#22c55e',
-    chip: 'bg-green-500/10 text-green-400 border-green-500/30', served: true, unmet: false,
+    label: 'Completed', hex: '#16a34a',
+    chip: 'bg-green-100 text-green-800 border-green-200', served: true, unmet: false,
   },
   rescheduled: {
-    label: 'Rescheduled', hex: '#eab308',
-    chip: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30', served: false, unmet: true,
+    label: 'Rescheduled', hex: '#ca8a04',
+    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', served: false, unmet: true,
   },
   disapproved: {
-    label: 'Disapproved', hex: '#ef4444',
-    chip: 'bg-red-500/10 text-red-400 border-red-500/30', served: false, unmet: true,
+    label: 'Disapproved', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200', served: false, unmet: true,
   },
   cancelled: {
-    label: 'Cancelled', hex: '#71717a',
-    chip: 'bg-zinc-900/80 text-zinc-400 border-zinc-800', served: false, unmet: true,
+    label: 'Cancelled', hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200', served: false, unmet: true,
   },
 };
 
@@ -521,9 +525,20 @@ function parseCSM(v: unknown): number {
   return 0;
 }
 
-/** Simula ng TAT clock: mula pagkaaprub; kung wala, mula pagkatanggap. */
+/**
+ * COA TAT RULE — ang orasan ay nagsisimula sa PAGTANGGAP ng kahilingan.
+ *
+ * Dati, ang pagkaaprub ang simula. Ang problema: ang mga araw na naghintay
+ * ang kliyente bago pa man mapirmahan ang request ay hindi nabibilang —
+ * kaya mukhang mabilis ang serbisyo kahit dalawang linggong nakabinbin.
+ * Ang hinahanap ng COA ay ang buong hinintay ng kliyente, mula sa araw na
+ * natanggap natin ang kahilingan hanggang sa araw na naihatid ito.
+ *
+ * Kapag walang Date Requested, walang masusukat — at 'yon ay senyas na may
+ * kulang sa record, hindi bagay na dapat takpan ng hulaan.
+ */
 function tatStart(r: ServiceRequest): Date | null {
-  return r.dateApproved || r.dateRequested;
+  return r.dateRequested;
 }
 
 /** SLA target — gamitin ang nakatakda; kung wala, kalkulahin mula sa PM. */
@@ -566,11 +581,11 @@ function slaState(r: ServiceRequest): SLAState {
 }
 
 const SLA_META: Record<SLAState, { label: string; hex: string; chip: string }> = {
-  ontime:   { label: 'ON TIME',  hex: '#22c55e', chip: 'bg-green-500/10 text-green-400 border-green-500/30' },
-  overdue: { label: 'OVERDUE', hex: '#ef4444', chip: 'bg-red-500/10 text-red-400 border-red-500/30' },
-  atrisk:   { label: 'AT RISK',  hex: '#f59e0b', chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
-  open:     { label: 'WITHIN',   hex: '#00aeef', chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30' },
-  na:       { label: 'N/A',      hex: '#52525b', chip: 'bg-zinc-900/80 text-zinc-500 border-zinc-800' },
+  ontime:   { label: 'ON TIME',  hex: '#16a34a', chip: 'bg-green-100 text-green-800 border-green-200' },
+  overdue: { label: 'OVERDUE', hex: '#dc2626', chip: 'bg-red-100 text-red-800 border-red-200' },
+  atrisk:   { label: 'AT RISK',  hex: '#d97706', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
+  open:     { label: 'WITHIN',   hex: '#2563eb', chip: 'bg-blue-100 text-blue-800 border-blue-200' },
+  na:       { label: 'N/A',      hex: '#94a3b8', chip: 'bg-slate-100 text-slate-500 border-slate-200' },
 };
 
 function monthKey(d: Date): string {
@@ -627,6 +642,7 @@ interface AVEvent {
   approvalRemarks: string;
   lead: string;
   team: string;
+  priority: string;
   pipeline: Record<PipelineKey, PipelineState>;
   targetDate: Date | null;
   dateDelivered: Date | null;
@@ -700,6 +716,26 @@ const HEAVY_SERVICES = [
   'AVP production', 'Video editing (clean-cut)', 'Script writing', 'Motion graphics',
 ];
 
+/* ------------------------------------------------------------- PRIORITY -- */
+
+type PriorityKey = 'High' | 'Normal' | 'Low';
+
+const PRIORITY_ORDER: PriorityKey[] = ['High', 'Normal', 'Low'];
+
+const PRIORITY_META: Record<PriorityKey, { label: string; chip: string; hex: string }> = {
+  High:   { label: 'High priority', chip: 'bg-red-100 text-red-700 border-red-200', hex: '#dc2626' },
+  Normal: { label: 'Normal',        chip: 'bg-slate-100 text-slate-600 border-slate-200', hex: '#64748b' },
+  Low:    { label: 'Low',           chip: 'bg-slate-100 text-slate-500 border-slate-200', hex: '#94a3b8' },
+};
+
+/** Iisang anyo lang: High / Normal / Low. Ang default ay Normal. */
+function classifyPriority(raw: unknown): PriorityKey {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (s.includes('high') || s.includes('urgent') || s.includes('rush')) return 'High';
+  if (s.includes('low')) return 'Low';
+  return 'Normal';
+}
+
 const APPROVAL_ORDER: ApprovalKey[] = [
   'for-approval', 'approved', 'endorsed', 'declined', 'rescheduled', 'cancelled',
 ];
@@ -709,28 +745,28 @@ const APPROVAL_META: Record<
   { label: string; short: string; hex: string; chip: string; live: boolean }
 > = {
   'for-approval': {
-    label: 'For approval', short: 'FOR DC', hex: '#a1a1aa',
-    chip: 'bg-zinc-800/80 text-zinc-300 border-zinc-700', live: true,
+    label: 'For approval', short: 'FOR DC', hex: '#94a3b8',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200', live: true,
   },
   approved: {
-    label: 'Approved', short: 'FOR SRS', hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', live: true,
+    label: 'Approved', short: 'FOR SRS', hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200', live: true,
   },
   endorsed: {
-    label: 'Endorsed', short: 'CLEARED', hex: '#00aeef',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', live: true,
+    label: 'Endorsed', short: 'CLEARED', hex: '#2563eb',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200', live: true,
   },
   declined: {
-    label: 'Declined', short: 'DECLINED', hex: '#ef4444',
-    chip: 'bg-red-500/10 text-red-400 border-red-500/30', live: false,
+    label: 'Declined', short: 'DECLINED', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200', live: false,
   },
   rescheduled: {
-    label: 'Rescheduled', short: 'MOVED', hex: '#eab308',
-    chip: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30', live: false,
+    label: 'Rescheduled', short: 'MOVED', hex: '#ca8a04',
+    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', live: false,
   },
   cancelled: {
-    label: 'Cancelled', short: 'CANCELLED', hex: '#71717a',
-    chip: 'bg-zinc-900/80 text-zinc-400 border-zinc-800', live: false,
+    label: 'Cancelled', short: 'CANCELLED', hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200', live: false,
   },
 };
 
@@ -739,24 +775,24 @@ const FULFIL_META: Record<
   { label: string; hex: string; chip: string }
 > = {
   full: {
-    label: 'FULLY SERVED', hex: '#22c55e',
-    chip: 'bg-green-500/10 text-green-400 border-green-500/30',
+    label: 'FULLY SERVED', hex: '#16a34a',
+    chip: 'bg-green-100 text-green-800 border-green-200',
   },
   partial: {
-    label: 'LIMITED SERVICE', hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    label: 'LIMITED SERVICE', hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   none: {
-    label: 'NOT SERVED', hex: '#ef4444',
-    chip: 'bg-red-500/10 text-red-400 border-red-500/30',
+    label: 'NOT SERVED', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200',
   },
   declined: {
-    label: 'DECLINED', hex: '#ef4444',
-    chip: 'bg-red-500/10 text-red-400 border-red-500/30',
+    label: 'DECLINED', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200',
   },
   pending: {
-    label: 'AWAITING APPROVAL', hex: '#a1a1aa',
-    chip: 'bg-zinc-800/80 text-zinc-400 border-zinc-700',
+    label: 'AWAITING APPROVAL', hex: '#94a3b8',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
   },
 };
 
@@ -780,10 +816,10 @@ const PIPELINE_STEPS: { key: PipelineKey; label: string; short: string; detail: 
 ];
 
 const PIPELINE_META: Record<PipelineState, { label: string; hex: string }> = {
-  'not-started': { label: 'Not started', hex: '#3f3f46' },
-  'in-progress': { label: 'In progress', hex: '#f59e0b' },
-  done: { label: 'Done', hex: '#22c55e' },
-  na: { label: 'N/A', hex: '#27272a' },
+  'not-started': { label: 'Not started', hex: '#cbd5e1' },
+  'in-progress': { label: 'In progress', hex: '#d97706' },
+  done: { label: 'Done', hex: '#16a34a' },
+  na: { label: 'N/A', hex: '#e2e8f0' },
 };
 
 /**
@@ -902,14 +938,19 @@ function slaForEvent(ev: AVEvent): number {
     : SLA_WD.coverage;
 }
 
+/**
+ * COA: ang target ay sinusukat mula sa araw na NATANGGAP ang kahilingan,
+ * hindi mula sa araw na naaprubahan ito.
+ */
 function eventTarget(ev: AVEvent): Date | null {
   if (ev.targetDate) return ev.targetDate;
-  const start = ev.dateApproved || ev.dateRequested;
+  const start = ev.dateRequested;
   return start ? addWorkingDays(start, slaForEvent(ev)) : null;
 }
 
+/** Aktwal na turnaround: Date Requested → Date Served, sa working days. */
 function eventTAT(ev: AVEvent): number | null {
-  const start = ev.dateApproved || ev.dateRequested;
+  const start = ev.dateRequested;
   if (!start || !ev.dateDelivered) return null;
   return workingDaysBetween(start, ev.dateDelivered);
 }
@@ -1144,7 +1185,7 @@ function StatusBadge({ status, dense = false }: { status: string; dense?: boolea
   const meta = STATUS_META[classifyStatus(status)];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-zinc-400 ${
+      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-slate-500 ${
         dense ? 'text-[10px]' : 'text-[11px]'
       }`}
     >
@@ -1154,6 +1195,23 @@ function StatusBadge({ status, dense = false }: { status: string; dense?: boolea
         aria-hidden
       />
       {meta.label}
+    </span>
+  );
+}
+
+/** Pulsing red chip. Ito lang ang gumagalaw sa buong dashboard — sadya. */
+function PriorityBadge({ priority, dense = false }: { priority: string; dense?: boolean }) {
+  const key = classifyPriority(priority);
+  if (key !== 'High') return null;
+  return (
+    <span
+      className={`inline-flex animate-pulse items-center gap-1.5 rounded-full border border-red-200 bg-red-100 font-semibold tracking-wide text-red-700 ${
+        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
+      }`}
+      title="Marked high priority by the requesting section"
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-hidden />
+      HIGH PRIORITY
     </span>
   );
 }
@@ -1188,13 +1246,13 @@ function SystemFrame({ app }: { app: SystemApp }) {
     <section>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-medium text-zinc-100">{app.name}</h2>
-          <p className="truncate text-[11px] text-zinc-600">{app.role}</p>
+          <h2 className="text-[13px] font-medium text-slate-800">{app.name}</h2>
+          <p className="truncate text-[11px] text-slate-400">{app.role}</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setReloadKey((k) => k + 1)}
-            className="rounded border border-zinc-800 px-2.5 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+            className="rounded border border-slate-200 px-2.5 py-1.5 text-[12px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
           >
             Reload
           </button>
@@ -1202,14 +1260,14 @@ function SystemFrame({ app }: { app: SystemApp }) {
             href={app.url}
             target="_blank"
             rel="noreferrer"
-            className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+            className="rounded bg-blue-600 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
           >
             Open site
           </a>
         </div>
       </div>
 
-      <div className="relative h-[78vh] min-h-[520px] overflow-hidden rounded-md border border-zinc-800/80 bg-white">
+      <div className="relative h-[78vh] min-h-[520px] overflow-hidden rounded-md border border-slate-200 bg-white">
         {!showFallback && (
           <>
             <iframe
@@ -1223,23 +1281,23 @@ function SystemFrame({ app }: { app: SystemApp }) {
               }}
             />
             {loading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#101012]">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white">
                 <div
-                  className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-800"
+                  className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200"
                   style={{ borderTopColor: app.accent }}
                 />
-                <p className="font-mono text-[11px] text-zinc-500">Loading {app.name}</p>
+                <p className="font-mono text-[11px] text-slate-9000">Loading {app.name}</p>
               </div>
             )}
           </>
         )}
 
         {showFallback && (
-          <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#101012] px-6 text-center">
-            <h3 className="text-[15px] font-medium text-zinc-100">
+          <div className="flex h-full flex-col items-center justify-center gap-4 bg-white px-6 text-center">
+            <h3 className="text-[15px] font-medium text-slate-800">
               {app.name} cannot be displayed here
             </h3>
-            <p className="max-w-lg text-[13px] leading-relaxed text-zinc-500">
+            <p className="max-w-lg text-[13px] leading-relaxed text-slate-9000">
               The site sends a header that prevents it from being embedded in another
               page. Open it in a new tab instead — or, if you own the site, allow this
               dashboard to frame it (see the note below).
@@ -1248,13 +1306,13 @@ function SystemFrame({ app }: { app: SystemApp }) {
               href={app.url}
               target="_blank"
               rel="noreferrer"
-              className="mt-1 rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+              className="mt-1 rounded bg-blue-600 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-blue-700"
             >
               Open {app.name}
             </a>
             <button
               onClick={() => setReloadKey((k) => k + 1)}
-              className="text-[12px] text-zinc-600 transition-colors hover:text-zinc-300"
+              className="text-[12px] text-slate-400 transition-colors hover:text-slate-600"
             >
               Try embedding again
             </button>
@@ -1263,11 +1321,11 @@ function SystemFrame({ app }: { app: SystemApp }) {
       </div>
 
       {showFallback && app.embeddable && (
-        <p className="mt-3 text-[11px] leading-relaxed text-zinc-600">
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
           To allow embedding, add a{' '}
-          <span className="font-mono text-zinc-400">vercel.json</span> to that site with a{' '}
-          <span className="font-mono text-zinc-400">Content-Security-Policy</span> header
-          whose <span className="font-mono text-zinc-400">frame-ancestors</span> lists this
+          <span className="font-mono text-slate-500">vercel.json</span> to that site with a{' '}
+          <span className="font-mono text-slate-500">Content-Security-Policy</span> header
+          whose <span className="font-mono text-slate-500">frame-ancestors</span> lists this
           dashboard&rsquo;s domain, then redeploy.
         </p>
       )}
@@ -1292,16 +1350,28 @@ function roleOf(user: SignedInUser | null, actor: string): string {
   return 'staff';
 }
 
+/**
+ * COA: ang aprubasyon ay para lamang sa Division Chief at Supervising SRS.
+ * Ang admin ay nakakapag-edit ng kahit anong record, PERO hindi na
+ * nakakapagpalit ng approval status — kapareho ito ng ipinapatupad ng
+ * server sa authorise_(). Kapag magkaiba ang dalawa, magmumukhang sira
+ * ang dashboard: may button na hindi naman tinatanggap ng backend.
+ */
 function can(cap: Capability, role: string, createdBy?: string, me?: string): boolean {
-  if (role === 'admin') return cap === 'edit' || cap === 'approve' || cap === 'endorse';
+  if (cap === 'approve') return role === 'dc';
+  if (cap === 'endorse') return role === 'srs';
   if (cap === 'edit') {
+    if (role === 'admin') return true;
     if (role !== 'staff') return false;
     if (!createdBy) return true;
     return createdBy.toLowerCase() === String(me || '').toLowerCase();
   }
-  if (cap === 'approve') return role === 'dc';
-  if (cap === 'endorse') return role === 'srs';
   return false;
+}
+
+/** Sinong papel ang pinapayagang bumago ng approval status. */
+function canDecide(role: string): boolean {
+  return role === 'dc' || role === 'srs';
 }
 
 /**
@@ -1380,7 +1450,7 @@ function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
     if (!el || !w.google?.accounts?.id) return;
     el.innerHTML = '';
     w.google.accounts.id.renderButton(el, {
-      theme: 'filled_black',
+      theme: 'outline',
       size: 'large',
       shape: 'rectangular',
       text: 'signin_with',
@@ -1499,13 +1569,13 @@ function ConnectionPanel({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-4">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-[11px] font-medium text-zinc-400">Connections</p>
+        <p className="text-[11px] font-medium text-slate-500">Connections</p>
         <button
           onClick={onRetry}
           disabled={busy}
-          className="text-[11px] text-zinc-500 underline transition-colors hover:text-zinc-300 disabled:opacity-50"
+          className="text-[11px] text-slate-9000 underline transition-colors hover:text-slate-600 disabled:opacity-50"
         >
           {busy ? 'Testing…' : 'Test again'}
         </button>
@@ -1516,23 +1586,23 @@ function ConnectionPanel({
           <div key={pr.name} className="flex gap-3">
             <span
               className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: pr.ok ? '#22c55e' : '#ef4444' }}
+              style={{ background: pr.ok ? '#16a34a' : '#dc2626' }}
             />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="text-[12px] font-medium text-zinc-200">{pr.name}</span>
+                <span className="text-[12px] font-medium text-slate-700">{pr.name}</span>
                 <span
                   className="text-[11px]"
-                  style={{ color: pr.ok ? '#22c55e' : '#ef4444' }}
+                  style={{ color: pr.ok ? '#16a34a' : '#dc2626' }}
                 >
                   {pr.detail}
                 </span>
               </div>
-              <p className="truncate font-mono text-[10px] text-zinc-600">
+              <p className="truncate font-mono text-[10px] text-slate-400">
                 {shortUrl(pr.url)}
               </p>
               {pr.hint && (
-                <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">{pr.hint}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-9000">{pr.hint}</p>
               )}
             </div>
           </div>
@@ -1558,17 +1628,17 @@ function SignInGate({
   const wide = !!error || (health && health.problems.length > 0);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#08080a] px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <div
-        className={`w-full rounded-lg border border-zinc-800 bg-[#101012] p-8 ${
+        className={`w-full rounded-xl border border-slate-200 bg-white p-8 shadow-sm ${
           wide ? 'max-w-xl' : 'max-w-sm'
         }`}
       >
         <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
-        <h1 className="text-[17px] font-semibold tracking-tight text-zinc-100">AV Nexus</h1>
-        <p className="mt-1 text-[12px] text-zinc-500">Broadcast &amp; Digital Media Section</p>
+        <h1 className="text-[17px] font-semibold tracking-tight text-slate-800">AV Nexus</h1>
+        <p className="mt-1 text-[12px] text-slate-9000">Broadcast &amp; Digital Media Section</p>
 
-        <p className="mt-6 text-[13px] leading-relaxed text-zinc-400">
+        <p className="mt-6 text-[13px] leading-relaxed text-slate-500">
           Sign in with your DOST-STII Google account to continue. Records can only be
           edited by the person who created them.
         </p>
@@ -1576,23 +1646,23 @@ function SignInGate({
         <div ref={onMount} className="mt-6 flex justify-center" />
 
         {!ready && (
-          <p className="mt-4 text-center text-[12px] text-zinc-600">Loading sign-in…</p>
+          <p className="mt-4 text-center text-[12px] text-slate-400">Loading sign-in…</p>
         )}
 
         {error && (
-          <div className="mt-5 rounded border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+          <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[12px] leading-relaxed text-red-800">
             <p>{error}</p>
             {health && health.registeredAccounts.length > 0 && (
               <>
-                <p className="mt-3 text-red-300/70">Registered accounts:</p>
-                <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-red-300/60">
+                <p className="mt-3 text-red-600">Registered accounts:</p>
+                <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-red-600">
                   {health.registeredAccounts.map((a) => (
                     <li key={a}>{a}</li>
                   ))}
                 </ul>
               </>
             )}
-            <p className="mt-3 text-red-300/70">
+            <p className="mt-3 text-red-600">
               To use a different Google account, sign out of Google in this browser or
               open the dashboard in a private window.
             </p>
@@ -1600,21 +1670,21 @@ function SignInGate({
         )}
 
         {health && health.problems.length > 0 && (
-          <div className="mt-5 rounded border border-amber-900/60 bg-amber-950/20 px-4 py-3 text-[12px] leading-relaxed text-amber-200">
+          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-800">
             <p className="mb-2 font-medium">
               Backend setup needs attention ({health.problems.length})
             </p>
             <ul className="space-y-2">
               {health.problems.map((prob, i) => (
                 <li key={i} className="flex gap-2">
-                  <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
+                  <span className="shrink-0 text-amber-500">{i + 1}.</span>
                   <span className="whitespace-pre-line">{prob}</span>
                 </li>
               ))}
             </ul>
             <button
               onClick={onRetry}
-              className="mt-3 text-[11px] text-amber-300/70 underline transition-colors hover:text-amber-200"
+              className="mt-3 text-[11px] text-amber-700 underline transition-colors hover:text-amber-800"
             >
               Check again
             </button>
@@ -1637,10 +1707,10 @@ function SectionHead({
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
       <div>
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+        <h2 className="text-[15px] font-semibold tracking-tight text-slate-800">
           {title}
         </h2>
-        {hint && <p className="mt-1 text-[12px] text-zinc-600">{hint}</p>}
+        {hint && <p className="mt-1 text-[12px] text-slate-400">{hint}</p>}
       </div>
       {right}
     </div>
@@ -1662,16 +1732,16 @@ function StatTile({
 }) {
   const shown = useCountUp(value);
   return (
-    <div className="rounded-md border border-zinc-800/80 bg-[#101012] px-4 py-3.5">
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3.5 shadow-sm">
       <div className="flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
-        <p className="truncate text-[11px] font-medium text-zinc-500">{label}</p>
+        <p className="truncate text-[11px] font-medium text-slate-9000">{label}</p>
       </div>
-      <p className="mt-2 font-mono text-[28px] font-medium leading-none text-zinc-50 tabular-nums">
+      <p className="mt-2 font-mono text-[28px] font-medium leading-none text-slate-900 tabular-nums">
         {shown}
       </p>
-      <p className="mt-1.5 truncate text-[11px] text-zinc-600">{sub}</p>
-      <div className="mt-3 h-px w-full bg-zinc-800">
+      <p className="mt-1.5 truncate text-[11px] text-slate-400">{sub}</p>
+      <div className="mt-3 h-px w-full bg-slate-100">
         <div
           className="h-px transition-all duration-500"
           style={{ width: `${Math.max(2, Math.min(100, bar))}%`, background: accent }}
@@ -1693,7 +1763,7 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
     <div className="flex items-center gap-6">
       <div className="relative h-[132px] w-[132px] shrink-0">
         <svg viewBox="0 0 132 132" className="h-full w-full -rotate-90">
-          <circle cx="66" cy="66" r={R} fill="none" stroke="#18181b" strokeWidth="13" />
+          <circle cx="66" cy="66" r={R} fill="none" stroke="#e2e8f0" strokeWidth="13" />
           {STATUS_ORDER.map((key) => {
             const n = counts[key];
             if (!n || !total) return null;
@@ -1717,8 +1787,8 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
           })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-2xl font-black text-white tabular-nums">{shown}%</span>
-          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-zinc-500">
+          <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">{shown}%</span>
+          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-9000">
             cleared
           </span>
         </div>
@@ -1730,8 +1800,8 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
               className="h-2 w-2 shrink-0 rounded-sm"
               style={{ background: STATUS_META[key].hex }}
             />
-            <span className="flex-1 truncate text-zinc-400">{STATUS_META[key].label}</span>
-            <span className="font-mono font-bold text-zinc-200 tabular-nums">{counts[key]}</span>
+            <span className="flex-1 truncate text-slate-500">{STATUS_META[key].label}</span>
+            <span className="font-mono font-bold text-slate-700 tabular-nums">{counts[key]}</span>
           </div>
         ))}
       </div>
@@ -1750,17 +1820,17 @@ function WorkloadBars({
       {data.map((d) => (
         <div key={d.name}>
           <div className="mb-1 flex items-baseline justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+            <span className="text-xs font-semibold tracking-wide text-slate-600">
               {d.name}
             </span>
-            <span className="font-mono text-xs text-zinc-400 tabular-nums">
+            <span className="font-mono text-xs text-slate-500 tabular-nums">
               {d.count}
-              <span className="text-zinc-600"> · {d.cov}c / {d.out}v</span>
+              <span className="text-slate-400"> · {d.cov}c / {d.out}v</span>
             </span>
           </div>
-          <div className="flex h-2 overflow-hidden rounded-full bg-zinc-900">
+          <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full bg-[#00aeef] transition-all duration-1000"
+              className="h-full bg-blue-600 transition-all duration-1000"
               style={{ width: `${(d.cov / max) * 100}%` }}
             />
             <div
@@ -1770,7 +1840,7 @@ function WorkloadBars({
           </div>
         </div>
       ))}
-      {data.length === 0 && <p className="text-xs italic text-zinc-600">No data yet.</p>}
+      {data.length === 0 && <p className="text-xs italic text-slate-400">No data yet.</p>}
     </div>
   );
 }
@@ -1815,9 +1885,9 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
   const width = weeks.length * (CELL + GAP);
 
   const shade = (n: number) => {
-    if (!n) return '#111113';
+    if (!n) return '#f1f5f9';
     const t = Math.min(1, n / maxCount);
-    return `rgba(0,174,239,${0.22 + t * 0.78})`;
+    return `rgba(37,99,235,${0.22 + t * 0.78})`;
   };
 
   return (
@@ -1828,7 +1898,7 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
             key={`${m.index}-${m.label}`}
             x={m.index * (CELL + GAP)}
             y={10}
-            fill="#52525b"
+            fill="#94a3b8"
             fontSize="9"
             fontFamily="ui-monospace, monospace"
             letterSpacing="1"
@@ -1846,7 +1916,7 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
               height={CELL}
               rx={3}
               fill={shade(cell.count)}
-              stroke={cell.count ? 'rgba(0,174,239,0.35)' : '#18181b'}
+              stroke={cell.count ? 'rgba(37,99,235,0.35)' : '#e2e8f0'}
               strokeWidth="0.6"
             >
               <title>{`${fmtDate(cell.date)} — ${cell.count} coverage${
@@ -1865,7 +1935,7 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
 function StageBadge({ stage }: { stage: StageKey }) {
   const m = STAGE_META[stage];
   return (
-    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-zinc-400">
+    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-slate-500">
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
       {m.label}
     </span>
@@ -1885,33 +1955,33 @@ function OutputCard({
   const atEnd = o.stage === 'published';
   return (
     <div
-      className="group rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-3 transition-colors hover:border-zinc-700"
-      style={overdue ? { borderColor: 'rgba(239,68,68,0.45)' } : undefined}
+      className="group rounded-lg border border-slate-200 bg-slate-50 p-3 transition-colors hover:border-slate-300"
+      style={overdue ? { borderColor: 'rgba(220,38,38,0.45)' } : undefined}
     >
-      <p className="mb-1.5 line-clamp-2 text-xs font-semibold leading-snug text-zinc-100">
+      <p className="mb-1.5 line-clamp-2 text-xs font-semibold leading-snug text-slate-800">
         {o.title || 'Untitled output'}
       </p>
-      {o.event && <p className="mb-2 truncate text-[10px] text-zinc-600">{o.event}</p>}
+      {o.event && <p className="mb-2 truncate text-[10px] text-slate-400">{o.event}</p>}
 
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        <span className="rounded bg-zinc-800/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-zinc-300">
+        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600">
           {o.personnel || '—'}
         </span>
-        {o.type && <span className="text-[9px] text-zinc-500">{o.type}</span>}
+        {o.type && <span className="text-[9px] text-slate-9000">{o.type}</span>}
         {o.seconds > 0 && (
-          <span className="font-mono text-[9px] text-zinc-500">{fmtRuntime(o.seconds)}</span>
+          <span className="font-mono text-[9px] text-slate-9000">{fmtRuntime(o.seconds)}</span>
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-zinc-900 pt-2">
+      <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-2">
         <span
-          className={`font-mono text-[9px] ${overdue ? 'font-bold text-red-400' : 'text-zinc-600'}`}
+          className={`font-mono text-[9px] ${overdue ? 'font-bold text-red-600' : 'text-slate-400'}`}
         >
           {o.target ? `${overdue ? 'OVERDUE ' : 'due '}${fmtDate(o.target)}` : o.id}
         </span>
         <div className="flex items-center gap-1.5">
           {o.revisions > 0 && (
-            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] text-amber-400">
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[9px] text-amber-600">
               R{o.revisions}
             </span>
           )}
@@ -1920,7 +1990,7 @@ function OutputCard({
               href={o.link}
               target="_blank"
               rel="noreferrer"
-              className="text-[10px] text-[#00aeef] hover:text-white"
+              className="text-[10px] text-blue-600 hover:text-slate-900"
               title="Open output"
             >
               ↗
@@ -1931,7 +2001,7 @@ function OutputCard({
               onClick={() => onAdvance(o)}
               disabled={busy}
               title={`Move to ${STAGE_META[STAGE_ORDER[STAGE_ORDER.indexOf(o.stage) + 1]].label}`}
-              className="rounded border border-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500 opacity-0 transition-all hover:border-[#00aeef]/50 hover:text-[#00aeef] group-hover:opacity-100 disabled:opacity-40"
+              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-9000 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
             >
               {busy ? '…' : '→'}
             </button>
@@ -1958,22 +2028,22 @@ function ProductionBoard({
           const lane = outputs.filter((o) => o.stage === stage);
           const meta = STAGE_META[stage];
           return (
-            <div key={stage} className="flex-1 rounded-md border border-zinc-800/80 bg-[#101012] p-3">
-              <div className="mb-3 flex items-center justify-between border-b border-zinc-800 pb-2">
+            <div key={stage} className="flex-1 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2">
                 <div className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.hex }} />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+                  <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
                     {meta.label}
                   </span>
                 </div>
-                <span className="font-mono text-[10px] text-zinc-600">{lane.length}</span>
+                <span className="font-mono text-[10px] text-slate-400">{lane.length}</span>
               </div>
               <div className="space-y-2">
                 {lane.map((o) => (
                   <OutputCard key={o.id} o={o} onAdvance={onAdvance} busy={busyId === o.id} />
                 ))}
                 {lane.length === 0 && (
-                  <p className="py-6 text-center text-[10px] italic text-zinc-700">empty</p>
+                  <p className="py-6 text-center text-[10px] italic text-slate-400">empty</p>
                 )}
               </div>
             </div>
@@ -2008,10 +2078,10 @@ function ProductionScoreboard({ outputs, people }: { outputs: Output[]; people: 
     <div className="overflow-x-auto custom-scrollbar">
       <table className="w-full min-w-[560px] text-left text-xs">
         <thead>
-          <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-[0.1em] text-zinc-600">
+          <tr className="border-b border-slate-200 text-[9px] uppercase tracking-[0.1em] text-slate-400">
             <th className="pb-2 pr-3 font-bold">Personnel</th>
             <th className="pb-2 pr-3 text-right font-bold">Outputs</th>
-            <th className="pb-2 pr-3 text-right font-bold">Delivered</th>
+            <th className="pb-2 pr-3 text-right font-bold">Served</th>
             <th className="pb-2 pr-3 text-right font-bold">In progress</th>
             <th className="pb-2 pr-3 text-right font-bold">Runtime</th>
             <th className="pb-2 pr-3 text-right font-bold">On time</th>
@@ -2020,24 +2090,24 @@ function ProductionScoreboard({ outputs, people }: { outputs: Output[]; people: 
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.name} className="border-b border-zinc-900 last:border-0">
-              <td className="py-2.5 pr-3 font-bold uppercase tracking-wider text-zinc-200">{r.name}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-white tabular-nums">{r.total}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-green-400 tabular-nums">{r.done}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-amber-400 tabular-nums">{r.wip}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-zinc-400 tabular-nums">
+            <tr key={r.name} className="border-b border-slate-200 last:border-0">
+              <td className="py-2.5 pr-3 font-semibold tracking-wide text-slate-700">{r.name}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-slate-900 tabular-nums">{r.total}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-green-600 tabular-nums">{r.done}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-amber-600 tabular-nums">{r.wip}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-slate-500 tabular-nums">
                 {fmtRuntime(r.seconds)}
               </td>
               <td className="py-2.5 pr-3 text-right font-mono tabular-nums">
                 {r.onTime === null ? (
-                  <span className="text-zinc-700">—</span>
+                  <span className="text-slate-400">—</span>
                 ) : (
-                  <span className={r.onTime >= 90 ? 'text-green-400' : r.onTime >= 70 ? 'text-amber-400' : 'text-red-400'}>
+                  <span className={r.onTime >= 90 ? 'text-green-600' : r.onTime >= 70 ? 'text-amber-600' : 'text-red-600'}>
                     {r.onTime}%
                   </span>
                 )}
               </td>
-              <td className="py-2.5 text-right font-mono text-zinc-400 tabular-nums">{r.revs}</td>
+              <td className="py-2.5 text-right font-mono text-slate-500 tabular-nums">{r.revs}</td>
             </tr>
           ))}
         </tbody>
@@ -2080,21 +2150,21 @@ function QuickLogModal({
   }, [onClose]);
 
   const field =
-    'w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-zinc-500';
+    'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
-      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-lg border border-zinc-800 bg-[#101012] animate-riseup">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/5 animate-riseup">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
-            <h3 className="text-base font-bold uppercase tracking-wide text-white">Log a video output</h3>
-            <p className="text-[11px] text-zinc-500">
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">Log a video output</h3>
+            <p className="text-[11px] text-slate-9000">
               For work that does not pass through DMC — shoot, edit, reel, livestream.
             </p>
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white">
+          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -2223,19 +2293,19 @@ function QuickLogModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
-          <p className="text-[10px] text-zinc-600">Saved directly to the Production Log.</p>
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <p className="text-[10px] text-slate-400">Saved directly to the Production Log.</p>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded border border-zinc-800 px-4 py-2 text-[13px] text-zinc-400 transition-colors hover:text-zinc-100"
+              className="rounded-md border border-slate-200 px-4 py-2 text-[13px] text-slate-500 transition-colors hover:text-slate-800"
             >
               Cancel
             </button>
             <button
               disabled={!f.title.trim() || submitting}
               onClick={() => onSubmit(f)}
-              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? 'Saving…' : 'Save output'}
             </button>
@@ -2252,7 +2322,7 @@ function ReqBadge({ status, dense = false }: { status: ReqStatus; dense?: boolea
   const m = REQ_META[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-zinc-400 ${
+      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-slate-500 ${
         dense ? 'text-[10px]' : 'text-[11px]'
       }`}
     >
@@ -2270,7 +2340,7 @@ function SLABadge({ state }: { state: SLAState }) {
       style={{ color: state === 'overdue' ? m.hex : undefined }}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
-      <span className={state === 'overdue' ? '' : 'text-zinc-400'}>{m.label}</span>
+      <span className={state === 'overdue' ? '' : 'text-slate-500'}>{m.label}</span>
     </span>
   );
 }
@@ -2293,14 +2363,14 @@ function KPIRing({
   const r = size / 2 - 10;
   const C = 2 * Math.PI * r;
   const pass = value !== null && value >= target;
-  const hex = value === null ? '#3f3f46' : pass ? '#22c55e' : '#ef4444';
+  const hex = value === null ? '#cbd5e1' : pass ? '#16a34a' : '#dc2626';
   const pct = Math.max(0, Math.min(100, value ?? 0));
 
   return (
     <div className="flex items-center gap-5">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#18181b" strokeWidth="11" />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="11" />
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -2318,24 +2388,24 @@ function KPIRing({
             cy={size / 2}
             r={r}
             fill="none"
-            stroke="#71717a"
+            stroke="#64748b"
             strokeWidth="11"
             strokeDasharray={`1.5 ${C}`}
             strokeDashoffset={-((target / 100) * C)}
           />
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-2xl font-black text-white tabular-nums">
+          <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">
             {value === null ? '—' : `${shown}%`}
           </span>
-          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-zinc-600">
+          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">
             target {target}%
           </span>
         </div>
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-bold uppercase tracking-wide text-white">{label}</p>
-        <p className="mt-1 text-xs leading-relaxed text-zinc-500">{sub}</p>
+        <p className="text-sm font-semibold tracking-tight text-slate-900">{label}</p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-9000">{sub}</p>
         <p
           className="mt-2 text-[10px] font-bold uppercase tracking-[0.1em]"
           style={{ color: hex }}
@@ -2394,21 +2464,21 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { k: 'Service demand', v: totals.demand, c: '#00aeef', s: 'Total requests received' },
-          { k: 'Services rendered', v: totals.served, c: '#22c55e', s: 'Completed / delivered' },
-          { k: 'In progress', v: totals.inflight, c: '#f59e0b', s: 'Pending, approved, ongoing' },
-          { k: 'Unmet requests', v: totals.unmet, c: '#ef4444', s: 'Declined, cancelled, moved' },
+          { k: 'Service demand', v: totals.demand, c: '#2563eb', s: 'Total requests received' },
+          { k: 'Services rendered', v: totals.served, c: '#16a34a', s: 'Completed / served' },
+          { k: 'In progress', v: totals.inflight, c: '#d97706', s: 'Pending, approved, ongoing' },
+          { k: 'Unmet requests', v: totals.unmet, c: '#dc2626', s: 'Declined, cancelled, moved' },
         ].map((x) => (
           <div
             key={x.k}
-            className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4"
+            className="rounded-lg border border-slate-200 bg-slate-50 p-4"
             style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
           >
-            <p className="font-mono text-3xl font-black text-white tabular-nums">{x.v}</p>
-            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">{x.v}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
               {x.k}
             </p>
-            <p className="mt-0.5 text-[10px] text-zinc-600">{x.s}</p>
+            <p className="mt-0.5 text-[10px] text-slate-400">{x.s}</p>
           </div>
         ))}
       </div>
@@ -2423,7 +2493,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                 x2={W - PAD}
                 y1={H - 34 - f * (H - 60)}
                 y2={H - 34 - f * (H - 60)}
-                stroke="#18181b"
+                stroke="#e2e8f0"
                 strokeWidth="1"
               />
             ))}
@@ -2440,7 +2510,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     width={barW}
                     height={dh}
                     rx={3}
-                    fill="#00aeef"
+                    fill="#2563eb"
                     opacity={0.35}
                   >
                     <title>{`${monthLabel(m.key)} — demand ${m.demand}`}</title>
@@ -2451,7 +2521,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     width={barW}
                     height={sh}
                     rx={3}
-                    fill="#22c55e"
+                    fill="#16a34a"
                   >
                     <title>{`${monthLabel(m.key)} — served ${m.served}`}</title>
                   </rect>
@@ -2459,7 +2529,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     <text
                       x={x}
                       y={H - 40 - dh}
-                      fill="#ef4444"
+                      fill="#dc2626"
                       fontSize="10"
                       fontFamily="ui-monospace, monospace"
                       fontWeight="bold"
@@ -2471,7 +2541,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                   <text
                     x={x}
                     y={H - 16}
-                    fill="#52525b"
+                    fill="#94a3b8"
                     fontSize="10"
                     fontFamily="ui-monospace, monospace"
                     textAnchor="middle"
@@ -2484,23 +2554,23 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
           </svg>
         </div>
       ) : (
-        <p className="py-8 text-center text-xs italic text-zinc-600">
+        <p className="py-8 text-center text-xs italic text-slate-400">
           No dated requests yet. Log a request to build this chart.
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-5 border-t border-zinc-900 pt-3">
-        <span className="flex items-center gap-2 text-[10px] text-zinc-500">
-          <span className="h-2 w-4 rounded-sm bg-[#00aeef]/40" /> Demand (received)
+      <div className="flex flex-wrap items-center gap-5 border-t border-slate-200 pt-3">
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+          <span className="h-2 w-4 rounded-sm bg-blue-300" /> Demand (received)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-zinc-500">
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
           <span className="h-2 w-4 rounded-sm bg-green-500" /> Capacity (rendered)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-zinc-500">
-          <span className="font-mono font-bold text-red-400">−n</span> Unserved gap
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+          <span className="font-mono font-bold text-red-600">−n</span> Unserved gap
         </span>
         {capacityPct !== null && (
-          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-500">
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-9000">
             Service fulfilment {capacityPct}%
           </span>
         )}
@@ -2511,7 +2581,8 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
 
 /**
  * ITEM 41 — Turnaround time monitor.
- * Aktwal na processing time laban sa SLA ng Procedures Manual.
+ * Aktwal na processing time laban sa SLA ng Procedures Manual, bilang mula
+ * sa araw na natanggap ang kahilingan.
  */
 function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
   const stats = useMemo(() => {
@@ -2536,17 +2607,26 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
       byStream,
       overdue: requests.filter((r) => slaState(r) === 'overdue'),
       atRisk: live.filter((r) => slaState(r) === 'atrisk'),
+      undated: requests.filter((r) => !r.dateRequested).length,
     };
   }, [requests]);
 
   return (
     <div className="space-y-5">
+      {stats.undated > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
+          {stats.undated} request(s) have no date of receipt, so their turnaround cannot be
+          measured. Turnaround is counted from the day the request was received — fill in
+          that date to bring them into the figures.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {stats.byStream.map((x) => {
           const ratio = x.avg !== null ? Math.min(160, (x.avg / x.sla) * 100) : 0;
           const over = x.avg !== null && x.avg > x.sla;
           return (
-            <div key={x.stream} className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-5">
+            <div key={x.stream} className="rounded-lg border border-slate-200 bg-slate-50 p-5">
               <div className="mb-3 flex items-baseline justify-between">
                 <span
                   className="text-[10px] font-bold uppercase tracking-[0.12em]"
@@ -2554,38 +2634,38 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                 >
                   {STREAM_META[x.stream].label}
                 </span>
-                <span className="font-mono text-[10px] text-zinc-600">
+                <span className="font-mono text-[10px] text-slate-400">
                   SLA {x.sla} WD · n={x.total}
                 </span>
               </div>
 
               <div className="flex items-end gap-3">
-                <p className="font-mono text-4xl font-black leading-none text-white tabular-nums">
+                <p className="font-mono text-4xl font-black leading-none text-slate-900 tabular-nums">
                   {x.avg === null ? '—' : x.avg.toFixed(1)}
                 </p>
-                <p className="pb-1 text-xs text-zinc-500">avg working days</p>
+                <p className="pb-1 text-xs text-slate-9000">avg working days from receipt</p>
               </div>
 
               {/* SLA bar: 100% = SLA limit */}
-              <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-zinc-900">
+              <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className="h-full rounded-full transition-all duration-1000"
                   style={{
                     width: `${Math.min(100, ratio)}%`,
-                    background: over ? '#ef4444' : '#22c55e',
+                    background: over ? '#dc2626' : '#16a34a',
                   }}
                 />
-                <div className="absolute inset-y-0 right-0 w-px bg-zinc-600" />
+                <div className="absolute inset-y-0 right-0 w-px bg-slate-400" />
               </div>
               <div className="mt-2 flex items-center justify-between text-[10px]">
-                <span className={over ? 'font-bold text-red-400' : 'text-zinc-500'}>
+                <span className={over ? 'font-bold text-red-600' : 'text-slate-9000'}>
                   {x.avg === null
-                    ? 'Nothing delivered yet'
+                    ? 'Nothing served yet'
                     : over
                     ? `${(x.avg - x.sla).toFixed(1)} WD over standard`
                     : `${(x.sla - x.avg).toFixed(1)} WD within standard`}
                 </span>
-                <span className="font-mono text-zinc-500">
+                <span className="font-mono text-slate-9000">
                   {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
                 </span>
               </div>
@@ -2595,8 +2675,8 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
       </div>
 
       {(stats.overdue.length > 0 || stats.atRisk.length > 0) && (
-        <div className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
             Needs attention · {stats.overdue.length} overdue · {stats.atRisk.length} at risk
           </p>
           <div className="space-y-2">
@@ -2605,17 +2685,17 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
               return (
                 <div
                   key={r.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-zinc-900 bg-[#101012] px-3 py-2"
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-zinc-200">{r.title}</p>
-                    <p className="font-mono text-[10px] text-zinc-600">
+                    <p className="truncate text-xs font-semibold text-slate-700">{r.title}</p>
+                    <p className="font-mono text-[10px] text-slate-400">
                       {r.id} · {r.personnel || 'Unassigned'} ·{' '}
                       {STREAM_META[r.stream].short}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-[10px] text-zinc-500">
+                    <span className="font-mono text-[10px] text-slate-9000">
                       {left === null ? '—' : left < 0 ? `${Math.abs(left)} WD over` : `${left} WD left`}
                     </span>
                     <SLABadge state={slaState(r)} />
@@ -2648,9 +2728,9 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
 
   if (unmet.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center">
-        <p className="text-sm text-zinc-300">No unserved requests for this period.</p>
-        <p className="mt-1 text-xs text-zinc-600">
+      <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center">
+        <p className="text-sm text-slate-600">No unserved requests for this period.</p>
+        <p className="mt-1 text-xs text-slate-400">
           All requests received were served or are still in progress.
         </p>
       </div>
@@ -2660,7 +2740,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
   return (
     <div className="space-y-3">
       {missingReason > 0 && (
-        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
           {missingReason} unserved request(s) have no recorded reason. Audit Item 40 requires
           this — fill it in before the audit.
         </div>
@@ -2668,7 +2748,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
       <div className="overflow-x-auto custom-scrollbar">
         <table className="w-full min-w-[720px] text-left text-xs">
           <thead>
-            <tr className="border-b border-zinc-800 text-[9px] uppercase tracking-[0.1em] text-zinc-600">
+            <tr className="border-b border-slate-200 text-[9px] uppercase tracking-[0.1em] text-slate-400">
               <th className="pb-2 pr-3 font-bold">Request</th>
               <th className="pb-2 pr-3 font-bold">Client</th>
               <th className="pb-2 pr-3 font-bold">Date</th>
@@ -2678,13 +2758,13 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
           </thead>
           <tbody>
             {unmet.slice(0, 12).map((r) => (
-              <tr key={r.id} className="border-b border-zinc-900 align-top last:border-0">
+              <tr key={r.id} className="border-b border-slate-200 align-top last:border-0">
                 <td className="py-3 pr-3">
-                  <p className="font-semibold text-zinc-200">{r.title}</p>
-                  <p className="font-mono text-[10px] text-zinc-600">{r.id}</p>
+                  <p className="font-semibold text-slate-700">{r.title}</p>
+                  <p className="font-mono text-[10px] text-slate-400">{r.id}</p>
                 </td>
-                <td className="py-3 pr-3 text-zinc-400">{r.client || '—'}</td>
-                <td className="py-3 pr-3 font-mono text-[10px] text-zinc-500">
+                <td className="py-3 pr-3 text-slate-500">{r.client || '—'}</td>
+                <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(r.dateRequested)}
                 </td>
                 <td className="py-3 pr-3">
@@ -2692,9 +2772,9 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
                 </td>
                 <td className="py-3">
                   {r.reason.trim() ? (
-                    <span className="text-zinc-300">{r.reason}</span>
+                    <span className="text-slate-600">{r.reason}</span>
                   ) : (
-                    <span className="font-bold text-red-400">No reason on record</span>
+                    <span className="font-bold text-red-600">No reason on record</span>
                   )}
                 </td>
               </tr>
@@ -2744,8 +2824,8 @@ function ComplianceScorecard({
         met: withTat > 0,
         evidence:
           withTat === 0
-            ? 'No delivered requests yet to measure.'
-            : `${withTat} completed request ang may aktwal na TAT laban sa SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
+            ? 'No served requests yet to measure.'
+            : `${withTat} completed request ang may aktwal na TAT, bilang mula sa petsa ng pagtanggap hanggang sa petsa ng paghatid, laban sa SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
       },
       {
         item: 'Item 44',
@@ -2761,14 +2841,14 @@ function ComplianceScorecard({
           const missed = decided.reduce((a, ev) => a + serviceGap(ev).length, 0);
           const base = `Demand ${tracked} · rendered ${served} · unmet ${unmet.length}.`;
           return asked > 0
-            ? `${base} At service level: ${asked} requested, ${missed} not delivered — the basis for personnel augmentation.`
+            ? `${base} At service level: ${asked} requested, ${missed} not served — the basis for personnel augmentation.`
             : `${base} The monthly comparison is in the Demand vs Capacity panel.`;
         })(),
       },
       {
         item: 'PM 2.1',
         title: '100% of approved requests executed',
-        ask: 'All approved requests are executed and delivered.',
+        ask: 'All approved requests are executed and served.',
         met: kpi.execution !== null && kpi.execution >= KPI_EXECUTION_TARGET,
         evidence:
           kpi.execution === null
@@ -2792,21 +2872,21 @@ function ComplianceScorecard({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-5 py-4">
+      <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-5 py-4">
         <div>
-          <p className="text-sm font-bold uppercase tracking-wide text-white">
+          <p className="text-sm font-semibold tracking-tight text-slate-900">
             Audit readiness
           </p>
-          <p className="text-[11px] text-zinc-500">
+          <p className="text-[11px] text-slate-9000">
             PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025
           </p>
         </div>
         <div className="text-right">
-          <p className="font-mono text-3xl font-black text-white tabular-nums">
+          <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">
             {metCount}
-            <span className="text-lg text-zinc-600">/{rows.length}</span>
+            <span className="text-lg text-slate-400">/{rows.length}</span>
           </p>
-          <p className="text-[10px] uppercase tracking-[0.1em] text-zinc-500">criteria met</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">criteria met</p>
         </div>
       </div>
 
@@ -2814,27 +2894,27 @@ function ComplianceScorecard({
         {rows.map((r) => (
           <div
             key={r.item}
-            className="flex gap-4 rounded-md border border-zinc-800/80 bg-[#101012] p-4"
+            className="flex gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
             style={{
-              borderLeftColor: r.met ? '#22c55e' : '#f59e0b',
+              borderLeftColor: r.met ? '#16a34a' : '#d97706',
               borderLeftWidth: 3,
             }}
           >
             <div className="w-20 shrink-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-500">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-slate-9000">
                 {r.item}
               </p>
               <p
                 className="mt-1 text-[10px] font-bold uppercase"
-                style={{ color: r.met ? '#22c55e' : '#f59e0b' }}
+                style={{ color: r.met ? '#16a34a' : '#d97706' }}
               >
                 {r.met ? 'Met' : 'Partial'}
               </p>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-zinc-100">{r.title}</p>
-              <p className="mt-0.5 text-[11px] italic text-zinc-600">{r.ask}</p>
-              <p className="mt-2 text-xs leading-relaxed text-zinc-400">{r.evidence}</p>
+              <p className="text-sm font-semibold text-slate-800">{r.title}</p>
+              <p className="mt-0.5 text-[11px] italic text-slate-400">{r.ask}</p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">{r.evidence}</p>
             </div>
           </div>
         ))}
@@ -2853,17 +2933,17 @@ function RequestTable({
 }) {
   if (requests.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center">
-        <p className="text-sm text-zinc-300">No matching requests.</p>
+      <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center">
+        <p className="text-sm text-slate-600">No matching requests.</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto custom-scrollbar rounded-md border border-zinc-800/80 bg-[#101012]">
+    <div className="overflow-x-auto custom-scrollbar rounded-lg border border-slate-200 bg-white shadow-sm">
       <table className="w-full min-w-[900px] text-left text-xs">
         <thead>
-          <tr className="border-b border-zinc-800 bg-black/40 text-[9px] uppercase tracking-[0.1em] text-zinc-600">
+          <tr className="border-b border-slate-200 bg-slate-50 text-[9px] uppercase tracking-[0.1em] text-slate-400">
             <th className="p-3 font-bold">Request</th>
             <th className="p-3 font-bold">Client</th>
             <th className="p-3 font-bold">Stream</th>
@@ -2883,19 +2963,19 @@ function RequestTable({
             return (
               <tr
                 key={r.id}
-                className="border-b border-zinc-900 transition-colors last:border-0 hover:bg-black/40"
+                className="border-b border-slate-200 transition-colors last:border-0 hover:bg-slate-50"
               >
                 <td className="p-3">
-                  <p className="max-w-[260px] truncate font-semibold text-zinc-100">{r.title}</p>
-                  <p className="font-mono text-[10px] text-zinc-600">
+                  <p className="max-w-[260px] truncate font-semibold text-slate-800">{r.title}</p>
+                  <p className="font-mono text-[10px] text-slate-400">
                     {r.id}
                     {r.serviceType ? ` · ${r.serviceType}` : ''}
                   </p>
                 </td>
-                <td className="p-3 text-zinc-400">
+                <td className="p-3 text-slate-500">
                   {r.client || '—'}
                   {r.clientType && (
-                    <span className="block text-[10px] text-zinc-600">{r.clientType}</span>
+                    <span className="block text-[10px] text-slate-400">{r.clientType}</span>
                   )}
                 </td>
                 <td className="p-3">
@@ -2906,20 +2986,20 @@ function RequestTable({
                     {STREAM_META[r.stream].short}
                   </span>
                 </td>
-                <td className="p-3 font-mono text-[10px] uppercase text-zinc-300">
+                <td className="p-3 font-mono text-[10px] uppercase text-slate-600">
                   {r.personnel || '—'}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-zinc-500">
+                <td className="p-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(r.dateRequested)}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-zinc-500">
+                <td className="p-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(effectiveTarget(r))}
                 </td>
                 <td className="p-3 font-mono text-[10px] tabular-nums">
                   {tat === null ? (
-                    <span className="text-zinc-700">—</span>
+                    <span className="text-slate-400">—</span>
                   ) : (
-                    <span style={{ color: tat > SLA_WD[r.stream] ? '#ef4444' : '#22c55e' }}>
+                    <span style={{ color: tat > SLA_WD[r.stream] ? '#dc2626' : '#16a34a' }}>
                       {tat} WD
                     </span>
                   )}
@@ -2927,7 +3007,7 @@ function RequestTable({
                 <td className="p-3">
                   <ReqBadge status={r.status} dense />
                   {REQ_META[r.status].unmet && !r.reason.trim() && (
-                    <span className="mt-1 block text-[9px] font-bold text-red-400">
+                    <span className="mt-1 block text-[9px] font-bold text-red-600">
                       no reason
                     </span>
                   )}
@@ -2938,7 +3018,7 @@ function RequestTable({
                 <td className="p-3 text-right">
                   <button
                     onClick={() => onEdit(r)}
-                    className="rounded border border-zinc-800 px-2 py-1 text-[10px] font-bold text-zinc-500 transition-colors hover:border-[#00aeef]/50 hover:text-[#00aeef]"
+                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
                   >
                     Update
                   </button>
@@ -3004,35 +3084,36 @@ function RequestModal({
   const needsReason = NEEDS_REASON.includes(statusKey);
   const reasonMissing = needsReason && !f.reason.trim();
 
-  // Live preview ng SLA target habang nagbabago ang stream / petsa
+  // Live preview ng SLA target habang nagbabago ang stream / petsa.
+  // COA: mula sa petsa ng pagtanggap, hindi sa petsa ng pag-aprub.
   const previewTarget = useMemo(() => {
     if (f.targetDate) return f.targetDate;
-    const base = f.dateApproved || f.dateRequested;
+    const base = f.dateRequested;
     if (!base) return '';
     const d = parseDate(base);
     return d ? dayKey(addWorkingDays(d, SLA_WD[streamKey])) : '';
-  }, [f.targetDate, f.dateApproved, f.dateRequested, streamKey]);
+  }, [f.targetDate, f.dateRequested, streamKey]);
 
   const canSave = !!f.title.trim() && !reasonMissing && !submitting;
 
   const field =
-    'w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-zinc-500';
+    'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[6vh]">
-      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
-      <div className="relative w-full max-w-3xl rounded-lg border border-zinc-800 bg-[#101012] animate-riseup">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div className="relative w-full max-w-3xl rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/5 animate-riseup">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
-            <h3 className="text-base font-bold uppercase tracking-wide text-white">
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">
               {existing ? `Update request · ${existing.id}` : 'Log a service request'}
             </h3>
-            <p className="text-[11px] text-zinc-500">
+            <p className="text-[11px] text-slate-9000">
               Request Register — PM-CRPD-AV-08-04 Rev 7 · Form FR-CRPD-AV No. 001
             </p>
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white">
+          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -3076,7 +3157,7 @@ function RequestModal({
               <option>{STREAM_META.coverage.label}</option>
               <option>{STREAM_META.production.label}</option>
             </select>
-            <p className="mt-1 font-mono text-[10px] text-zinc-600">
+            <p className="mt-1 font-mono text-[10px] text-slate-400">
               SLA {SLA_WD[streamKey]} working days
             </p>
           </div>
@@ -3123,6 +3204,9 @@ function RequestModal({
               value={f.dateRequested}
               onChange={(e) => set('dateRequested', e.target.value)}
             />
+            <p className="mt-1 text-[10px] text-slate-400">
+              Turnaround is counted from this date.
+            </p>
           </div>
           <div>
             <label className={lab}>Event date</label>
@@ -3135,7 +3219,7 @@ function RequestModal({
           </div>
 
           {/* ---------------- status block ---------------- */}
-          <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
+          <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label className={lab}>Status</label>
@@ -3159,7 +3243,7 @@ function RequestModal({
                 />
               </div>
               <div>
-                <label className={lab}>Date delivered</label>
+                <label className={lab}>Date served</label>
                 <input
                   type="date"
                   className={field}
@@ -3172,19 +3256,19 @@ function RequestModal({
             {needsReason && (
               <div className="mt-4 animate-fadein">
                 <label className={lab}>
-                  <span className="text-red-400">
+                  <span className="text-red-600">
                     Reason for non-service / delay * — required for {REQ_META[statusKey].label}
                   </span>
                 </label>
                 <textarea
                   className={`${field} min-h-[76px] resize-y ${
-                    reasonMissing ? 'border-red-500/60' : ''
+                    reasonMissing ? 'border-red-400' : ''
                   }`}
                   value={f.reason}
                   onChange={(e) => set('reason', e.target.value)}
                   placeholder="For example: Schedule conflict — all AV personnel deployed to another event."
                 />
-                <p className="mt-1 text-[10px] text-zinc-600">
+                <p className="mt-1 text-[10px] text-slate-400">
                   Audit Item 40 requires a recorded reason for every unserved request.
                 </p>
               </div>
@@ -3200,8 +3284,8 @@ function RequestModal({
                   onChange={(e) => set('targetDate', e.target.value)}
                 />
                 {!f.targetDate && previewTarget && (
-                  <p className="mt-1 font-mono text-[10px] text-[#00aeef]">
-                    Auto: {previewTarget} ({SLA_WD[streamKey]} WD)
+                  <p className="mt-1 font-mono text-[10px] text-blue-600">
+                    Auto: {previewTarget} ({SLA_WD[streamKey]} WD from receipt)
                   </p>
                 )}
               </div>
@@ -3239,8 +3323,8 @@ function RequestModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
-          <p className="text-[10px] text-zinc-600">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <p className="text-[10px] text-slate-400">
             {reasonMissing
               ? 'A reason is required before saving.'
               : 'Saved directly to the Request Register.'}
@@ -3248,14 +3332,14 @@ function RequestModal({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded border border-zinc-800 px-4 py-2 text-[13px] text-zinc-400 transition-colors hover:text-zinc-100"
+              className="rounded-md border border-slate-200 px-4 py-2 text-[13px] text-slate-500 transition-colors hover:text-slate-800"
             >
               Cancel
             </button>
             <button
               disabled={!canSave}
               onClick={() => onSubmit(f, existing?.id ?? null)}
-              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? 'Saving…' : existing ? 'Save changes' : 'Log request'}
             </button>
@@ -3297,7 +3381,7 @@ function FulfilChip({ f, dense = false }: { f: Fulfilment; dense?: boolean }) {
 /**
  * Ang service ledger — ito ang gitna ng buong ideya.
  * Berde = hiniling at naibigay. Pula = hiniling pero hindi naibigay.
- * Cyan = naibigay kahit hindi hiniling.
+ * Asul = naibigay kahit hindi hiniling.
  */
 function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean }) {
   const gap = serviceGap(ev);
@@ -3314,13 +3398,13 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
           <span
             key={svc}
             title="Requested — awaiting approval"
-            className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium text-zinc-300"
+            className="inline-flex items-center gap-1 rounded border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600"
           >
             {svc}
           </span>
         ))}
         {ev.requested.length === 0 && (
-          <span className="text-[10px] italic text-zinc-600">No services listed</span>
+          <span className="text-[10px] italic text-slate-400">No services listed</span>
         )}
       </div>
     );
@@ -3334,11 +3418,11 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
           return (
             <span
               key={svc}
-              title={missing ? 'Requested but not delivered' : 'Requested and delivered'}
+              title={missing ? 'Requested but not served' : 'Requested and served'}
               className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${
                 missing
-                  ? 'border-red-500/40 bg-red-500/10 text-red-300 line-through decoration-red-500/60'
-                  : 'border-green-500/30 bg-green-500/10 text-green-300'
+                  ? 'border-red-200 bg-red-50 text-red-700 line-through decoration-red-500/60'
+                  : 'border-green-200 bg-green-50 text-green-700'
               }`}
             >
               {missing ? '✕' : '✓'} {svc}
@@ -3348,26 +3432,26 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
         {extra.map((svc) => (
           <span
             key={svc}
-            title="Delivered though not originally requested"
-            className="inline-flex items-center gap-1 rounded border border-[#00aeef]/40 bg-[#00aeef]/10 px-2 py-0.5 text-[10px] font-medium text-[#00aeef]"
+            title="Served though not originally requested"
+            className="inline-flex items-center gap-1 rounded border border-blue-300 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600"
           >
             + {svc}
           </span>
         ))}
         {ev.requested.length === 0 && (
-          <span className="text-[10px] italic text-zinc-600">No services listed</span>
+          <span className="text-[10px] italic text-slate-400">No services listed</span>
         )}
       </div>
 
       {gap.length > 0 && (
         <p className="text-[11px] leading-relaxed">
-          <span className="font-bold text-red-400">
-            {gap.length} service{gap.length === 1 ? '' : 's'} not delivered:
+          <span className="font-bold text-red-600">
+            {gap.length} service{gap.length === 1 ? '' : 's'} not served:
           </span>{' '}
           {ev.reason ? (
-            <span className="text-zinc-400">{ev.reason}</span>
+            <span className="text-slate-500">{ev.reason}</span>
           ) : (
-            <span className="font-medium text-red-400">No reason on record</span>
+            <span className="font-medium text-red-600">No reason on record</span>
           )}
         </p>
       )}
@@ -3399,7 +3483,7 @@ function PipelineTrack({
         const clickable = !!onStep && !locked;
         return (
           <React.Fragment key={step.key}>
-            {i > 0 && <span className="h-px w-2 shrink-0 bg-zinc-800" />}
+            {i > 0 && <span className="h-px w-2 shrink-0 bg-slate-100" />}
             <button
               disabled={!clickable}
               onClick={() => {
@@ -3409,9 +3493,9 @@ function PipelineTrack({
               }}
               title={`${step.label} — ${meta.label}${locked ? ' (awaiting approval)' : ''}\n${step.detail}`}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${
-                clickable ? 'cursor-pointer hover:border-zinc-600' : 'cursor-default'
+                clickable ? 'cursor-pointer hover:border-slate-400' : 'cursor-default'
               } ${locked ? 'opacity-40' : ''}`}
-              style={{ borderColor: st === 'not-started' ? '#27272a' : `${meta.hex}55` }}
+              style={{ borderColor: st === 'not-started' ? '#e2e8f0' : `${meta.hex}55` }}
             >
               <span
                 className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -3419,7 +3503,7 @@ function PipelineTrack({
               />
               <span
                 className="text-[9px] font-bold tracking-wider"
-                style={{ color: st === 'not-started' ? '#52525b' : meta.hex }}
+                style={{ color: st === 'not-started' ? '#94a3b8' : meta.hex }}
               >
                 {step.short}
               </span>
@@ -3428,7 +3512,7 @@ function PipelineTrack({
         );
       })}
       {!compact && (
-        <span className="ml-2 font-mono text-[10px] text-zinc-600">
+        <span className="ml-2 font-mono text-[10px] text-slate-400">
           {pipelineProgress(ev)}%
         </span>
       )}
@@ -3454,10 +3538,11 @@ function EventCard({
   const next = nextPipelineStep(ev);
   const nextOwners = next ? ownersOfStep(next.key, crew) : [];
   const accent = FULFIL_META[f].hex;
+  const high = classifyPriority(ev.priority) === 'High';
 
   return (
     <div
-      className="group relative overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012] transition-all duration-300 hover:border-zinc-700"
+      className="group relative overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md"
       style={{ borderLeftColor: accent, borderLeftWidth: 3 }}
     >
       <div className="p-5">
@@ -3467,13 +3552,16 @@ function EventCard({
             title={canEdit ? 'Open this event' : 'View only — created by someone else'}
             className="min-w-0 flex-1 text-left"
           >
-            <h3 className="truncate text-base font-bold leading-snug text-zinc-100 transition-colors group-hover:text-white">
-              {ev.title || 'Untitled event'}
-            </h3>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-600">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-base font-semibold leading-snug tracking-tight text-slate-800 transition-colors group-hover:text-slate-900">
+                {ev.title || 'Untitled event'}
+              </h3>
+              {high && <PriorityBadge priority={ev.priority} dense />}
+            </div>
+            <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
               {ev.id} · {ev.client || 'no client'}
             {ev.createdBy && (
-              <span className={canEdit ? 'text-zinc-600' : 'text-amber-600/80'}>
+              <span className={canEdit ? 'text-slate-400' : 'text-amber-600'}>
                 {' '}· {canEdit ? 'yours' : ev.createdBy}
               </span>
             )}
@@ -3491,40 +3579,40 @@ function EventCard({
         </div>
 
         {crew.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-zinc-900 pt-3">
+          <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-3">
             {crew.map((a) => (
-              <span key={a.id} className="text-[11px] text-zinc-500">
-                <span className="font-medium text-zinc-300">{a.personnel}</span>
+              <span key={a.id} className="text-[11px] text-slate-9000">
+                <span className="font-medium text-slate-600">{a.personnel}</span>
                 {a.roles.length > 0 && (
-                  <span className="text-zinc-600"> — {a.roles.join(', ')}</span>
+                  <span className="text-slate-400"> — {a.roles.join(', ')}</span>
                 )}
               </span>
             ))}
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-900 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3">
           <PipelineTrack ev={ev} onStep={onStep} compact readOnly={!canEdit} />
           <div className="flex items-center gap-2">
             {sla !== 'na' && <SLABadge state={sla} />}
-            <span className="font-mono text-[10px] text-zinc-600">
+            <span className="font-mono text-[10px] text-slate-400">
               {ev.eventDate ? fmtDate(ev.eventDate) : fmtDate(ev.dateRequested)}
             </span>
           </div>
         </div>
 
         {next && (
-          <p className="mt-2 text-[11px] text-zinc-500">
-            Next: <span className="font-medium text-[#00aeef]">{next.label}</span>
+          <p className="mt-2 text-[11px] text-slate-9000">
+            Next: <span className="font-medium text-blue-600">{next.label}</span>
             {nextOwners.length > 0 ? (
-              <span className="text-zinc-500"> · {nextOwners.join(', ')}</span>
+              <span className="text-slate-9000"> · {nextOwners.join(', ')}</span>
             ) : (
-              <span className="text-amber-400"> · no one assigned to this role</span>
+              <span className="text-amber-600"> · no one assigned to this role</span>
             )}
           </p>
         )}
         {awaitingAction(ev) && (
-          <p className="mt-2 text-[10px] text-amber-400/80">
+          <p className="mt-2 text-[10px] text-amber-600">
             Awaiting {ev.approval === 'for-approval' ? 'Division Chief' : 'Supervising SRS'}
           </p>
         )}
@@ -3533,22 +3621,46 @@ function EventCard({
   );
 }
 
-/** Buod sa itaas ng Events tab — approved / declined / limited. */
+/**
+ * Buod sa itaas ng Events tab.
+ *
+ * COA: bawat outcome ay may sariling tile. Dati, pinagsama ang Declined,
+ * Cancelled at Rescheduled sa iisang bilang — kaya hindi masagot ang
+ * "ilan ang kinansela?" nang hindi bumubukas ng sheet. Pito ngayon:
+ * Total, Approved, Limited service, Cancelled, Rescheduled, Declined,
+ * Awaiting action.
+ */
 function EventSummary({ events }: { events: AVEvent[] }) {
   const t = useMemo(() => {
-    const base = { total: events.length, approved: 0, declined: 0, waiting: 0, full: 0, partial: 0, none: 0, gapCount: 0, noReason: 0 };
+    const base = {
+      total: events.length,
+      approved: 0,
+      declined: 0,
+      cancelled: 0,
+      rescheduled: 0,
+      waiting: 0,
+      full: 0,
+      partial: 0,
+      none: 0,
+      gapCount: 0,
+      noReason: 0,
+      high: 0,
+    };
     events.forEach((ev) => {
       if (isAuthorised(ev)) base.approved += 1;
-      if (!APPROVAL_META[ev.approval].live) base.declined += 1;
+      if (ev.approval === 'declined') base.declined += 1;
+      if (ev.approval === 'cancelled') base.cancelled += 1;
+      if (ev.approval === 'rescheduled') base.rescheduled += 1;
       if (awaitingAction(ev)) base.waiting += 1;
+      if (classifyPriority(ev.priority) === 'High') base.high += 1;
       const f = fulfilment(ev);
       if (f === 'full') base.full += 1;
       if (f === 'partial') base.partial += 1;
       if (f === 'none') base.none += 1;
       const gap = serviceGap(ev);
-      const decided = ev.approval === 'approved' || !APPROVAL_META[ev.approval].live;
+      const decided = isAuthorised(ev) || !APPROVAL_META[ev.approval].live;
       if (gap.length && decided) {
-        if (ev.approval === 'approved') base.gapCount += gap.length;
+        if (isAuthorised(ev)) base.gapCount += gap.length;
         if (!ev.reason.trim()) base.noReason += 1;
       }
     });
@@ -3556,33 +3668,45 @@ function EventSummary({ events }: { events: AVEvent[] }) {
   }, [events]);
 
   const tiles = [
-    { k: 'Total events', v: t.total, c: '#00aeef', s: 'Requests on record' },
-    { k: 'Approved', v: t.approved, c: '#22c55e', s: `${t.full} fully served` },
-    { k: 'Limited service', v: t.partial, c: '#f59e0b', s: `${t.gapCount} service${t.gapCount === 1 ? '' : 's'} short` },
-    { k: 'Declined', v: t.declined, c: '#ef4444', s: 'Not served' },
-    { k: 'Awaiting action', v: t.waiting, c: '#a1a1aa', s: 'With the approver' },
+    { k: 'Total events', v: t.total, c: '#2563eb', s: 'Requests on record' },
+    { k: 'Approved', v: t.approved, c: '#16a34a', s: `${t.full} fully served` },
+    {
+      k: 'Limited service',
+      v: t.partial,
+      c: '#d97706',
+      s: `${t.gapCount} service${t.gapCount === 1 ? '' : 's'} short`,
+    },
+    { k: 'Cancelled', v: t.cancelled, c: '#64748b', s: 'Withdrawn by the client' },
+    { k: 'Rescheduled', v: t.rescheduled, c: '#ca8a04', s: 'Moved to another date' },
+    { k: 'Declined', v: t.declined, c: '#dc2626', s: 'Not served' },
+    { k: 'Awaiting action', v: t.waiting, c: '#94a3b8', s: 'With the approver' },
   ];
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         {tiles.map((x) => (
           <div
             key={x.k}
-            className="rounded-md border border-zinc-800/80 bg-[#101012] p-4"
+            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
             style={{ borderTopColor: x.c, borderTopWidth: 2 }}
           >
-            <p className="font-mono text-3xl font-black text-white tabular-nums">{x.v}</p>
-            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">{x.v}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
               {x.k}
             </p>
-            <p className="mt-0.5 text-[10px] text-zinc-600">{x.s}</p>
+            <p className="mt-0.5 text-[10px] text-slate-400">{x.s}</p>
           </div>
         ))}
       </div>
+      {t.high > 0 && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
+          {t.high} event{t.high === 1 ? ' is' : 's are'} marked high priority.
+        </div>
+      )}
       {t.noReason > 0 && (
-        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
-          {t.noReason} event(s) have undelivered services with no recorded reason. Audit
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
+          {t.noReason} event(s) have unserved services with no recorded reason. Audit
           Item 40 requires this — open the event and add the reason.
         </div>
       )}
@@ -3629,7 +3753,8 @@ function EventModal({
     dateRequested: existing ? iso(existing.dateRequested) : today,
     eventDate: existing ? iso(existing.eventDate) : '',
     endDate: existing ? iso(existing.endDate) : '',
-    approvalStatus: existing ? APPROVAL_META[existing.approval].label : 'For endorsement',
+    approvalStatus: existing ? APPROVAL_META[existing.approval].label : 'For approval',
+    priority: existing ? classifyPriority(existing.priority) : 'Normal',
     reason: existing?.reason ?? '',
     lead: existing?.lead || 'Xyrus',
     team: existing?.team ?? '',
@@ -3709,6 +3834,14 @@ function EventModal({
   const readOnly = !!existing && !canEdit && !isApprover;
 
   /**
+   * COA: ang approval dropdown ay para lamang sa DC at SRS.
+   * Ang admin at staff ay nakikita ang status pero hindi ito magalaw —
+   * kapareho ito ng ipinapatupad ng server, kaya walang button na
+   * tatanggihan pagkatapos pindutin.
+   */
+  const canChangeApproval = canDecide(role);
+
+  /**
    * Ang parehong panuntunan ng server, ipinapakita bago pa mag-save.
    * Ang server pa rin ang huling hukom — ito ay para malaman mo agad kung
    * ano ang kulang, hindi para lampasan ang tseke.
@@ -3718,9 +3851,10 @@ function EventModal({
     if (!f.title.trim()) out.push('Event title');
     if (!f.client.trim()) out.push('Client');
     if (!f.eventDate) out.push('Event date');
+    if (!f.dateRequested) out.push('Date requested');
     if (requested.length === 0) out.push('At least one requested service');
     return out;
-  }, [f.title, f.client, f.eventDate, requested]);
+  }, [f.title, f.client, f.eventDate, f.dateRequested, requested]);
 
   // Hindi maaaring maibigay ang hindi naman hiniling.
   const strayDelivered = useMemo(
@@ -3735,10 +3869,10 @@ function EventModal({
     (approvalOnly || (canEdit && missingFields.length === 0));
 
   const field =
-    `w-full rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2 text-sm text-white placeholder:text-zinc-700 focus:border-[#00aeef] focus:outline-none${
+    `w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20${
       readOnly || approvalOnly ? ' pointer-events-none opacity-50' : ''
     }`;
-  const lab = 'mb-1.5 block text-[11px] font-medium text-zinc-500';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   const submit = () =>
     onSubmit(
@@ -3759,19 +3893,24 @@ function EventModal({
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[5vh]">
-      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
-      <div className="relative w-full max-w-4xl rounded-lg border border-zinc-800 bg-[#101012] animate-riseup">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div className="relative w-full max-w-4xl rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/5 animate-riseup">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div className="min-w-0">
-            <h3 className="truncate text-base font-bold uppercase tracking-wide text-white">
-              {existing ? existing.title || existing.id : 'New event request'}
-            </h3>
-            <p className="text-[11px] text-zinc-500">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-base font-semibold tracking-tight text-slate-900">
+                {existing ? existing.title || existing.id : 'New event request'}
+              </h3>
+              {classifyPriority(f.priority) === 'High' && (
+                <PriorityBadge priority={f.priority} dense />
+              )}
+            </div>
+            <p className="text-[11px] text-slate-9000">
               {existing ? `${existing.id} · ` : ''}Request Form FR-CRPD-AV No. 001 ·
               PM-CRPD-AV-08-04 Rev 7
             </p>
           </div>
-          <button onClick={onClose} className="shrink-0 text-zinc-500 hover:text-white">
+          <button onClick={onClose} className="shrink-0 text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -3839,22 +3978,44 @@ function EventModal({
               />
             </div>
             <div>
-              <label className={lab}>Date requested</label>
+              <label className={lab}>Date requested *</label>
               <input
                 type="date"
                 className={field}
                 value={f.dateRequested}
                 onChange={(e) => set('dateRequested', e.target.value)}
               />
+              <p className="mt-1 text-[10px] text-slate-400">
+                Turnaround is counted from this date, not from the approval date.
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className={lab}>Priority</label>
+              <select
+                className={field}
+                value={f.priority}
+                onChange={(e) => set('priority', e.target.value)}
+              >
+                {PRIORITY_ORDER.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-slate-400">
+                High priority puts this request at the top of the approver&rsquo;s queue and
+                flags it on the board. Use it for genuinely urgent work only.
+              </p>
             </div>
 
             {/* ----------- ang service ledger ----------- */}
-            <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
+            <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex items-baseline justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
                   Serbisyo — hiniling laban sa naibigay
                 </p>
-                <span className="font-mono text-[10px] text-zinc-600">SLA {sla} WD</span>
+                <span className="font-mono text-[10px] text-slate-400">SLA {sla} WD</span>
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -3864,11 +4025,11 @@ function EventModal({
                     {SERVICE_CATALOG.map((svc) => (
                       <label
                         key={svc}
-                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-900/60"
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
                       >
                         <input
                           type="checkbox"
-                          className="accent-[#00aeef]"
+                          className="accent-blue-600"
                           checked={requested.includes(svc)}
                           onChange={() => toggle(requested, setRequested, svc)}
                         />
@@ -3888,13 +4049,13 @@ function EventModal({
                       return (
                         <label
                           key={svc}
-                          className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-zinc-900/60 ${
-                            missing ? 'text-red-400' : got ? 'text-green-400' : 'text-zinc-600'
+                          className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-slate-50 ${
+                            missing ? 'text-red-600' : got ? 'text-green-600' : 'text-slate-400'
                           }`}
                         >
                           <input
                             type="checkbox"
-                            className="accent-green-500"
+                            className="accent-green-600"
                             checked={got}
                             onChange={() => toggle(delivered, setDelivered, svc)}
                           />
@@ -3908,14 +4069,14 @@ function EventModal({
               </div>
 
               {(gap.length > 0 || extra.length > 0) && (
-                <div className="mt-3 space-y-1 border-t border-zinc-900 pt-3 text-[11px]">
+                <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-[11px]">
                   {gap.length > 0 && (
-                    <p className="text-red-400">
-                      <b>{gap.length} not delivered:</b> {gap.join(', ')}
+                    <p className="text-red-600">
+                      <b>{gap.length} not served:</b> {gap.join(', ')}
                     </p>
                   )}
                   {extra.length > 0 && (
-                    <p className="text-[#00aeef]">
+                    <p className="text-blue-600">
                       <b>Dagdag na naibigay:</b> {extra.join(', ')}
                     </p>
                   )}
@@ -3924,12 +4085,15 @@ function EventModal({
             </div>
 
             {/* ----------- approval ----------- */}
-            <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
+            <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
                   <label className={lab}>Approval status</label>
                   <select
-                    className={field}
+                    className={`w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20${
+                      canChangeApproval ? '' : ' cursor-not-allowed opacity-50'
+                    }`}
+                    disabled={!canChangeApproval}
                     value={f.approvalStatus}
                     onChange={(e) => set('approvalStatus', e.target.value)}
                   >
@@ -3937,10 +4101,16 @@ function EventModal({
                       <option key={k}>{APPROVAL_META[k].label}</option>
                     ))}
                   </select>
-                  {existing && APPROVAL_META[approvalKey].live && approvalKey !== 'approved' && (
+                  {!canChangeApproval && (
+                    <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                      Only the Division Chief and the Supervising SRS can change this.
+                      Send them the approval email instead.
+                    </p>
+                  )}
+                  {existing && APPROVAL_META[approvalKey].live && approvalKey !== 'endorsed' && (
                     <button
                       onClick={() => onNotify(existing.id)}
-                      className="mt-2 w-full rounded-lg border border-[#00aeef]/40 px-3 py-1.5 text-[10px] font-bold text-[#00aeef] transition-colors hover:bg-[#00aeef]/10"
+                      className="mt-2 w-full rounded-lg border border-blue-300 px-3 py-1.5 text-[10px] font-bold text-blue-600 transition-colors hover:bg-blue-50"
                     >
                       Send approval email
                     </button>
@@ -3949,11 +4119,11 @@ function EventModal({
               </div>
 
               {/* ------------------------- CREW & ROLES ------------------- */}
-              <div className="mt-5 border-t border-zinc-800/80 pt-4">
+              <div className="mt-5 border-t border-slate-200 pt-4">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
-                    <p className="text-[11px] font-medium text-zinc-400">Crew &amp; roles</p>
-                    <p className="text-[11px] text-zinc-600">
+                    <p className="text-[11px] font-medium text-slate-500">Crew &amp; roles</p>
+                    <p className="text-[11px] text-slate-400">
                       One person may hold several roles. Each role is counted separately in the IPCR.
                     </p>
                   </div>
@@ -3961,7 +4131,7 @@ function EventModal({
                     onClick={() =>
                       setCrew((prev) => [...prev, { personnel: 'Marx', roles: [], status: 'Assigned' }])
                     }
-                    className="rounded border border-zinc-800 px-2.5 py-1 text-[11px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+                    className="rounded border border-slate-200 px-2.5 py-1 text-[11px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                   >
                     Add person
                   </button>
@@ -3969,12 +4139,12 @@ function EventModal({
 
                 <div className="space-y-2">
                   {crew.map((c, i) => (
-                    <div key={i} className="rounded border border-zinc-800/80 bg-[#0c0c0e] p-3">
+                    <div key={i} className="rounded border border-slate-200 bg-slate-50 p-3">
                       <div className="mb-2.5 flex items-center gap-2">
                         <select
                           value={c.personnel}
                           onChange={(e) => setCrewAt(i, { personnel: e.target.value })}
-                          className="rounded border border-zinc-800 bg-[#101012] px-2 py-1 text-[12px] font-medium text-zinc-200 focus:border-[#00aeef] focus:outline-none"
+                          className="rounded border border-slate-200 bg-white px-2 py-1 text-[12px] font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         >
                           {['Xyrus', 'Marx', 'Reiner', 'Pat', 'Team'].map((n) => (
                             <option key={n}>{n}</option>
@@ -3983,19 +4153,19 @@ function EventModal({
                         <select
                           value={c.status}
                           onChange={(e) => setCrewAt(i, { status: e.target.value })}
-                          className="rounded border border-zinc-800 bg-[#101012] px-2 py-1 text-[12px] text-zinc-400 focus:border-[#00aeef] focus:outline-none"
+                          className="rounded border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         >
                           {ASSIGN_STATUS.map((n) => (
                             <option key={n}>{n}</option>
                           ))}
                         </select>
-                        <span className="ml-auto font-mono text-[11px] text-zinc-600">
+                        <span className="ml-auto font-mono text-[11px] text-slate-400">
                           {c.roles.length} role{c.roles.length === 1 ? '' : 's'}
                         </span>
                         {crew.length > 1 && (
                           <button
                             onClick={() => setCrew((prev) => prev.filter((_, j) => j !== i))}
-                            className="text-[12px] text-zinc-600 transition-colors hover:text-red-400"
+                            className="text-[12px] text-slate-400 transition-colors hover:text-red-600"
                             aria-label="Remove person"
                           >
                             Remove
@@ -4012,8 +4182,8 @@ function EventModal({
                               onClick={() => toggleRole(i, role)}
                               className={`rounded border px-2 py-1 text-[11px] transition-colors ${
                                 on
-                                  ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
-                                  : 'border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:border-slate-300 hover:text-slate-600'
                               }`}
                             >
                               {role}
@@ -4027,7 +4197,7 @@ function EventModal({
               </div>
 
               {existing && (
-                <p className="mt-3 font-mono text-[10px] text-zinc-600">
+                <p className="mt-3 font-mono text-[10px] text-slate-400">
                   {existing.endorsedBy
                     ? `Endorsed by ${existing.endorsedBy}${
                         existing.dateEndorsed ? ` · ${fmtDate(existing.dateEndorsed)}` : ''
@@ -4043,14 +4213,14 @@ function EventModal({
               )}
 
               {existing && existing.history.length > 0 && (
-                <div className="mt-4 border-t border-zinc-800/80 pt-3">
-                  <p className="mb-2 text-[11px] font-medium text-zinc-400">Change history</p>
+                <div className="mt-4 border-t border-slate-200 pt-3">
+                  <p className="mb-2 text-[11px] font-medium text-slate-500">Change history</p>
                   <div className="max-h-32 space-y-1 overflow-y-auto custom-scrollbar">
                     {existing.history
                       .slice()
                       .reverse()
                       .map((line, i) => (
-                        <p key={i} className="font-mono text-[10px] leading-relaxed text-zinc-600">
+                        <p key={i} className="font-mono text-[10px] leading-relaxed text-slate-400">
                           {line}
                         </p>
                       ))}
@@ -4061,22 +4231,22 @@ function EventModal({
               {reasonRequired && (
                 <div className="mt-4 animate-fadein">
                   <label className={lab}>
-                    <span className="text-red-400">
+                    <span className="text-red-600">
                       Reason * —{' '}
                       {notApproved
                         ? `required when ${APPROVAL_META[approvalKey].label}`
-                        : 'required when services were not delivered'}
+                        : 'required when services were not served'}
                     </span>
                   </label>
                   <textarea
                     className={`${field} min-h-[76px] resize-y ${
-                      reasonMissing ? 'border-red-500/60' : ''
+                      reasonMissing ? 'border-red-400' : ''
                     }`}
                     value={f.reason}
                     onChange={(e) => set('reason', e.target.value)}
                     placeholder="For example: Hybrid livestream not provided — no available personnel, team deployed to another DOST event."
                   />
-                  <p className="mt-1 text-[10px] text-zinc-600">
+                  <p className="mt-1 text-[10px] text-slate-400">
                     Audit Item 40 at 44: ito ang ebidensiya para sa personnel augmentation.
                   </p>
                 </div>
@@ -4084,8 +4254,8 @@ function EventModal({
             </div>
 
             {/* ----------- pipeline ----------- */}
-            <div className="md:col-span-2 rounded-xl border border-zinc-800 bg-black/30 p-4">
-              <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+            <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
                 Execution pipeline
               </p>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -4106,7 +4276,7 @@ function EventModal({
                         <option key={st}>{PIPELINE_META[st].label}</option>
                       ))}
                     </select>
-                    <p className="mt-1 text-[9px] leading-tight text-zinc-600">{step.detail}</p>
+                    <p className="mt-1 text-[9px] leading-tight text-slate-400">{step.detail}</p>
                   </div>
                 ))}
               </div>
@@ -4121,19 +4291,24 @@ function EventModal({
                 onChange={(e) => set('targetDate', e.target.value)}
               />
               {!f.targetDate && previewTarget && (
-                <p className="mt-1 font-mono text-[10px] text-[#00aeef]">
-                  Auto: {previewTarget} ({sla} WD)
+                <p className="mt-1 font-mono text-[10px] text-blue-600">
+                  Auto: {previewTarget} ({sla} WD from receipt)
                 </p>
               )}
             </div>
             <div>
-              <label className={lab}>Date delivered</label>
+              <label className={lab}>Date served</label>
               <input
                 type="date"
                 className={field}
                 value={f.dateDelivered}
                 onChange={(e) => set('dateDelivered', e.target.value)}
               />
+              {existing && eventTAT(existing) !== null && (
+                <p className="mt-1 font-mono text-[10px] text-slate-400">
+                  Turnaround {eventTAT(existing)} WD from receipt
+                </p>
+              )}
             </div>
 
             <div>
@@ -4169,14 +4344,14 @@ function EventModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-zinc-800 px-6 py-4">
-          <p className="max-w-md text-[10px] leading-relaxed text-zinc-600">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <p className="max-w-md text-[10px] leading-relaxed text-slate-400">
             {readOnly
               ? `View only — this event belongs to ${existing?.createdBy || 'someone else'}.`
               : approvalOnly
               ? 'You may approve or decline. Editing the record is done by its owner.'
               : strayDelivered.length > 0
-              ? `Marked delivered but never requested: ${strayDelivered.join(', ')}. Add them to the requested services first.`
+              ? `Marked served but never requested: ${strayDelivered.join(', ')}. Add them to the requested services first.`
               : missingFields.length > 0
               ? `Still required: ${missingFields.join(', ')}.`
               : reasonMissing
@@ -4186,14 +4361,14 @@ function EventModal({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded border border-zinc-800 px-4 py-2 text-[13px] text-zinc-400 transition-colors hover:text-zinc-100"
+              className="rounded-md border border-slate-200 px-4 py-2 text-[13px] text-slate-500 transition-colors hover:text-slate-800"
             >
               Cancel
             </button>
             <button
               disabled={!canSave}
               onClick={submit}
-              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting
                 ? 'Saving…'
@@ -4220,7 +4395,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
     const map = new Map<string, { asked: number; given: number; missed: number }>();
     events.forEach((ev) => {
       // Naghihintay pa ng approval — wala pang masasabing naibigay o hindi
-      if (APPROVAL_META[ev.approval].live && ev.approval !== 'approved') return;
+      if (APPROVAL_META[ev.approval].live && !isAuthorised(ev)) return;
       if (!APPROVAL_META[ev.approval].live) {
         // Declined: bilangin pa rin ang hiniling — demand pa rin 'yon
         ev.requested.forEach((svc) => {
@@ -4261,7 +4436,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
 
   if (rows.length === 0) {
     return (
-      <p className="py-8 text-center text-xs italic text-zinc-600">
+      <p className="py-8 text-center text-xs italic text-slate-400">
         No services recorded yet. Create an event to build the gap analysis.
       </p>
     );
@@ -4273,17 +4448,17 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
     <div className="space-y-5">
       <div className="grid grid-cols-3 gap-3">
         {[
-          { k: 'Services requested', v: totals.asked, c: '#00aeef' },
-          { k: 'Services delivered', v: totals.asked - totals.missed, c: '#22c55e' },
-          { k: 'Services not delivered', v: totals.missed, c: '#ef4444' },
+          { k: 'Services requested', v: totals.asked, c: '#2563eb' },
+          { k: 'Services served', v: totals.asked - totals.missed, c: '#16a34a' },
+          { k: 'Services not served', v: totals.missed, c: '#dc2626' },
         ].map((x) => (
           <div
             key={x.k}
-            className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4"
+            className="rounded-lg border border-slate-200 bg-slate-50 p-4"
             style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
           >
-            <p className="font-mono text-3xl font-black text-white tabular-nums">{x.v}</p>
-            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-zinc-400">
+            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">{x.v}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
               {x.k}
             </p>
           </div>
@@ -4294,16 +4469,16 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
         {rows.map((r) => (
           <div key={r.svc}>
             <div className="mb-1 flex items-baseline justify-between gap-3">
-              <span className="truncate text-xs font-semibold text-zinc-300">{r.svc}</span>
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-zinc-500">
-                {r.given}/{r.asked} delivered
+              <span className="truncate text-xs font-semibold text-slate-600">{r.svc}</span>
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-9000">
+                {r.given}/{r.asked} served
                 {r.missed > 0 && (
-                  <span className="ml-2 font-bold text-red-400">−{r.missed}</span>
+                  <span className="ml-2 font-bold text-red-600">−{r.missed}</span>
                 )}
               </span>
             </div>
             <div
-              className="flex h-2 overflow-hidden rounded-full bg-zinc-900"
+              className="flex h-2 overflow-hidden rounded-full bg-slate-100"
               style={{ width: `${Math.max(12, (r.asked / max) * 100)}%` }}
             >
               <div
@@ -4320,18 +4495,18 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
       </div>
 
       {reasons.length > 0 && (
-        <div className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
             Recorded reasons for non-delivery
           </p>
           <div className="space-y-2.5">
             {reasons.map(({ ev, gap }) => (
-              <div key={ev.id} className="border-l-2 border-red-500/50 pl-3">
-                <p className="text-xs font-semibold text-zinc-200">{ev.title}</p>
-                <p className="mt-0.5 text-[10px] text-red-400">
-                  Not delivered: {gap.join(', ')}
+              <div key={ev.id} className="border-l-2 border-red-300 pl-3">
+                <p className="text-xs font-semibold text-slate-700">{ev.title}</p>
+                <p className="mt-0.5 text-[10px] text-red-600">
+                  Not served: {gap.join(', ')}
                 </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-400">{ev.reason}</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{ev.reason}</p>
               </div>
             ))}
           </div>
@@ -4425,24 +4600,24 @@ function KioskMode({
   }, [coverages, outputs, requests]);
 
   return (
-    <div className="no-print fixed inset-0 z-[120] flex flex-col bg-black text-zinc-200">
+    <div className="no-print fixed inset-0 z-[120] flex flex-col bg-slate-50 text-slate-700">
       {/* top bar */}
-      <div className="flex items-center justify-between border-b border-zinc-900 px-6 py-4 md:px-10 md:py-6">
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 md:px-10 md:py-6">
         <div className="flex items-center gap-4">
-          <span className="h-2 w-2 rounded-full bg-[#00aeef]" />
-          <span className="font-display text-2xl font-black uppercase tracking-tight text-white">
-            AV <span className="text-[#00aeef]">Nexus</span>
+          <span className="h-2 w-2 rounded-full bg-blue-600 hover:bg-blue-700" />
+          <span className="font-display text-2xl font-black uppercase tracking-tight text-slate-900">
+            AV <span className="text-blue-600">Nexus</span>
           </span>
-          <span className="ml-2 hidden font-mono text-[11px] uppercase tracking-[0.3em] text-zinc-600 md:block">
+          <span className="ml-2 hidden font-mono text-[11px] uppercase tracking-[0.3em] text-slate-400 md:block">
             {titles[slide]}
           </span>
         </div>
         <div className="flex items-center gap-6">
           <div className="text-right">
-            <p className="font-mono text-2xl font-black text-white tabular-nums md:text-3xl">
+            <p className="font-mono text-2xl font-black text-slate-900 tabular-nums md:text-3xl">
               {now.toLocaleTimeString('en-PH', { hour12: false })}
             </p>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-9000">
               {now.toLocaleDateString('en-PH', {
                 weekday: 'long',
                 day: 'numeric',
@@ -4453,7 +4628,7 @@ function KioskMode({
           </div>
           <button
             onClick={onClose}
-            className="rounded-md border border-zinc-800 px-3 py-2 text-xs font-bold text-zinc-500 transition-colors hover:text-white"
+            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-9000 transition-colors hover:text-slate-900"
           >
             ✕ Exit
           </button>
@@ -4470,24 +4645,24 @@ function KioskMode({
               return (
                 <div
                   key={m.name}
-                  className="flex flex-col rounded-lg border border-zinc-800/80 bg-[#101012] p-8"
+                  className="flex flex-col rounded-lg border border-slate-200 bg-white p-8"
                 >
                   <div className="mb-6 flex items-center gap-5">
-                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#00aeef]/50">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-blue-300">
                       <img src={m.image} alt={m.name} className="h-full w-full object-cover" />
                     </div>
                     <div>
-                      <p className="text-3xl font-black uppercase tracking-wider text-white">
+                      <p className="text-3xl font-black uppercase tracking-wider text-slate-900">
                         {m.name}
                       </p>
-                      <p className="font-mono text-xs text-zinc-500">
+                      <p className="font-mono text-xs text-slate-9000">
                         {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                       </p>
                     </div>
                   </div>
                   {act ? (
                     <>
-                      <p className="mb-4 line-clamp-3 flex-1 text-lg leading-snug text-zinc-300">
+                      <p className="mb-4 line-clamp-3 flex-1 text-lg leading-snug text-slate-600">
                         {act.kind === 'coverage' ? act.cov.details : act.out.title}
                       </p>
                       <div className="flex items-center justify-between">
@@ -4496,11 +4671,11 @@ function KioskMode({
                         ) : (
                           <StageBadge stage={act.out.stage} />
                         )}
-                        <span className="font-mono text-xs text-zinc-500">{fmtDate(act.when)}</span>
+                        <span className="font-mono text-xs text-slate-9000">{fmtDate(act.when)}</span>
                       </div>
                     </>
                   ) : (
-                    <p className="flex-1 text-sm italic text-zinc-600">Standby</p>
+                    <p className="flex-1 text-sm italic text-slate-400">Standby</p>
                   )}
                 </div>
               );
@@ -4512,15 +4687,15 @@ function KioskMode({
           <div className="flex h-full flex-col justify-center gap-12">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
               {[
-                { label: 'Total coverages', v: stats.total, accent: '#00aeef' },
-                { label: 'DMC cleared', v: cleared, accent: '#22c55e' },
-                { label: 'This month', v: stats.thisMonth, accent: '#ef4444' },
+                { label: 'Total coverages', v: stats.total, accent: '#2563eb' },
+                { label: 'DMC cleared', v: cleared, accent: '#16a34a' },
+                { label: 'This month', v: stats.thisMonth, accent: '#dc2626' },
               ].map((x) => (
                 <div
                   key={x.label}
-                  className="rounded-lg border border-zinc-800/80 bg-[#101012] p-10 text-center"
+                  className="rounded-lg border border-slate-200 bg-white p-10 text-center"
                 >
-                  <p className="font-mono text-7xl font-black text-white tabular-nums md:text-8xl">
+                  <p className="font-mono text-7xl font-black text-slate-900 tabular-nums md:text-8xl">
                     {x.v}
                   </p>
                   <p
@@ -4533,7 +4708,7 @@ function KioskMode({
               ))}
             </div>
             <div>
-              <div className="mb-3 flex h-5 w-full overflow-hidden rounded-full bg-zinc-900">
+              <div className="mb-3 flex h-5 w-full overflow-hidden rounded-full bg-slate-100">
                 {STATUS_ORDER.map((k) =>
                   stats.counts[k] > 0 && stats.total > 0 ? (
                     <div
@@ -4548,13 +4723,13 @@ function KioskMode({
               </div>
               <div className="flex flex-wrap justify-center gap-6">
                 {STATUS_ORDER.map((k) => (
-                  <span key={k} className="flex items-center gap-2 text-sm text-zinc-400">
+                  <span key={k} className="flex items-center gap-2 text-sm text-slate-500">
                     <span
                       className="h-2.5 w-2.5 rounded-sm"
                       style={{ background: STATUS_META[k].hex }}
                     />
                     {STATUS_META[k].label} ·{' '}
-                    <span className="font-mono text-white">{stats.counts[k]}</span>
+                    <span className="font-mono text-slate-900">{stats.counts[k]}</span>
                   </span>
                 ))}
               </div>
@@ -4568,9 +4743,9 @@ function KioskMode({
               {STAGE_ORDER.map((k) => (
                 <div
                   key={k}
-                  className="rounded-md border border-zinc-800/80 bg-[#101012] p-5 text-center"
+                  className="rounded-lg border border-slate-200 bg-white p-5 text-center"
                 >
-                  <p className="font-mono text-4xl font-black text-white tabular-nums md:text-5xl">
+                  <p className="font-mono text-4xl font-black text-slate-900 tabular-nums md:text-5xl">
                     {outputs.filter((o) => o.stage === k).length}
                   </p>
                   <p
@@ -4586,11 +4761,11 @@ function KioskMode({
               {wip.map((o) => (
                 <div
                   key={o.id}
-                  className="flex items-center justify-between gap-6 rounded-md border border-zinc-800/80 bg-[#101012] px-6 py-4"
+                  className="flex items-center justify-between gap-6 rounded-lg border border-slate-200 bg-white px-6 py-4"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-xl font-bold text-zinc-100">{o.title}</p>
-                    <p className="font-mono text-xs text-zinc-500">
+                    <p className="truncate text-xl font-bold text-slate-800">{o.title}</p>
+                    <p className="font-mono text-xs text-slate-9000">
                       {o.personnel} · {o.role || o.type}
                       {o.target ? ` · due ${fmtDate(o.target)}` : ''}
                     </p>
@@ -4599,7 +4774,7 @@ function KioskMode({
                 </div>
               ))}
               {wip.length === 0 && (
-                <p className="pt-16 text-center text-lg italic text-zinc-600">
+                <p className="pt-16 text-center text-lg italic text-slate-400">
                   No outputs in progress.
                 </p>
               )}
@@ -4611,16 +4786,16 @@ function KioskMode({
           <div className="flex h-full flex-col justify-center gap-10">
             <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
               {[
-                { k: 'Service demand', v: svc.demand, c: '#00aeef' },
-                { k: 'Services rendered', v: svc.served, c: '#22c55e' },
-                { k: 'Unmet requests', v: svc.unmet, c: '#ef4444' },
-                { k: 'Past due', v: svc.overdue, c: '#f59e0b' },
+                { k: 'Service demand', v: svc.demand, c: '#2563eb' },
+                { k: 'Services rendered', v: svc.served, c: '#16a34a' },
+                { k: 'Unmet requests', v: svc.unmet, c: '#dc2626' },
+                { k: 'Past due', v: svc.overdue, c: '#d97706' },
               ].map((x) => (
                 <div
                   key={x.k}
-                  className="rounded-lg border border-zinc-800/80 bg-[#101012] p-8 text-center"
+                  className="rounded-lg border border-slate-200 bg-white p-8 text-center"
                 >
-                  <p className="font-mono text-6xl font-black text-white tabular-nums md:text-7xl">
+                  <p className="font-mono text-6xl font-black text-slate-900 tabular-nums md:text-7xl">
                     {x.v}
                   </p>
                   <p
@@ -4638,7 +4813,7 @@ function KioskMode({
                   label: 'Requests executed',
                   v: kpi.execution,
                   t: KPI_EXECUTION_TARGET,
-                  sub: 'PM 2.1 — 100% of approved requests delivered',
+                  sub: 'PM 2.1 — 100% of approved requests served',
                 },
                 {
                   label: 'CSM very satisfactory+',
@@ -4648,31 +4823,31 @@ function KioskMode({
                 },
               ].map((x) => {
                 const pass = x.v !== null && x.v >= x.t;
-                const hex = x.v === null ? '#3f3f46' : pass ? '#22c55e' : '#ef4444';
+                const hex = x.v === null ? '#cbd5e1' : pass ? '#16a34a' : '#dc2626';
                 return (
                   <div
                     key={x.label}
-                    className="rounded-lg border border-zinc-800/80 bg-[#101012] p-8"
+                    className="rounded-lg border border-slate-200 bg-white p-8"
                   >
                     <div className="mb-4 flex items-baseline justify-between">
-                      <span className="text-sm font-bold uppercase tracking-[0.1em] text-zinc-300">
+                      <span className="text-sm font-bold uppercase tracking-[0.1em] text-slate-600">
                         {x.label}
                       </span>
                       <span className="font-mono text-4xl font-black tabular-nums" style={{ color: hex }}>
                         {x.v === null ? '—' : `${x.v}%`}
                       </span>
                     </div>
-                    <div className="relative h-3 overflow-hidden rounded-full bg-zinc-900">
+                    <div className="relative h-3 overflow-hidden rounded-full bg-slate-100">
                       <div
                         className="h-full rounded-full transition-all duration-1000"
                         style={{ width: `${Math.min(100, x.v ?? 0)}%`, background: hex }}
                       />
                       <div
-                        className="absolute inset-y-0 w-0.5 bg-zinc-500"
+                        className="absolute inset-y-0 w-0.5 bg-slate-400"
                         style={{ left: `${x.t}%` }}
                       />
                     </div>
-                    <p className="mt-3 text-xs text-zinc-500">{x.sub}</p>
+                    <p className="mt-3 text-xs text-slate-9000">{x.sub}</p>
                   </div>
                 );
               })}
@@ -4685,24 +4860,24 @@ function KioskMode({
             {upNext.map((c, i) => (
               <div
                 key={i}
-                className="flex flex-col items-start gap-3 rounded-2xl border-l-4 border-red-500 bg-[#101012] px-8 py-6 md:flex-row md:items-center md:gap-8"
+                className="flex flex-col items-start gap-3 rounded-2xl border-l-4 border-red-500 bg-white px-8 py-6 md:flex-row md:items-center md:gap-8"
               >
                 <div className="w-44 shrink-0">
-                  <p className="font-mono text-2xl font-black text-white">{fmtDate(c.dateObj)}</p>
-                  <p className="text-xs uppercase tracking-[0.1em] text-red-400">
+                  <p className="font-mono text-2xl font-black text-slate-900">{fmtDate(c.dateObj)}</p>
+                  <p className="text-xs uppercase tracking-[0.1em] text-red-600">
                     {relativeDay(c.dateObj) || 'Scheduled'}
                   </p>
                 </div>
-                <p className="flex-1 text-xl font-bold leading-snug text-zinc-200 md:text-2xl">
+                <p className="flex-1 text-xl font-bold leading-snug text-slate-700 md:text-2xl">
                   {c.details}
                 </p>
-                <span className="rounded bg-zinc-800 px-3 py-1 font-mono text-sm font-bold uppercase tracking-wider text-zinc-300">
+                <span className="rounded bg-slate-100 px-3 py-1 font-mono text-sm font-bold uppercase tracking-wider text-slate-600">
                   {c.personnel}
                 </span>
               </div>
             ))}
             {upNext.length === 0 && (
-              <p className="text-center text-2xl italic text-zinc-600">
+              <p className="text-center text-2xl italic text-slate-400">
                 Nothing scheduled.
               </p>
             )}
@@ -4710,7 +4885,7 @@ function KioskMode({
         )}
 
         {slide === 5 && (
-          <div className="h-full overflow-hidden rounded-2xl border border-zinc-800 bg-[#0b0b0d]">
+          <div className="h-full overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <iframe
               src={`${CAL_EMBED}&mode=AGENDA&showTitle=0&showPrint=0&showTabs=0&showCalendars=0&showTz=0`}
               title="AV Calendar — kiosk"
@@ -4721,12 +4896,12 @@ function KioskMode({
       </div>
 
       {/* broadcast ticker */}
-      <div className="flex items-center gap-4 overflow-hidden border-t border-zinc-900 bg-[#050506] px-6 py-2.5 md:px-10">
+      <div className="flex items-center gap-4 overflow-hidden border-t border-slate-200 bg-white px-6 py-2.5 md:px-10">
         <span className="shrink-0 rounded bg-red-600 px-2 py-0.5 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-white">
           Latest
         </span>
         <div className="relative flex-1 overflow-hidden">
-          <div className="kiosk-ticker flex w-max whitespace-nowrap font-mono text-xs text-zinc-400">
+          <div className="kiosk-ticker flex w-max whitespace-nowrap font-mono text-xs text-slate-500">
             <span className="pr-24">{ticker}</span>
             <span className="pr-24">{ticker}</span>
           </div>
@@ -4734,16 +4909,16 @@ function KioskMode({
       </div>
 
       {/* bottom: progress + dots */}
-      <div className="border-t border-zinc-900 px-6 py-4 md:px-10 md:py-5">
-        <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-zinc-900">
+      <div className="border-t border-slate-200 px-6 py-4 md:px-10 md:py-5">
+        <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-slate-100">
           <div
             key={slide}
-            className="h-full bg-[#00aeef]"
+            className="h-full bg-blue-600"
             style={{ animation: `kioskbar ${SLIDE_MS}ms linear forwards` }}
           />
         </div>
         <div className="flex items-center justify-between">
-          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-zinc-700">
+          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-400">
             DOST-STII · Broadcast &amp; Digital Media Section
           </p>
           <div className="flex gap-2">
@@ -4753,7 +4928,7 @@ function KioskMode({
                 onClick={() => setSlide(i)}
                 aria-label={t}
                 className={`h-2 rounded-full transition-all ${
-                  i === slide ? 'w-8 bg-[#00aeef]' : 'w-2 bg-zinc-800 hover:bg-zinc-700'
+                  i === slide ? 'w-8 bg-blue-600' : 'w-2 bg-slate-300 hover:bg-slate-400'
                 }`}
               />
             ))}
@@ -4791,33 +4966,33 @@ function AppWindow({
 
   return (
     <div className="no-print fixed inset-0 z-[90] flex items-center justify-center p-0 md:p-6">
-      <div className="absolute inset-0 bg-black/85 animate-fadein" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
       <div
-        className={`relative flex flex-col overflow-hidden border border-zinc-800 bg-[#0a0a0c] animate-riseup ${
+        className={`relative flex flex-col overflow-hidden border border-slate-200 bg-white animate-riseup ${
           maximized ? 'h-full w-full rounded-none' : 'h-full w-full md:h-[88vh] md:max-w-[1400px] md:rounded-2xl'
         }`}
-        style={{ boxShadow: `0 0 0 1px ${app.accent}22, 0 40px 120px -20px rgba(0,0,0,0.9)` }}
+        style={{ boxShadow: `0 0 0 1px ${app.accent}22, 0 40px 120px -20px rgba(15,23,42,0.25)` }}
       >
         {/* title bar */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-zinc-800 bg-[#101012] px-4 py-2.5">
+        <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
           <div className="flex items-center gap-1.5">
             <button
               onClick={onClose}
               aria-label="Close window"
-              className="h-3 w-3 rounded-full bg-red-500 transition-transform hover:scale-125"
+              className="h-3 w-3 rounded-full bg-red-400 transition-transform hover:scale-125"
             />
-            <span className="h-3 w-3 rounded-full bg-zinc-700" />
+            <span className="h-3 w-3 rounded-full bg-slate-300" />
             <button
               onClick={() => setMaximized((m) => !m)}
               aria-label="Toggle maximise"
-              className="h-3 w-3 rounded-full bg-zinc-600 transition-transform hover:scale-125"
+              className="h-3 w-3 rounded-full bg-slate-300 transition-transform hover:scale-125"
             />
           </div>
-          <div className="mx-2 flex min-w-0 flex-1 items-center gap-2 rounded-md border border-zinc-800 bg-black/60 px-3 py-1.5">
+          <div className="mx-2 flex min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-100 px-3 py-1.5">
             <span className="text-xs" style={{ color: app.accent }} aria-hidden>
               {app.glyph}
             </span>
-            <span className="truncate font-mono text-[11px] text-zinc-400">{app.url}</span>
+            <span className="truncate font-mono text-[11px] text-slate-500">{app.url}</span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button
@@ -4825,7 +5000,7 @@ function AppWindow({
                 setLoading(app.embeddable);
                 setReloadKey((k) => k + 1);
               }}
-              className="rounded-md border border-zinc-800 px-2.5 py-1.5 text-[11px] font-bold text-zinc-400 transition-colors hover:border-zinc-600 hover:text-white"
+              className="rounded-md border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-900"
             >
               Reload
             </button>
@@ -4833,7 +5008,7 @@ function AppWindow({
               href={app.url}
               target="_blank"
               rel="noreferrer"
-              className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-black transition-opacity hover:opacity-85"
+              className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-blue-700"
               style={{ background: app.accent }}
             >
               Open in new tab
@@ -4853,34 +5028,34 @@ function AppWindow({
                 onLoad={() => setLoading(false)}
               />
               {loading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#101012]">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white">
                   <div
-                    className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-800"
+                    className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200"
                     style={{ borderTopColor: app.accent }}
                   />
-                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-zinc-500">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-9000">
                     Connecting to {app.name}
                   </p>
                 </div>
               )}
             </>
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#101012] px-6 text-center">
+            <div className="flex h-full flex-col items-center justify-center gap-4 bg-white px-6 text-center">
               <div
                 className="flex h-16 w-16 items-center justify-center rounded-2xl border text-2xl"
                 style={{ borderColor: `${app.accent}55`, color: app.accent }}
               >
                 {app.glyph}
               </div>
-              <h3 className="text-lg font-bold text-white">{app.name} runs in its own tab</h3>
-              <p className="max-w-md text-sm leading-relaxed text-zinc-400">
+              <h3 className="text-lg font-bold text-slate-900">{app.name} runs in its own tab</h3>
+              <p className="max-w-md text-sm leading-relaxed text-slate-500">
                 AppSheet blocks embedding, so it cannot be framed here. Open it in a new tab instead.
               </p>
               <a
                 href={app.url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-2 rounded-lg px-5 py-2.5 text-sm font-bold text-black transition-opacity hover:opacity-85"
+                className="mt-2 rounded-lg px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
                 style={{ background: app.accent }}
               >
                 Open Tasking System ↗
@@ -4889,11 +5064,11 @@ function AppWindow({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-zinc-800 bg-[#101012] px-4 py-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-600">
+        <div className="flex shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-400">
             {app.tag} · {app.role}
           </span>
-          <span className="font-mono text-[10px] text-zinc-600">ESC to close</span>
+          <span className="font-mono text-[10px] text-slate-400">ESC to close</span>
         </div>
       </div>
     </div>
@@ -4956,21 +5131,21 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center px-4 pt-[12vh]">
-      <div className="absolute inset-0 bg-black/80 animate-fadein" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
       <div
-        className="relative w-full max-w-2xl overflow-hidden rounded-lg border border-zinc-800 bg-[#101012] animate-riseup"
+        className="relative w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-slate-900/5 animate-riseup"
         onKeyDown={onKey}
       >
-        <div className="flex items-center gap-3 border-b border-zinc-800 px-5 py-4">
-          <span className="text-sm text-[#00aeef]">⌘</span>
+        <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
+          <span className="text-sm text-blue-600">⌘</span>
           <input
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search systems, people, records and actions…"
-            className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
-          <kbd className="rounded border border-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500">
+          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-9000">
             ESC
           </kbd>
         </div>
@@ -4981,7 +5156,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             return (
               <React.Fragment key={c.id}>
                 {showGroup && (
-                  <p className="px-5 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600">
+                  <p className="px-5 pb-1 pt-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                     {c.group}
                   </p>
                 )}
@@ -4993,17 +5168,17 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
                     onClose();
                   }}
                   className={`flex w-full items-center justify-between gap-4 px-5 py-2.5 text-left transition-colors ${
-                    i === active ? 'bg-[#00aeef]/10' : 'hover:bg-zinc-900/60'
+                    i === active ? 'bg-blue-50' : 'hover:bg-slate-50'
                   }`}
                 >
                   <span
                     className={`truncate text-sm ${
-                      i === active ? 'font-semibold text-white' : 'text-zinc-300'
+                      i === active ? 'font-semibold text-slate-900' : 'text-slate-600'
                     }`}
                   >
                     {c.label}
                   </span>
-                  <span className="shrink-0 truncate font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                  <span className="shrink-0 truncate font-mono text-[10px] uppercase tracking-wider text-slate-400">
                     {c.hint}
                   </span>
                 </button>
@@ -5011,7 +5186,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             );
           })}
           {results.length === 0 && (
-            <p className="px-5 py-8 text-center text-sm text-zinc-600">
+            <p className="px-5 py-8 text-center text-sm text-slate-400">
               No matches. Try an event title or a person's name.
             </p>
           )}
@@ -5056,63 +5231,63 @@ function PersonnelDrawer({
 
   return (
     <div className="no-print fixed inset-0 z-[85] flex justify-end">
-      <div className="absolute inset-0 bg-black/70 animate-fadein" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-zinc-800 bg-[#101012] animate-slidein">
-        <div className="flex items-center gap-4 border-b border-zinc-800 p-6">
-          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-[#00aeef]/60">
+      <div className="absolute inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl animate-slidein">
+        <div className="flex items-center gap-4 border-b border-slate-200 p-6">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-blue-400">
             <img src={image} alt={name} className="h-full w-full object-cover" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-xl font-black uppercase tracking-wider text-white">
+            <h3 className="truncate text-lg font-semibold tracking-tight text-slate-900">
               {OFFICIAL[name]?.fullName || name}
             </h3>
-            <p className="truncate text-xs text-zinc-500">{OFFICIAL[name]?.designation}</p>
+            <p className="truncate text-xs text-slate-9000">{OFFICIAL[name]?.designation}</p>
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 rounded-md border border-zinc-800 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-white"
+            className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-900"
           >
             ✕
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-px border-b border-zinc-800 bg-zinc-800">
+        <div className="grid grid-cols-3 gap-px border-b border-slate-200 bg-slate-100">
           {[
             { k: 'Total', v: records.length },
             { k: 'Cleared', v: counts.transferred + counts.archived },
             { k: 'Pending', v: counts.pending },
           ].map((s) => (
-            <div key={s.k} className="bg-[#101012] p-4 text-center">
-              <p className="font-mono text-2xl font-black text-white tabular-nums">{s.v}</p>
-              <p className="text-[10px] uppercase tracking-[0.1em] text-zinc-500">{s.k}</p>
+            <div key={s.k} className="bg-white p-4 text-center">
+              <p className="font-mono text-2xl font-black text-slate-900 tabular-nums">{s.v}</p>
+              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">{s.k}</p>
             </div>
           ))}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
             Deployment history
           </p>
           <div className="space-y-3">
             {records.map((r, i) => (
-              <div key={i} className="rounded-md border border-zinc-800/80 bg-[#0c0c0e] p-3">
-                <p className="mb-2 text-sm leading-snug text-zinc-200">{r.details}</p>
+              <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="mb-2 text-sm leading-snug text-slate-700">{r.details}</p>
                 <div className="flex items-center justify-between gap-2">
                   <StatusBadge status={r.status} dense />
-                  <span className="font-mono text-[10px] text-zinc-600">{fmtDate(r.dateObj)}</span>
+                  <span className="font-mono text-[10px] text-slate-400">{fmtDate(r.dateObj)}</span>
                 </div>
               </div>
             ))}
             {records.length === 0 && (
-              <p className="text-sm italic text-zinc-600">No deployments on record.</p>
+              <p className="text-sm italic text-slate-400">No deployments on record.</p>
             )}
           </div>
         </div>
 
-        <div className="border-t border-zinc-800 p-4">
+        <div className="border-t border-slate-200 p-4">
           <button
             onClick={onGenerateIPCR}
-            className="w-full rounded-lg bg-red-600 py-3 text-sm font-bold text-white transition-colors hover:bg-red-500"
+            className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 transition-colors hover:bg-blue-700"
           >
             Build IPCR report for {name}
           </button>
@@ -5165,6 +5340,7 @@ export default function App() {
   const [evQuery, setEvQuery] = useState('');
   const [evApproval, setEvApproval] = useState<'ALL' | ApprovalKey>('ALL');
   const [evFulfil, setEvFulfil] = useState<'ALL' | Fulfilment>('ALL');
+  const [evPriority, setEvPriority] = useState<'ALL' | PriorityKey>('ALL');
 
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [reqModal, setReqModal] = useState<{ open: boolean; editing: ServiceRequest | null }>({
@@ -5384,7 +5560,6 @@ export default function App() {
     endSession();
   }, [endSession]);
 
-  /** Ang lahat ng pagsulat ay dumadaan dito para masama ang token. */
   /**
    * Ang papel ay galing sa SERVER, hindi sa paghula base sa pangalan.
    * Kung hindi pa dumarating, huhulaan muna para may maipakita, pero
@@ -5596,7 +5771,7 @@ export default function App() {
         evRows
           .filter((r: any) => r['Event Title'] || r['Event ID'])
           .map((r: any) => {
-            const approvalRaw = String(r['Approval Status'] || 'For Endorsement');
+            const approvalRaw = String(r['Approval Status'] || 'For Approval');
             return {
               id: String(r['Event ID'] || r['Event Title'] || Math.random()),
               dateRequested: parseDate(r['Date Requested']),
@@ -5618,6 +5793,7 @@ export default function App() {
               approvalRemarks: String(r['Approval Remarks'] || ''),
               lead: String(r['Lead Personnel'] || ''),
               team: String(r['Team'] || ''),
+              priority: String(r['Priority'] || 'Normal'),
               pipeline: {
                 coordination: classifyPipeline(String(r['Coordination'] || '')),
                 documents: classifyPipeline(String(r['Documents'] || '')),
@@ -5754,6 +5930,10 @@ export default function App() {
         return;
       }
       setSubmitting(true);
+
+      const normalisedStatus = APPROVAL_META[classifyApproval(form.approvalStatus)].label
+        .replace('For approval', 'For Approval');
+
       const payload = {
         title: form.title,
         client: form.client,
@@ -5765,8 +5945,8 @@ export default function App() {
         requestedServices: form.requestedServices,
         deliveredServices: form.deliveredServices,
         reason: form.reason,
-        approvalStatus: APPROVAL_META[classifyApproval(form.approvalStatus)].label
-          .replace('For endorsement', 'For Endorsement'),
+        approvalStatus: normalisedStatus,
+        priority: classifyPriority(form.priority),
         leadPersonnel: form.lead,
         team: form.team,
         coordination: form.coordination,
@@ -5779,16 +5959,35 @@ export default function App() {
         link: form.link,
         remarks: form.remarks,
       };
+
+      /**
+       * Ang DC at SRS ay nag-a-aprub lamang — hindi sila nag-e-edit ng
+       * nilalaman. Kapag ipinadala natin ang buong form sa pangalan nila,
+       * tatanggihan ito ng server ("Approvers may approve or decline, but may
+       * not edit the record itself"). Kaya ang ipinapadala nila ay ang
+       * desisyon lamang, at ang dahilan nito.
+       */
+      const approverPatch = {
+        approvalStatus: normalisedStatus,
+        reason: form.reason,
+        actor,
+      };
+
       const body = id
-        ? { action: 'updateEvent', id, patch: { ...payload, actor } }
+        ? {
+            action: 'updateEvent',
+            id,
+            patch: canDecide(myRole) ? approverPatch : { ...payload, actor },
+          }
         : { action: 'addEvent', payload: { ...payload, actor } };
 
       try {
         const out = await authedPost(body);
 
         // The roster is a separate write — it needs the Event ID first.
+        // Approvers do not touch the crew list, so skip it for them.
         const eventId = id || (out && out.id ? String(out.id) : null);
-        if (eventId && roster) {
+        if (eventId && roster && !canDecide(myRole)) {
           await authedPost({
             action: 'setAssignments',
             eventId,
@@ -5830,7 +6029,7 @@ export default function App() {
         setTimeout(() => fetchProduction(), 1400);
       }
     },
-    [fetchProduction, toast, actor]
+    [fetchProduction, toast, actor, myRole, authedPost]
   );
 
   const notifyApprover = useCallback(
@@ -5849,7 +6048,7 @@ export default function App() {
         setLastError({ what: 'Send approval email', detail: msg });
       }
     },
-    [toast]
+    [toast, authedPost]
   );
 
   const stepEvent = useCallback(
@@ -5882,7 +6081,7 @@ export default function App() {
       }
       setTimeout(() => fetchProduction(), 1600);
     },
-    [fetchProduction, toast]
+    [fetchProduction, toast, authedPost]
   );
 
   const submitRequest = useCallback(
@@ -5920,7 +6119,7 @@ export default function App() {
         setTimeout(() => fetchProduction(), 1400);
       }
     },
-    [fetchProduction, toast, actor]
+    [fetchProduction, toast, actor, authedPost]
   );
 
   const advanceStage = useCallback(
@@ -5946,7 +6145,7 @@ export default function App() {
         setBusyId(null);
       }, 1400);
     },
-    [fetchProduction, toast]
+    [fetchProduction, toast, authedPost]
   );
 
   useEffect(() => {
@@ -6042,9 +6241,10 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     const q = evQuery.trim().toLowerCase();
-    return events.filter((ev) => {
+    const list = events.filter((ev) => {
       if (evApproval !== 'ALL' && ev.approval !== evApproval) return false;
       if (evFulfil !== 'ALL' && fulfilment(ev) !== evFulfil) return false;
+      if (evPriority !== 'ALL' && classifyPriority(ev.priority) !== evPriority) return false;
       if (
         q &&
         !`${ev.title} ${ev.client} ${ev.lead} ${ev.venue} ${ev.id} ${ev.requested.join(' ')}`
@@ -6054,10 +6254,21 @@ export default function App() {
         return false;
       return true;
     });
-  }, [events, evQuery, evApproval, evFulfil]);
+    // Mataas na prayoridad ang unang nakikita — 'yon ang punto ng pagmarka.
+    return list.sort((a, b) => {
+      const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
+      const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
+      return pa - pb;
+    });
+  }, [events, evQuery, evApproval, evFulfil, evPriority]);
 
   const approvalQueue = useMemo(
-    () => events.filter(awaitingAction),
+    () =>
+      events.filter(awaitingAction).sort((a, b) => {
+        const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
+        const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
+        return pa - pb;
+      }),
     [events]
   );
 
@@ -6415,6 +6626,16 @@ export default function App() {
         run: () => setKioskOn(true),
       },
       {
+        id: 'high-priority',
+        label: 'Show high priority events only',
+        hint: 'Filter',
+        group: 'Actions',
+        run: () => {
+          setView('events');
+          setEvPriority('High');
+        },
+      },
+      {
         id: 'log-request',
         label: 'Log a service request',
         hint: 'Register',
@@ -6534,7 +6755,7 @@ export default function App() {
     : {
         connecting: { dot: 'bg-amber-500', label: 'Connecting', short: 'Sync' },
         live: { dot: 'bg-emerald-500', label: `Live · ${lastUpdated}`, short: 'Live' },
-        error: { dot: 'bg-zinc-600', label: 'Offline', short: 'Offline' },
+        error: { dot: 'bg-slate-400', label: 'Offline', short: 'Offline' },
       }[conn];
 
   /* --------------------------------------------------------------- VIEW -- */
@@ -6558,20 +6779,20 @@ export default function App() {
   }
 
   return (
-    <div className="relative min-h-screen bg-[#08080a] font-sans text-[13px] text-zinc-300 antialiased selection:bg-[#00aeef]/25">
+    <div className="relative min-h-screen bg-slate-50 font-sans text-[13px] text-slate-600 antialiased selection:bg-blue-600/15">
       <div className="relative z-10 px-4 pb-28 pt-5 md:px-8">
         {/* ================================================ DASHBOARD ==== */}
         <div className="no-print space-y-6">
           {/* ---------------------------------------------- APP BAR -- */}
           <header className="mx-auto max-w-[1400px]">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-zinc-800/80 pb-4">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-slate-200 pb-4">
               <img src="/stii.png" alt="DOST-STII" className="h-8 w-auto shrink-0" />
 
               <div className="flex min-w-0 items-baseline gap-3">
-                <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100">
+                <h1 className="text-[15px] font-semibold tracking-tight text-slate-800">
                   AV Nexus
                 </h1>
-                <span className="hidden truncate text-[12px] text-zinc-600 sm:block">
+                <span className="hidden truncate text-[12px] text-slate-400 sm:block">
                   Broadcast &amp; Digital Media Section
                 </span>
               </div>
@@ -6579,10 +6800,10 @@ export default function App() {
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setPaletteOpen(true)}
-                  className="flex items-center gap-2 rounded border border-zinc-800 bg-[#101012] px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+                  className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                 >
                   Search
-                  <kbd className="rounded border border-zinc-800 px-1 font-mono text-[10px] text-zinc-600">
+                  <kbd className="rounded border border-slate-200 px-1 font-mono text-[10px] text-slate-400">
                     ⌘K
                   </kbd>
                 </button>
@@ -6591,7 +6812,7 @@ export default function App() {
                   href={PRE_ARCHIVAL_LINK}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded border border-zinc-800 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+                  className="rounded-md border border-slate-200 px-3 py-1.5 text-[12px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                 >
                   Pre-Archival
                 </a>
@@ -6599,13 +6820,13 @@ export default function App() {
                   href={DMC_MONITORING_LINK}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded border border-zinc-800 px-3 py-1.5 text-[12px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+                  className="rounded-md border border-slate-200 px-3 py-1.5 text-[12px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                 >
                   DMC Sheet
                 </a>
 
                 {AUTH_ENABLED && (user || session) ? (
-                  <div className="flex items-center gap-2 rounded border border-zinc-800 bg-[#101012] py-1 pl-1 pr-2.5">
+                  <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white py-1 pl-1 pr-2.5">
                     {user?.picture ? (
                       <img
                         src={user.picture}
@@ -6614,17 +6835,17 @@ export default function App() {
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 text-[11px] text-zinc-300">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[11px] text-slate-600">
                         {(myName || '?').slice(0, 1)}
                       </span>
                     )}
-                    <span className="max-w-[130px] truncate text-[12px] text-zinc-300">
+                    <span className="max-w-[130px] truncate text-[12px] text-slate-600">
                       {myName}
                     </span>
                     <button
                       onClick={signOut}
                       title="Sign out"
-                      className="text-[11px] text-zinc-600 transition-colors hover:text-zinc-300"
+                      className="text-[11px] text-slate-400 transition-colors hover:text-slate-600"
                     >
                       Sign out
                     </button>
@@ -6634,10 +6855,10 @@ export default function App() {
                     value={actor}
                     onChange={(e) => chooseActor(e.target.value)}
                     title="Changes are recorded under this name. Not a security control."
-                    className={`rounded border bg-[#101012] px-2.5 py-1.5 text-[12px] focus:border-[#00aeef] focus:outline-none ${
+                    className={`rounded-md border bg-white px-2.5 py-1.5 text-[12px] focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 ${
                       actor
-                        ? 'border-zinc-800 text-zinc-300'
-                        : 'border-amber-600/50 text-amber-400'
+                        ? 'border-slate-200 text-slate-600'
+                        : 'border-amber-400 text-amber-600'
                     }`}
                   >
                     <option value="">Working as…</option>
@@ -6655,7 +6876,7 @@ export default function App() {
                     fetchProduction();
                   }}
                   title={connMeta.label}
-                  className="flex items-center gap-2 rounded px-2.5 py-1.5 text-[12px] text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
+                  className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-slate-9000 transition-colors hover:bg-slate-100 hover:text-slate-600"
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
                   <span className="font-mono">{refreshing ? 'Syncing' : connMeta.short}</span>
@@ -6666,7 +6887,7 @@ export default function App() {
 
           <main className="mx-auto max-w-[1400px] space-y-9">
             {/* --------------------------------------------- NAV ------- */}
-            <nav className="-mt-6 flex gap-0.5 overflow-x-auto border-b border-zinc-800/80 pb-px custom-scrollbar">
+            <nav className="-mt-6 flex gap-0.5 overflow-x-auto border-b border-slate-200 pb-px custom-scrollbar">
               {VIEWS.map((v) => {
                 const active = view === v.key;
                 const badge =
@@ -6685,15 +6906,15 @@ export default function App() {
                     onClick={() => setView(v.key)}
                     title={v.hint}
                     className={`group relative shrink-0 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
-                      active ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                      active ? 'text-slate-800' : 'text-slate-9000 hover:text-slate-600'
                     }`}
                   >
                     {v.label}
                     {badge > 0 && (
-                      <span className="ml-1.5 font-mono text-[11px] text-zinc-600">{badge}</span>
+                      <span className="ml-1.5 font-mono text-[11px] text-slate-400">{badge}</span>
                     )}
                     {external && (
-                      <span className="ml-1 text-[10px] text-zinc-700" aria-hidden>
+                      <span className="ml-1 text-[10px] text-slate-400" aria-hidden>
                         ·
                       </span>
                     )}
@@ -6701,7 +6922,7 @@ export default function App() {
                       <span className="absolute right-1 top-2 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
                     )}
                     {active && (
-                      <span className="absolute inset-x-0 -bottom-px h-px bg-[#00aeef]" />
+                      <span className="absolute inset-x-0 -bottom-px h-0.5 bg-blue-600 hover:bg-blue-700" />
                     )}
                   </button>
                 );
@@ -6709,14 +6930,14 @@ export default function App() {
             </nav>
 
             {healthChecked && health && health.problems.length > 0 && (
-              <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-4 py-3 text-[12px] leading-relaxed text-amber-200">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-800">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="font-medium">
                     Backend setup needs attention ({health.problems.length})
                   </p>
                   <button
                     onClick={checkHealth}
-                    className="shrink-0 text-[11px] text-amber-300/70 underline transition-colors hover:text-amber-200"
+                    className="shrink-0 text-[11px] text-amber-700 underline transition-colors hover:text-amber-800"
                   >
                     Check again
                   </button>
@@ -6724,7 +6945,7 @@ export default function App() {
                 <ul className="space-y-1.5">
                   {health.problems.map((prob, i) => (
                     <li key={i} className="flex gap-2">
-                      <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
+                      <span className="shrink-0 text-amber-500">{i + 1}.</span>
                       <span className="whitespace-pre-line">{prob}</span>
                     </li>
                   ))}
@@ -6733,33 +6954,33 @@ export default function App() {
             )}
 
             {lastError && (
-              <div className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[12px] leading-relaxed text-red-800">
                 <div className="mb-1 flex items-start justify-between gap-3">
                   <p className="font-medium">{lastError.what} failed</p>
                   <button
                     onClick={() => setLastError(null)}
-                    className="shrink-0 text-[11px] text-red-300/60 underline transition-colors hover:text-red-200"
+                    className="shrink-0 text-[11px] text-red-600 underline transition-colors hover:text-red-800"
                   >
                     Dismiss
                   </button>
                 </div>
-                <p className="font-mono text-[11px] leading-relaxed text-red-200/90">
+                <p className="font-mono text-[11px] leading-relaxed text-red-800">
                   {lastError.detail}
                 </p>
               </div>
             )}
 
             {setupError && (
-              <div className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[12px] leading-relaxed text-red-800">
                 <p className="mb-1 font-medium">Setup incomplete</p>
                 <p>{setupError}</p>
-                <p className="mt-2 text-red-300/70">
+                <p className="mt-2 text-red-600">
                   In Apps Script: Run → <span className="font-mono">authorize()</span>, accept
                   the permission prompt, then Deploy → Manage deployments → New version.
                 </p>
                 <button
                   onClick={() => setSetupError('')}
-                  className="mt-2 text-[11px] text-red-300/60 underline transition-colors hover:text-red-200"
+                  className="mt-2 text-[11px] text-red-600 underline transition-colors hover:text-red-800"
                 >
                   Dismiss
                 </button>
@@ -6767,7 +6988,7 @@ export default function App() {
             )}
 
             {!AUTH_ENABLED && (
-              <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-4 py-2.5 text-[12px] text-amber-300">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[12px] text-amber-700">
                 <span className="font-medium">Attribution mode.</span> Changes are recorded
                 under the selected name, but nothing is enforced — anyone with this link can
                 edit any record. Set{' '}
@@ -6779,7 +7000,7 @@ export default function App() {
             {(conn === 'error' || probes.some((pr) => !pr.ok)) && (
               <div className="space-y-3">
                 {conn === 'error' && (
-                  <p className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-2.5 text-[12px] text-red-200">
+                  <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-[12px] text-red-800">
                     Could not load records — {errMsg}. Showing the last data received.
                   </p>
                 )}
@@ -6801,7 +7022,7 @@ export default function App() {
                     name: 'Tasking System',
                     role: 'AppSheet — DMC transfer and archiving log',
                     url: SYSTEMS.find((x) => x.id === 'tasking')?.url || '',
-                    accent: '#f59e0b',
+                    accent: '#d97706',
                   },
                   {
                     name: 'DMC Monitoring',
@@ -6813,7 +7034,7 @@ export default function App() {
                     name: 'Pre-Archival',
                     role: 'Staging list before DMC transfer',
                     url: PRE_ARCHIVAL_LINK,
-                    accent: '#71717a',
+                    accent: '#64748b',
                   },
                 ].map((tool) => (
                   <a
@@ -6821,7 +7042,7 @@ export default function App() {
                     href={tool.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="group flex items-center justify-between gap-4 rounded-md border border-zinc-800/80 bg-[#101012] px-4 py-3.5 transition-colors hover:border-zinc-700"
+                    className="group flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-4 py-3.5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <span
@@ -6829,11 +7050,11 @@ export default function App() {
                         style={{ background: tool.accent }}
                       />
                       <div className="min-w-0">
-                        <p className="text-[13px] font-medium text-zinc-100">{tool.name}</p>
-                        <p className="truncate text-[11px] text-zinc-600">{tool.role}</p>
+                        <p className="text-[13px] font-medium text-slate-800">{tool.name}</p>
+                        <p className="truncate text-[11px] text-slate-400">{tool.role}</p>
                       </div>
                     </div>
-                    <span className="shrink-0 text-[12px] text-zinc-600 transition-colors group-hover:text-[#00aeef]">
+                    <span className="shrink-0 text-[12px] text-slate-400 transition-colors group-hover:text-blue-600">
                       Open
                     </span>
                   </a>
@@ -6843,7 +7064,7 @@ export default function App() {
 
             {/* -------------------------------------- OPERATIONS PULSE -- */}
             <section>
-              <SectionHead title="OPERATIONS PULSE" hint="Full-year figures from the DMC sheet." />
+              <SectionHead title="Operations pulse" hint="Full-year figures from the DMC sheet." />
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatTile
                   label="Total coverages"
@@ -6856,63 +7077,63 @@ export default function App() {
                   label="DMC cleared"
                   value={stats.counts.transferred + stats.counts.archived}
                   sub="Transferred + archived"
-                  accent="#22c55e"
+                  accent="#16a34a"
                   bar={stats.total ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100 : 0}
                 />
                 <StatTile
                   label="Pending transfer"
                   value={stats.counts.pending}
                   sub="Awaiting upload"
-                  accent="#f59e0b"
+                  accent="#d97706"
                   bar={stats.total ? (stats.counts.pending / stats.total) * 100 : 0}
                 />
                 <StatTile
                   label="This month"
                   value={stats.thisMonth}
                   sub={new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}
-                  accent="#ef4444"
+                  accent="#dc2626"
                   bar={stats.total ? (stats.thisMonth / Math.max(1, stats.total)) * 100 : 0}
                 />
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                     DMC status mix
                   </p>
                   <StatusDonut counts={stats.counts} total={stats.total} />
                 </div>
-                <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                     Deployment load
                   </p>
                   <WorkloadBars data={workload} />
-                  <div className="mt-4 flex gap-4 border-t border-zinc-900 pt-3">
-                    <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
-                      <span className="h-1.5 w-3 rounded-full bg-[#00aeef]" />
+                  <div className="mt-4 flex gap-4 border-t border-slate-200 pt-3">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
+                      <span className="h-1.5 w-3 rounded-full bg-blue-600 hover:bg-blue-700" />
                       Field coverage (DMC)
                     </span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
                       <span className="h-1.5 w-3 rounded-full bg-amber-400" />
                       Video output
                     </span>
                   </div>
                 </div>
-                <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+                <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                     Up next
                   </p>
                   <div className="space-y-3">
                     {upNext.map((c, i) => (
-                      <div key={i} className="border-l-2 border-red-500/60 pl-3">
-                        <p className="line-clamp-2 text-xs leading-snug text-zinc-300">{c.details}</p>
-                        <p className="mt-1 font-mono text-[10px] text-zinc-600">
+                      <div key={i} className="border-l-2 border-red-400 pl-3">
+                        <p className="line-clamp-2 text-xs leading-snug text-slate-600">{c.details}</p>
+                        <p className="mt-1 font-mono text-[10px] text-slate-400">
                           {fmtDate(c.dateObj)} {relativeDay(c.dateObj) && `· ${relativeDay(c.dateObj)}`}
                         </p>
                       </div>
                     ))}
                     {upNext.length === 0 && (
-                      <p className="text-xs italic text-zinc-600">
+                      <p className="text-xs italic text-slate-400">
                         Nothing scheduled.
                       </p>
                     )}
@@ -6920,8 +7141,8 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="mt-4 rounded-md border border-zinc-800/80 bg-[#101012] p-5">
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+              <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                   Coverage density · last 26 weeks
                 </p>
                 <ActivityGrid coverages={coverages} />
@@ -6930,7 +7151,7 @@ export default function App() {
 
             {/* --------------------------------------- AV TEAM STATUS --- */}
             <section>
-              <SectionHead title="AV TEAM STATUS" hint="Select a card to view the full deployment history." />
+              <SectionHead title="AV team status" hint="Select a card to view the full deployment history." />
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {TEAM.map((member) => {
                   const act = latestActivityFor(member.name, coverages, outputs);
@@ -6939,36 +7160,36 @@ export default function App() {
                     <button
                       key={member.name}
                       onClick={() => setDrawerPerson(member)}
-                      className="group relative cursor-pointer overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012] p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-[#00aeef]/50 hover:bg-[#101012]"
+                      className="group relative cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-md"
                     >
                       <div className="mb-4 flex items-center gap-4">
-                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-zinc-800 transition-colors duration-300 group-hover:border-[#00aeef]">
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-slate-200 transition-colors duration-300 group-hover:border-blue-500">
                           <img
                             src={member.image}
                             alt={member.name}
-                            className="h-full w-full transform object-cover transition-transform duration-500 group-hover:scale-125"
+                            className="h-full w-full transform object-cover transition-transform duration-500 group-hover:scale-110"
                           />
                         </div>
                         <div className="flex flex-1 items-center justify-between">
                           <div>
-                            <h3 className="text-xl font-black uppercase tracking-wider text-white">
+                            <h3 className="text-lg font-semibold tracking-tight text-slate-900">
                               {member.name}
                             </h3>
-                            <p className="font-mono text-[10px] text-zinc-600">
+                            <p className="font-mono text-[10px] text-slate-400">
                               {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                             </p>
                           </div>
                           {act ? (
-                            <span className="h-1.5 w-1.5 rounded-full bg-[#00aeef]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-blue-600 hover:bg-blue-700" />
                           ) : (
-                            <span className="h-3 w-3 rounded-full bg-zinc-800" />
+                            <span className="h-3 w-3 rounded-full bg-slate-100" />
                           )}
                         </div>
                       </div>
                       {act ? (
                         <div className="relative z-10">
                           <p
-                            className="mb-3 line-clamp-2 text-sm leading-relaxed text-zinc-300"
+                            className="mb-3 line-clamp-2 text-sm leading-relaxed text-slate-600"
                             title={act.kind === 'coverage' ? act.cov.details : act.out.title}
                           >
                             {act.kind === 'coverage' ? act.cov.details : act.out.title}
@@ -6979,13 +7200,13 @@ export default function App() {
                             ) : (
                               <StageBadge stage={act.out.stage} />
                             )}
-                            <span className="font-mono text-[10px] text-zinc-500">
+                            <span className="font-mono text-[10px] text-slate-9000">
                               {fmtDate(act.when)}
                             </span>
                           </div>
                         </div>
                       ) : (
-                        <p className="mt-6 text-xs italic text-zinc-600">Standby — no active deployment.</p>
+                        <p className="mt-6 text-xs italic text-slate-400">Standby — no active deployment.</p>
                       )}
                     </button>
                   );
@@ -7001,7 +7222,7 @@ export default function App() {
             {/* ------------------------------------ PRODUCTION BOARD ---- */}
             <section ref={boardRef}>
               <SectionHead
-                title="PRODUCTION BOARD"
+                title="Production board"
                 hint="Video outputs that do not pass through DMC — shoot, edit and post-production."
                 right={
                   <div className="flex items-center gap-2">
@@ -7012,8 +7233,8 @@ export default function App() {
                           onClick={() => setProdPerson(n)}
                           className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                             prodPerson === n
-                              ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
-                              : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                              ? 'border-blue-300 bg-blue-50 text-blue-600'
+                              : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                           }`}
                         >
                           {n === 'ALL' ? 'Lahat' : n}
@@ -7022,7 +7243,7 @@ export default function App() {
                     </div>
                     <button
                       onClick={() => setLogOpen(true)}
-                      className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                      className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
                     >
                       + Log output
                     </button>
@@ -7031,15 +7252,15 @@ export default function App() {
               />
 
               {prodReady === 'missing' ? (
-                <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
-                  <p className="mb-2 text-sm font-bold text-white">Production Log is not set up yet</p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+                  <p className="mb-2 text-sm font-bold text-slate-900">Production Log is not set up yet</p>
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                     In the AV Production Log spreadsheet, open Extensions → Apps Script, paste{' '}
-                    <span className="font-mono text-zinc-300">AVNexus.gs</span>, run{' '}
-                    <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                    <span className="font-mono text-[#00aeef]">quickSetup()</span>, redeploy the web
+                    <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
+                    <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                    <span className="font-mono text-blue-600">quickSetup()</span>, redeploy the web
                     app, and put the /exec URL in{' '}
-                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span>. The DMC and
+                    <span className="font-mono text-blue-600">PROD_SCRIPT_URL</span>. The DMC and
                     AppSheet spreadsheet is not touched.
                   </p>
                 </div>
@@ -7057,14 +7278,14 @@ export default function App() {
                       label="In progress"
                       value={prodSummary.live}
                       sub="Still in progress"
-                      accent="#f59e0b"
+                      accent="#d97706"
                       bar={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
                     />
                     <StatTile
-                      label="Delivered"
+                      label="Served"
                       value={prodSummary.done}
                       sub={`Total runtime ${fmtRuntime(prodSummary.seconds)}`}
-                      accent="#22c55e"
+                      accent="#16a34a"
                       bar={prodSummary.total ? (prodSummary.done / prodSummary.total) * 100 : 0}
                     />
                     <StatTile
@@ -7075,20 +7296,20 @@ export default function App() {
                           ? 'No target dates set'
                           : `${prodSummary.onTime}% on-time delivery`
                       }
-                      accent="#ef4444"
+                      accent="#dc2626"
                       bar={prodSummary.total ? (prodSummary.overdue / prodSummary.total) * 100 : 0}
                     />
                   </div>
 
                   {outputs.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-10 text-center">
-                      <p className="mb-1 text-sm text-zinc-300">No outputs logged yet.</p>
-                      <p className="mb-4 text-xs text-zinc-600">
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-10 text-center">
+                      <p className="mb-1 text-sm text-slate-600">No outputs logged yet.</p>
+                      <p className="mb-4 text-xs text-slate-400">
                         Simulan sina Marx at Reiner — kahit shoot day lang, bilang 'yon.
                       </p>
                       <button
                         onClick={() => setLogOpen(true)}
-                        className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black hover:opacity-85"
+                        className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                       >
                         Log the first output
                       </button>
@@ -7100,8 +7321,8 @@ export default function App() {
                         onAdvance={advanceStage}
                         busyId={busyId}
                       />
-                      <div className="mt-4 rounded-md border border-zinc-800/80 bg-[#101012] p-5">
-                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500">
+                      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                           Output scoreboard · quantity, timeliness, revisions
                         </p>
                         <ProductionScoreboard
@@ -7124,21 +7345,21 @@ export default function App() {
             <div ref={recordsRef} className="grid grid-cols-1 gap-8 lg:grid-cols-3">
               <section className="lg:col-span-2">
                 <SectionHead
-                  title="COVERAGE RECORDS"
+                  title="Coverage records"
                   hint={`${filteredRecords.length} of ${coverages.length} records match.`}
                 />
 
-                <div className="mb-4 space-y-3 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
-                  <div className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2">
-                    <span className="text-zinc-600">⌕</span>
+                <div className="mb-4 space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
+                    <span className="text-slate-400">⌕</span>
                     <input
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Search coverage, personnel or status…"
-                      className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
+                      className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     {query && (
-                      <button onClick={() => setQuery('')} className="text-xs text-zinc-500 hover:text-white">
+                      <button onClick={() => setQuery('')} className="text-xs text-slate-9000 hover:text-slate-900">
                         ✕
                       </button>
                     )}
@@ -7150,22 +7371,22 @@ export default function App() {
                         onClick={() => setFilterPerson(p)}
                         className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                           filterPerson === p
-                            ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
-                            : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                            ? 'border-blue-300 bg-blue-50 text-blue-600'
+                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                         }`}
                       >
                         {p === 'ALL' ? 'All personnel' : p}
                       </button>
                     ))}
-                    <span className="mx-1 w-px bg-zinc-800" />
+                    <span className="mx-1 w-px bg-slate-100" />
                     {(['ALL', ...STATUS_ORDER] as const).map((s) => (
                       <button
                         key={s}
                         onClick={() => setFilterStatus(s as 'ALL' | StatusKey)}
                         className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                           filterStatus === s
-                            ? 'border-red-500/50 bg-red-500/10 text-red-400'
-                            : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                            ? 'border-red-300 bg-red-100 text-red-600'
+                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                         }`}
                       >
                         {s === 'ALL' ? 'All status' : STATUS_META[s as StatusKey].label}
@@ -7179,7 +7400,7 @@ export default function App() {
                     [0, 1, 2].map((i) => (
                       <div
                         key={i}
-                        className="h-28 animate-pulse rounded-lg border border-zinc-800 bg-[#101012]"
+                        className="h-28 animate-pulse rounded-lg border border-slate-200 bg-white"
                       />
                     ))}
 
@@ -7187,22 +7408,22 @@ export default function App() {
                     filteredRecords.slice(0, visibleCount).map((cov, idx) => (
                       <div
                         key={idx}
-                        className="flex flex-col justify-between gap-4 rounded-md border border-zinc-800/80 bg-[#101012] p-5 transition-colors hover:border-zinc-700 hover:bg-[#101012] md:flex-row"
+                        className="flex flex-col justify-between gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md md:flex-row"
                       >
                         <div className="min-w-0 flex-1">
-                          <h3 className="mb-2 text-base font-bold leading-snug text-zinc-100">
+                          <h3 className="mb-2 text-base font-semibold leading-snug tracking-tight text-slate-800">
                             {cov.details || 'Untitled coverage'}
                           </h3>
-                          <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-xs text-zinc-400">
-                            <span className="rounded bg-zinc-800 px-2 py-0.5 font-bold uppercase tracking-wider text-zinc-200">
+                          <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-xs text-slate-500">
+                            <span className="rounded bg-slate-100 px-2 py-0.5 font-bold uppercase tracking-wider text-slate-700">
                               {cov.personnel}
                             </span>
-                            <span className="text-zinc-600">•</span>
+                            <span className="text-slate-400">•</span>
                             <span>{fmtDate(cov.dateObj, cov.date)}</span>
                             {relativeDay(cov.dateObj) && (
                               <>
-                                <span className="text-zinc-600">•</span>
-                                <span className="text-zinc-500">{relativeDay(cov.dateObj)}</span>
+                                <span className="text-slate-400">•</span>
+                                <span className="text-slate-9000">{relativeDay(cov.dateObj)}</span>
                               </>
                             )}
                           </div>
@@ -7212,7 +7433,7 @@ export default function App() {
                                 href={cov.gdrive}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] transition-colors hover:text-white"
+                                className="flex items-center gap-1 text-xs font-medium text-blue-600 transition-colors hover:text-slate-900"
                               >
                                 Drive
                               </a>
@@ -7222,7 +7443,7 @@ export default function App() {
                                 href={cov.socialMediaLink}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] transition-colors hover:text-white"
+                                className="flex items-center gap-1 text-xs font-medium text-blue-600 transition-colors hover:text-slate-900"
                               >
                                 Social
                               </a>
@@ -7234,7 +7455,7 @@ export default function App() {
                                 );
                                 toast('Copied to clipboard', 'ok');
                               }}
-                              className="text-xs text-zinc-600 transition-colors hover:text-zinc-300"
+                              className="text-xs text-slate-400 transition-colors hover:text-slate-600"
                             >
                               ⧉ Copy line
                             </button>
@@ -7247,15 +7468,15 @@ export default function App() {
                     ))}
 
                   {booted && filteredRecords.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-zinc-800 p-10 text-center">
-                      <p className="text-sm text-zinc-400">No matching records.</p>
+                    <div className="rounded-lg border border-dashed border-slate-300 p-10 text-center">
+                      <p className="text-sm text-slate-500">No matching records.</p>
                       <button
                         onClick={() => {
                           setQuery('');
                           setFilterPerson('ALL');
                           setFilterStatus('ALL');
                         }}
-                        className="mt-3 text-xs font-bold text-[#00aeef] hover:underline"
+                        className="mt-3 text-xs font-bold text-blue-600 hover:underline"
                       >
                         Clear filters
                       </button>
@@ -7265,7 +7486,7 @@ export default function App() {
                   {filteredRecords.length > visibleCount && (
                     <button
                       onClick={() => setVisibleCount((v) => v + 12)}
-                      className="w-full rounded-lg border border-zinc-800 py-3 text-xs font-bold uppercase tracking-[0.1em] text-zinc-400 transition-colors hover:border-[#00aeef]/40 hover:text-[#00aeef]"
+                      className="w-full rounded-lg border border-slate-200 py-3 text-xs font-bold uppercase tracking-[0.1em] text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-600"
                     >
                       Show 12 more · {filteredRecords.length - visibleCount} remaining
                     </button>
@@ -7275,8 +7496,8 @@ export default function App() {
 
               <section className="space-y-8 lg:col-span-1">
                 <div>
-                  <SectionHead title="AV CALENDAR" />
-                  <div className="group relative h-[450px] overflow-hidden rounded-md border border-zinc-800/80 bg-[#101012]">
+                  <SectionHead title="AV calendar" />
+                  <div className="group relative h-[450px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                     <iframe
                       src={CAL_EMBED}
                       style={{ border: 0 }}
@@ -7284,25 +7505,25 @@ export default function App() {
                       height="100%"
                       frameBorder="0"
                       scrolling="no"
-                      className="absolute inset-0 opacity-80 transition-opacity hover:opacity-100"
+                      className="absolute inset-0"
                       title="AV Calendar"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <SectionHead title="SHORTCUTS" />
-                  <div className="space-y-2 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
+                  <SectionHead title="Shortcuts" />
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
                     {[
                       ['⌘K / Ctrl K', 'Jump to anything'],
                       ['/', 'Open search'],
                       ['ESC', 'Close the current panel'],
                     ].map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between gap-3">
-                        <kbd className="rounded border border-zinc-800 bg-black/60 px-2 py-1 font-mono text-[10px] text-zinc-400">
+                        <kbd className="rounded border border-slate-200 bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">
                           {k}
                         </kbd>
-                        <span className="text-xs text-zinc-500">{v}</span>
+                        <span className="text-xs text-slate-9000">{v}</span>
                       </div>
                     ))}
                   </div>
@@ -7318,12 +7539,12 @@ export default function App() {
               <>
                 <section>
                   <SectionHead
-                    title="EVENT MONITORING"
-                    hint="For every event: what was requested, what was approved, and what was actually delivered."
+                    title="Event monitoring"
+                    hint="For every event: what was requested, what was approved, and what was actually served."
                     right={
                       <button
                         onClick={() => setEvModal({ open: true, editing: null })}
-                        className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                        className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
                       >
                         + New event
                       </button>
@@ -7331,16 +7552,16 @@ export default function App() {
                   />
 
                   {prodReady === 'missing' ? (
-                    <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
-                      <p className="mb-2 text-sm font-bold text-white">
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+                      <p className="mb-2 text-sm font-bold text-slate-900">
                         Events sheet is not connected
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
-                        paste <span className="font-mono text-zinc-300">AVNexus.gs</span>, fill in
+                        paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
-                        <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                        <span className="font-mono text-[#00aeef]">quickSetup()</span>, then
+                        <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                        <span className="font-mono text-blue-600">quickSetup()</span>, then
                         Deploy → Manage deployments → New version.
                       </p>
                     </div>
@@ -7349,12 +7570,12 @@ export default function App() {
                       <EventSummary events={events} />
 
                       {approvalQueue.length > 0 && (
-                        <div className="mt-4 rounded-xl border border-amber-900/50 bg-amber-950/20 p-4">
+                        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
                           <div className="mb-3 flex items-center justify-between">
-                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-400">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">
                               Awaiting action · {approvalQueue.length}
                             </p>
-                            <span className="font-mono text-[10px] text-zinc-500">
+                            <span className="font-mono text-[10px] text-slate-9000">
                               Division Chief → Supervising SRS
                             </span>
                           </div>
@@ -7362,16 +7583,19 @@ export default function App() {
                             {approvalQueue.slice(0, 5).map((ev) => (
                               <div
                                 key={ev.id}
-                                className="flex items-center justify-between gap-3 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2"
+                                className="flex items-center justify-between gap-3 rounded-md border border-slate-300 bg-white px-3 py-2"
                               >
                                 <button
                                   onClick={() => setEvModal({ open: true, editing: ev })}
                                   className="min-w-0 flex-1 text-left"
                                 >
-                                  <p className="truncate text-xs font-semibold text-zinc-100">
-                                    {ev.title}
-                                  </p>
-                                  <p className="truncate font-mono text-[10px] text-zinc-600">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="truncate text-xs font-semibold text-slate-800">
+                                      {ev.title}
+                                    </p>
+                                    <PriorityBadge priority={ev.priority} dense />
+                                  </div>
+                                  <p className="truncate font-mono text-[10px] text-slate-400">
                                     {ev.client || '—'} ·{' '}
                                     {ev.requested.length} services requested
                                   </p>
@@ -7381,9 +7605,9 @@ export default function App() {
                                   <button
                                     onClick={() => notifyApprover(ev.id)}
                                     title="Resend approval email"
-                                    className="rounded border border-zinc-800 px-2 py-1 text-[10px] text-zinc-500 transition-colors hover:border-[#00aeef]/50 hover:text-[#00aeef]"
+                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
                                   >
-                                    
+                                    Email
                                   </button>
                                 </div>
                               </div>
@@ -7392,19 +7616,19 @@ export default function App() {
                         </div>
                       )}
 
-                      <div className="mb-4 mt-4 space-y-3 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
-                        <div className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2">
-                          <span className="text-zinc-600">⌕</span>
+                      <div className="mb-4 mt-4 space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
+                          <span className="text-slate-400">⌕</span>
                           <input
                             value={evQuery}
                             onChange={(e) => setEvQuery(e.target.value)}
                             placeholder="Search events, clients, personnel, venue or service…"
-                            className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
+                            className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                           />
                           {evQuery && (
                             <button
                               onClick={() => setEvQuery('')}
-                              className="text-xs text-zinc-500 hover:text-white"
+                              className="text-xs text-slate-9000 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -7417,40 +7641,54 @@ export default function App() {
                               onClick={() => setEvApproval(k as 'ALL' | ApprovalKey)}
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evApproval === k
-                                  ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
-                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All approval' : APPROVAL_META[k as ApprovalKey].label}
                             </button>
                           ))}
-                          <span className="mx-1 w-px bg-zinc-800" />
+                          <span className="mx-1 w-px bg-slate-100" />
                           {(['ALL', 'full', 'partial', 'none', 'declined'] as const).map((k) => (
                             <button
                               key={k}
                               onClick={() => setEvFulfil(k as 'ALL' | Fulfilment)}
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evFulfil === k
-                                  ? 'border-red-500/50 bg-red-500/10 text-red-400'
-                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                  ? 'border-red-300 bg-red-100 text-red-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All service' : FULFIL_META[k as Fulfilment].label}
+                            </button>
+                          ))}
+                          <span className="mx-1 w-px bg-slate-100" />
+                          {(['ALL', ...PRIORITY_ORDER] as const).map((k) => (
+                            <button
+                              key={k}
+                              onClick={() => setEvPriority(k as 'ALL' | PriorityKey)}
+                              className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                evPriority === k
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              }`}
+                            >
+                              {k === 'ALL' ? 'All priority' : `${k} priority`}
                             </button>
                           ))}
                         </div>
                       </div>
 
                       {filteredEvents.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-zinc-800 p-10 text-center">
-                          <p className="mb-1 text-sm text-zinc-300">No matching events.</p>
-                          <p className="mb-4 text-xs text-zinc-600">
+                        <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center">
+                          <p className="mb-1 text-sm text-slate-600">No matching events.</p>
+                          <p className="mb-4 text-xs text-slate-400">
                             Dito nagsisimula ang lahat — gumawa ng event para masimulan ang
                             approval at tasking.
                           </p>
                           <button
                             onClick={() => setEvModal({ open: true, editing: null })}
-                            className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black hover:opacity-85"
+                            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                           >
                             Create the first event
                           </button>
@@ -7490,12 +7728,12 @@ export default function App() {
               <>
                 <section>
                   <SectionHead
-                    title="REQUEST REGISTER"
+                    title="Request register"
                     hint="ISO master record — every request received, with its outcome and reason."
                     right={
                       <button
                         onClick={() => setReqModal({ open: true, editing: null })}
-                        className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                        className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
                       >
                         + Log request
                       </button>
@@ -7503,34 +7741,34 @@ export default function App() {
                   />
 
                   {prodReady === 'missing' ? (
-                    <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
-                      <p className="mb-2 text-sm font-bold text-white">
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+                      <p className="mb-2 text-sm font-bold text-slate-900">
                         Request Register is not set up
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
-                        paste <span className="font-mono text-zinc-300">AVNexus.gs</span>, fill in
+                        paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
-                        <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                        <span className="font-mono text-[#00aeef]">quickSetup()</span>, then
+                        <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                        <span className="font-mono text-blue-600">quickSetup()</span>, then
                         Deploy → Manage deployments → New version.
                       </p>
                     </div>
                   ) : (
                     <>
-                      <div className="mb-4 space-y-3 rounded-md border border-zinc-800/80 bg-[#101012] p-4">
-                        <div className="flex items-center gap-2 rounded-md border border-zinc-800/80 bg-[#0c0c0e] px-3 py-2">
-                          <span className="text-zinc-600">⌕</span>
+                      <div className="mb-4 space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
+                          <span className="text-slate-400">⌕</span>
                           <input
                             value={reqQuery}
                             onChange={(e) => setReqQuery(e.target.value)}
                             placeholder="Search requests, clients, personnel or service type…"
-                            className="flex-1 bg-transparent text-sm text-white placeholder:text-zinc-600 focus:outline-none"
+                            className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                           />
                           {reqQuery && (
                             <button
                               onClick={() => setReqQuery('')}
-                              className="text-xs text-zinc-500 hover:text-white"
+                              className="text-xs text-slate-9000 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -7543,8 +7781,8 @@ export default function App() {
                               onClick={() => setReqStatusFilter(k as 'ALL' | ReqStatus)}
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 reqStatusFilter === k
-                                  ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
-                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL'
@@ -7552,15 +7790,15 @@ export default function App() {
                                 : `${REQ_META[k as ReqStatus].label} ${reqCounts[k as ReqStatus] || 0}`}
                             </button>
                           ))}
-                          <span className="mx-1 w-px bg-zinc-800" />
+                          <span className="mx-1 w-px bg-slate-100" />
                           {(['ALL', 'coverage', 'production'] as const).map((k) => (
                             <button
                               key={k}
                               onClick={() => setReqStreamFilter(k as 'ALL' | Stream)}
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 reqStreamFilter === k
-                                  ? 'border-red-500/50 bg-red-500/10 text-red-400'
-                                  : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+                                  ? 'border-red-300 bg-red-100 text-red-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All streams' : STREAM_META[k as Stream].short}
@@ -7579,10 +7817,10 @@ export default function App() {
 
                 <section>
                   <SectionHead
-                    title="UNMET REQUESTS LOG"
+                    title="Unmet requests log"
                     hint="Audit Item 40 — outcome and justification for every unserved request."
                   />
-                  <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                  <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                     <UnmetRequestsLog requests={requests} />
                   </div>
                 </section>
@@ -7593,19 +7831,19 @@ export default function App() {
             {view === 'compliance' && prodReady === 'missing' && events.length === 0 && (
               <section>
                 <SectionHead
-                  title="COMPLIANCE"
+                  title="Compliance"
                   hint="Audit Items 40, 41 and 44 — awaiting a connection to the register."
                 />
-                <div className="rounded-md border border-dashed border-zinc-800 bg-[#101012] p-8 text-center">
-                  <p className="mb-2 text-sm font-bold text-white">
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
+                  <p className="mb-2 text-sm font-bold text-slate-900">
                     Register is not connected
                   </p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-zinc-500">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                     No compliance data can be shown until requests are recorded. Paste{' '}
-                    <span className="font-mono text-zinc-300">AVNexus.gs</span>, run{' '}
-                    <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                    <span className="font-mono text-[#00aeef]">quickSetup()</span>, redeploy, and set{' '}
-                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span>.
+                    <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
+                    <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                    <span className="font-mono text-blue-600">quickSetup()</span>, redeploy, and set{' '}
+                    <span className="font-mono text-blue-600">PROD_SCRIPT_URL</span>.
                   </p>
                 </div>
               </section>
@@ -7615,19 +7853,19 @@ export default function App() {
               <>
                 <section>
                   <SectionHead
-                    title="SERVICE PERFORMANCE KPI"
+                    title="Service performance KPI"
                     hint="PM-CRPD-AV-08-04 Rev 7, section 2 — Expected Outputs."
                   />
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-6">
+                    <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
                       <KPIRing
                         value={kpi.execution}
                         target={KPI_EXECUTION_TARGET}
                         label="Requests executed"
-                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests delivered to the client.`}
+                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests served to the client.`}
                       />
                     </div>
-                    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-6">
+                    <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
                       <KPIRing
                         value={kpi.csm}
                         target={KPI_CSM_TARGET}
@@ -7640,10 +7878,10 @@ export default function App() {
 
                 <section>
                   <SectionHead
-                    title="SERVICE GAP ANALYSIS"
-                    hint="Audit Item 44 — every service requested against what was actually delivered."
+                    title="Service gap analysis"
+                    hint="Audit Item 44 — every service requested against what was actually served."
                   />
-                  <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                  <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                     <ServiceGapPanel events={events} />
                   </div>
                 </section>
@@ -7651,10 +7889,10 @@ export default function App() {
                 {requests.length > 0 && (
                   <section>
                     <SectionHead
-                      title="DEMAND VS CAPACITY"
+                      title="Demand vs capacity"
                       hint="Monthly demand against services rendered."
                     />
-                    <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                       <DemandCapacityPanel requests={requests} />
                     </div>
                   </section>
@@ -7662,13 +7900,13 @@ export default function App() {
 
                 <section>
                   <SectionHead
-                    title="WORKLOAD BY ROLE"
+                    title="Workload by role"
                     hint="Audit Item 41 — true workload: every role counted separately."
                   />
-                  <div className="overflow-x-auto rounded-md border border-zinc-800/80 bg-[#101012] custom-scrollbar">
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm custom-scrollbar">
                     <table className="w-full min-w-[640px] text-left">
                       <thead>
-                        <tr className="border-b border-zinc-800/80 text-[11px] text-zinc-600">
+                        <tr className="border-b border-slate-200 text-[11px] text-slate-400">
                           <th className="px-4 py-2.5 font-medium">Personnel</th>
                           <th className="px-4 py-2.5 text-right font-medium">Events</th>
                           <th className="px-4 py-2.5 text-right font-medium">Roles filled</th>
@@ -7678,20 +7916,20 @@ export default function App() {
                       </thead>
                       <tbody>
                         {roleLoad.map((r) => (
-                          <tr key={r.name} className="border-b border-zinc-900 last:border-0">
-                            <td className="px-4 py-3 text-[13px] font-medium text-zinc-200">
+                          <tr key={r.name} className="border-b border-slate-200 last:border-0">
+                            <td className="px-4 py-3 text-[13px] font-medium text-slate-700">
                               {r.name}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-zinc-300 tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-600 tabular-nums">
                               {r.events}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-zinc-50 tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
                               {r.roleCount}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-zinc-500 tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-9000 tabular-nums">
                               {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
                             </td>
-                            <td className="px-4 py-3 text-[12px] text-zinc-500">
+                            <td className="px-4 py-3 text-[12px] text-slate-9000">
                               {r.top.length
                                 ? r.top.map(([role, n]) => `${role} (${n})`).join(', ')
                                 : '—'}
@@ -7701,29 +7939,29 @@ export default function App() {
                       </tbody>
                     </table>
                     {roleLoad.every((r) => r.roleCount === 0) && (
-                      <p className="px-4 py-6 text-center text-[12px] text-zinc-600">
+                      <p className="px-4 py-6 text-center text-[12px] text-slate-400">
                         No crew assignments recorded yet. Add them inside an event.
                       </p>
                     )}
                   </div>
-                  <p className="mt-2 text-[11px] text-zinc-600">
+                  <p className="mt-2 text-[11px] text-slate-400">
                     An average above 1.0 means one person is holding several roles at once — direct evidence of a personnel shortfall.
                   </p>
                 </section>
 
                 <section>
                   <SectionHead
-                    title="TURNAROUND TIME MONITOR"
-                    hint="Audit Item 41 — actual processing time against the standard, in working days."
+                    title="Turnaround time monitor"
+                    hint="Audit Item 41 — actual processing time from the date of receipt, in working days."
                   />
-                  <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-5">
+                  <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                     <SLAMonitor requests={isoRequests} />
                   </div>
                 </section>
 
                 <section>
                   <SectionHead
-                    title="AUDIT READINESS"
+                    title="Audit readiness"
                     hint="Each finding shown with live evidence from the register."
                   />
                   <ComplianceScorecard requests={isoRequests} kpi={kpi} events={events} />
@@ -7734,14 +7972,14 @@ export default function App() {
             {view === 'reports' && (
             <>
             {/* ------------------------------------ IPCR GENERATOR ------ */}
-            <section ref={ipcrRef} className="border-t border-zinc-800 pt-10">
-              <div className="rounded-md border border-zinc-800/80 bg-[#101012] p-6">
+            <section ref={ipcrRef} className="border-t border-slate-200 pt-10">
+              <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
                   <div>
-                    <h2 className="text-lg font-bold uppercase tracking-wide text-white">
-                      IPCR / MOV Report Generator
+                    <h2 className="text-lg font-semibold tracking-tight text-slate-900">
+                      IPCR / MOV report generator
                     </h2>
-                    <p className="text-xs text-zinc-400">
+                    <p className="text-xs text-slate-500">
                       Select a name and year, then print or export for the IPCR/SPMS attachment.
                     </p>
                   </div>
@@ -7749,7 +7987,7 @@ export default function App() {
                     <select
                       value={selectedIPCRPersonnel}
                       onChange={(e) => setSelectedIPCRPersonnel(e.target.value)}
-                      className="rounded border border-zinc-800 bg-[#0c0c0e] px-3 py-1.5 text-[13px] text-zinc-200 focus:border-[#00aeef] focus:outline-none"
+                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     >
                       <option value="Xyrus">Xyrus (AVAT IV)</option>
                       <option value="Marx">Marx (SRS II)</option>
@@ -7760,7 +7998,7 @@ export default function App() {
                     <select
                       value={ipcrYear}
                       onChange={(e) => setIpcrYear(e.target.value)}
-                      className="rounded border border-zinc-800 bg-[#0c0c0e] px-3 py-1.5 text-[13px] text-zinc-200 focus:border-[#00aeef] focus:outline-none"
+                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     >
                       <option value="ALL">All years</option>
                       {years.map((y) => (
@@ -7771,13 +8009,13 @@ export default function App() {
                     </select>
                     <button
                       onClick={exportCSV}
-                      className="rounded border border-zinc-800 px-3 py-2 text-[13px] text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+                      className="rounded-md border border-slate-200 px-3 py-2 text-[13px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                     >
                       Export CSV
                     </button>
                     <button
                       onClick={printSheet}
-                      className="flex items-center gap-2 rounded border border-zinc-800 px-4 py-2 text-[13px] font-medium text-zinc-300 transition-colors hover:border-zinc-700 hover:text-zinc-100"
+                      className="flex items-center gap-2 rounded-md border border-slate-200 px-4 py-2 text-[13px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800"
                     >
                       Print / Save as PDF
                     </button>
@@ -7785,57 +8023,57 @@ export default function App() {
                 </div>
 
                 <div className="mb-4 flex flex-wrap items-center gap-4">
-                  <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-400">
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
                     <input
                       type="checkbox"
                       checked={ipcrIncludeLinks}
                       onChange={(e) => setIpcrIncludeLinks(e.target.checked)}
-                      className="accent-[#00aeef]"
+                      className="accent-blue-600"
                     />
                     Include Drive and social links in the printout
                   </label>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-zinc-600">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-400">
                     Control no. {controlNo}
                   </span>
                 </div>
 
-                <div className="custom-scrollbar max-h-[420px] overflow-y-auto rounded-lg border border-zinc-800 bg-black p-5 font-mono text-sm">
-                  <p className="mb-3 border-b border-zinc-800 pb-2 font-bold text-red-500">
-                    PREVIEW — ito ang lalabas sa printed sheet
+                <div className="custom-scrollbar max-h-[420px] overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-5 font-mono text-sm">
+                  <p className="mb-3 border-b border-slate-200 pb-2 font-bold text-red-600">
+                    Preview — ito ang lalabas sa printed sheet
                   </p>
-                  <div className="space-y-1 text-zinc-300">
-                    <p className="text-base font-bold uppercase text-white">
+                  <div className="space-y-1 text-slate-600">
+                    <p className="text-base font-bold uppercase text-slate-900">
                       {OFFICIAL[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel} — TOTAL:{' '}
                       {ipcrRecords.length}{' '}
                       {selectedIPCRPersonnel === 'Lotus' ? 'VERIFIED / CHECKED' : 'COVERAGES CATERED'}
                     </p>
-                    <p className="text-zinc-700">
+                    <p className="text-slate-400">
                       --------------------------------------------------
                     </p>
                     {ipcrRecords.map((cov, idx) => (
                       <p key={idx} className="whitespace-pre-wrap leading-relaxed">
-                        <span className="font-bold text-red-500">{idx + 1}.</span> [
+                        <span className="font-bold text-red-600">{idx + 1}.</span> [
                         {fmtDate(cov.dateObj, cov.date)}] — {cov.details}{' '}
-                        <span className="text-zinc-600">[{cov.status.toUpperCase()}]</span>
+                        <span className="text-slate-400">[{cov.status.toUpperCase()}]</span>
                       </p>
                     ))}
                     {ipcrRecords.length === 0 && (
-                      <p className="italic text-zinc-600">No field coverage for the selected period.</p>
+                      <p className="italic text-slate-400">No field coverage for the selected period.</p>
                     )}
 
                     {ipcrRoles.length > 0 && (
                       <>
-                        <p className="mt-4 text-base font-bold uppercase text-white">
+                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
                           PART D — ROLES PERFORMED: {ipcrRoles.reduce((a, x) => a + x.roles.length, 0)}
                         </p>
-                        <p className="text-zinc-700">
+                        <p className="text-slate-400">
                           --------------------------------------------------
                         </p>
                         {ipcrRoles.map((a, idx) => (
                           <p key={a.id} className="whitespace-pre-wrap leading-relaxed">
-                            <span className="font-bold text-[#00aeef]">{idx + 1}.</span> [
+                            <span className="font-bold text-blue-600">{idx + 1}.</span> [
                             {fmtDate(a.dateCompleted || a.dateAssigned)}] — {a.eventTitle || a.eventId}{' '}
-                            <span className="text-zinc-600">[{a.roles.join(', ') || '—'}]</span>
+                            <span className="text-slate-400">[{a.roles.join(', ') || '—'}]</span>
                           </p>
                         ))}
                       </>
@@ -7843,19 +8081,19 @@ export default function App() {
 
                     {ipcrRequests.length > 0 && (
                       <>
-                        <p className="mt-4 text-base font-bold uppercase text-white">
+                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
                           PART C — SERVICE REQUESTS HANDLED: {ipcrRequests.length}
                         </p>
-                        <p className="text-zinc-700">
+                        <p className="text-slate-400">
                           --------------------------------------------------
                         </p>
                         {ipcrRequests.map((r, idx) => {
                           const tat = actualTAT(r);
                           return (
                             <p key={r.id} className="whitespace-pre-wrap leading-relaxed">
-                              <span className="font-bold text-green-500">{idx + 1}.</span> [
+                              <span className="font-bold text-green-600">{idx + 1}.</span> [
                               {fmtDate(r.dateDelivered || r.dateRequested)}] — {r.title}{' '}
-                              <span className="text-zinc-600">
+                              <span className="text-slate-400">
                                 [{STREAM_META[r.stream].short} ·{' '}
                                 {REQ_META[r.status].label.toUpperCase()}
                                 {tat !== null ? ` · ${tat} WD` : ''}
@@ -7869,17 +8107,17 @@ export default function App() {
 
                     {ipcrOutputs.length > 0 && (
                       <>
-                        <p className="mt-4 text-base font-bold uppercase text-white">
+                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
                           PART B — VIDEO PRODUCTION OUTPUTS: {ipcrOutputs.length}
                         </p>
-                        <p className="text-zinc-700">
+                        <p className="text-slate-400">
                           --------------------------------------------------
                         </p>
                         {ipcrOutputs.map((o, idx) => (
                           <p key={o.id} className="whitespace-pre-wrap leading-relaxed">
-                            <span className="font-bold text-[#00aeef]">{idx + 1}.</span> [
+                            <span className="font-bold text-blue-600">{idx + 1}.</span> [
                             {fmtDate(o.delivered || o.target || o.assigned)}] — {o.title}{' '}
-                            <span className="text-zinc-600">
+                            <span className="text-slate-400">
                               [{o.type}{o.seconds ? ` · ${fmtRuntime(o.seconds)}` : ''} · {o.role} ·{' '}
                               {STAGE_META[o.stage].label.toUpperCase()}]
                             </span>
@@ -7896,7 +8134,7 @@ export default function App() {
             )}
 
             <footer className="pb-8 pt-4 text-center">
-              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-700">
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-slate-400">
                 DOST-STII · CRPD · Broadcast &amp; Digital Media Section
               </p>
             </footer>
@@ -8067,12 +8305,12 @@ export default function App() {
                     <p>
                       {ipcrQQT.onTime === null
                         ? 'No target dates recorded'
-                        : `${ipcrQQT.onTime}% delivered on or before target date`}
+                        : `${ipcrQQT.onTime}% served on or before target date`}
                     </p>
                     {ipcrSLA.onTime !== null && (
                       <p>
                         Requests: {ipcrSLA.onTime}% within SLA
-                        {ipcrSLA.avgTAT !== null && `, avg ${ipcrSLA.avgTAT.toFixed(1)} WD`}
+                        {ipcrSLA.avgTAT !== null && `, avg ${ipcrSLA.avgTAT.toFixed(1)} WD from receipt`}
                       </p>
                     )}
                     {ipcrSLA.csm !== null && (
@@ -8144,7 +8382,8 @@ export default function App() {
                 </tbody>
               </table>
               <p className="mt-1 text-[10px] italic text-gray-600">
-                TAT shown as actual/standard in working days. Standard turnaround per
+                TAT shown as actual/standard in working days, counted from the date the request
+                was received up to the date it was served. Standard turnaround per
                 PM-CRPD-AV-08-04 Rev 7: AV Coverage 3 WDs, AVP Production 13 WDs.
               </p>
             </>
@@ -8231,18 +8470,18 @@ export default function App() {
 
       {/* ------------------------------------------------------- DOCK ---- */}
       <div className="no-print fixed bottom-5 left-1/2 z-[70] -translate-x-1/2">
-        <div className="flex items-center gap-0.5 rounded-lg border border-zinc-800 bg-[#101012] p-1">
+        <div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
           <button
             onClick={() => setPaletteOpen(true)}
             title="Quick jump"
-            className="flex h-9 items-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+            className="flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Search
           </button>
           <button
             onClick={() => setLogOpen(true)}
             title="Log a video output"
-            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Output
           </button>
@@ -8252,7 +8491,7 @@ export default function App() {
               setEvModal({ open: true, editing: null });
             }}
             title="New event request"
-            className="relative flex h-9 items-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+            className="relative flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             New event
             {approvalQueue.length > 0 && (
@@ -8262,14 +8501,14 @@ export default function App() {
           <button
             onClick={() => setKioskOn(true)}
             title="Kiosk mode — for the office monitor"
-            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Kiosk
           </button>
           <button
             onClick={printSheet}
             title="Print IPCR"
-            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Print
           </button>
@@ -8281,12 +8520,12 @@ export default function App() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`animate-slidein rounded-lg border px-4 py-3 text-xs ${
+            className={`animate-slidein rounded-lg border px-4 py-3 text-xs shadow-md ${
               t.tone === 'err'
-                ? 'border-red-900 bg-red-950/80 text-red-200'
+                ? 'border-red-200 bg-red-50 text-red-800'
                 : t.tone === 'new'
-                ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#7fdcff]'
-                : 'border-zinc-800 bg-[#101012] text-zinc-300'
+                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                : 'border-slate-200 bg-white text-slate-600'
             }`}
           >
             {t.text}
@@ -8365,25 +8604,24 @@ export default function App() {
         html { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif; }
         .font-display { font-family: inherit; letter-spacing: -0.01em; }
         .font-mono, code, kbd { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace; }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #232326; border-radius: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #33333a; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
         @keyframes riseup { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
         @keyframes slidein { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
         @keyframes kioskbar { from { width: 0 } to { width: 100% } }
         @keyframes kioskticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
         .kiosk-ticker { animation: kioskticker 45s linear infinite; }
-        .kiosk-cal { filter: invert(0.92) hue-rotate(180deg); }
         .animate-fadein { animation: fadein .2s ease-out }
         .animate-riseup { animation: riseup .18s cubic-bezier(.16,1,.3,1) }
         .animate-slidein { animation: slidein .28s cubic-bezier(.16,1,.3,1) }
         @media (prefers-reduced-motion: reduce) {
           *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
         }
-        :focus-visible { outline: 1px solid ${CYAN}; outline-offset: 2px; }
-        ::selection { background: rgba(0,174,239,0.25); }
+        :focus-visible { outline: 2px solid ${CYAN}; outline-offset: 2px; border-radius: 2px; }
+        ::selection { background: rgba(37,99,235,0.15); }
 
         @media print {
           .no-print { display: none !important; }
