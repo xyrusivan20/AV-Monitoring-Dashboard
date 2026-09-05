@@ -6,6 +6,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
    UI: light mode. Slate ground, white panels, DOST blue accent.
    COA: turnaround time is measured from the date the request was RECEIVED.
+   TRIAGE: every request lands in AV evaluation first. The team writes the
+   recommendation, then pushes it to the Division Chief.
    ========================================================================== */
 
 interface Coverage {
@@ -606,13 +608,15 @@ function monthLabel(key: string): string {
    ========================================================================== */
 
 /**
- * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3:
- *   for-approval → Division Chief acts
- *   approved     → cleared by the Division Chief, awaiting endorsement
- *   endorsed     → released to the AV Team by the Supervising SRS
+ * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3, with the
+ * new AV triage step in front:
+ *   for-evaluation → the AV team assesses capacity and writes its advice
+ *   for-approval   → Division Chief acts
+ *   approved       → cleared by the Division Chief, awaiting endorsement
+ *   endorsed       → released to the AV Team by the Supervising SRS
  */
 type ApprovalKey =
-  | 'for-approval' | 'approved' | 'endorsed'
+  | 'for-evaluation' | 'for-approval' | 'approved' | 'endorsed'
   | 'declined' | 'cancelled' | 'rescheduled';
 
 /** Kinakalkula, hindi ini-input. */
@@ -737,13 +741,18 @@ function classifyPriority(raw: unknown): PriorityKey {
 }
 
 const APPROVAL_ORDER: ApprovalKey[] = [
-  'for-approval', 'approved', 'endorsed', 'declined', 'rescheduled', 'cancelled',
+  'for-evaluation', 'for-approval', 'approved', 'endorsed',
+  'declined', 'rescheduled', 'cancelled',
 ];
 
 const APPROVAL_META: Record<
   ApprovalKey,
   { label: string; short: string; hex: string; chip: string; live: boolean }
 > = {
+  'for-evaluation': {
+    label: 'For evaluation', short: 'TRIAGE', hex: '#8b5cf6',
+    chip: 'bg-purple-100 text-purple-800 border-purple-200', live: true,
+  },
   'for-approval': {
     label: 'For approval', short: 'FOR DC', hex: '#94a3b8',
     chip: 'bg-slate-100 text-slate-700 border-slate-200', live: true,
@@ -768,6 +777,21 @@ const APPROVAL_META: Record<
     label: 'Cancelled', short: 'CANCELLED', hex: '#64748b',
     chip: 'bg-slate-100 text-slate-600 border-slate-200', live: false,
   },
+};
+
+/**
+ * Ang eksaktong anyong tinatanggap ng sheet. Hindi sapat ang `.replace()`
+ * sa isang label — dalawa na ang status na nagsisimula sa "For ", at ang
+ * isang maling titik ay sapat para hindi na maipadala ang email.
+ */
+const SERVER_STATUS: Record<ApprovalKey, string> = {
+  'for-evaluation': 'For Evaluation',
+  'for-approval': 'For Approval',
+  approved: 'Approved',
+  endorsed: 'Endorsed',
+  declined: 'Declined',
+  rescheduled: 'Rescheduled',
+  cancelled: 'Cancelled',
 };
 
 const FULFIL_META: Record<
@@ -880,11 +904,21 @@ function awaitingAction(ev: AVEvent): boolean {
   return APPROVAL_META[ev.approval].live && ev.approval !== 'endorsed';
 }
 
+/** Sinong bahay ang may hawak ngayon. Ito ang lumalabas sa card at sa queue. */
+function awaitingWho(ev: AVEvent): string {
+  if (ev.approval === 'for-evaluation') return 'AV Team evaluation';
+  if (ev.approval === 'for-approval') return 'Division Chief';
+  if (ev.approval === 'approved') return 'Supervising SRS';
+  return '';
+}
+
 function classifyApproval(raw: string): ApprovalKey {
   const s = (raw || '').toLowerCase();
   if (s.includes('declin') || s.includes('disapprove') || s.includes('reject')) return 'declined';
   if (s.includes('cancel')) return 'cancelled';
   if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
+  // Bago ang "for approval" — ang "For evaluation" ay nagsisimula rin sa "for".
+  if (s.includes('eval') || s.includes('triage')) return 'for-evaluation';
   // "For approval" must be tested before "approved" — it contains the word.
   if (s.includes('for approval') || s.includes('for endorsement')) return 'for-approval';
   if (s.includes('endorsed')) return 'endorsed';
@@ -1286,7 +1320,7 @@ function SystemFrame({ app }: { app: SystemApp }) {
                   className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200"
                   style={{ borderTopColor: app.accent }}
                 />
-                <p className="font-mono text-[11px] text-slate-9000">Loading {app.name}</p>
+                <p className="font-mono text-[11px] text-slate-500">Loading {app.name}</p>
               </div>
             )}
           </>
@@ -1297,7 +1331,7 @@ function SystemFrame({ app }: { app: SystemApp }) {
             <h3 className="text-[15px] font-medium text-slate-800">
               {app.name} cannot be displayed here
             </h3>
-            <p className="max-w-lg text-[13px] leading-relaxed text-slate-9000">
+            <p className="max-w-lg text-[13px] leading-relaxed text-slate-500">
               The site sends a header that prevents it from being embedded in another
               page. Open it in a new tab instead — or, if you own the site, allow this
               dashboard to frame it (see the note below).
@@ -1372,6 +1406,18 @@ function can(cap: Capability, role: string, createdBy?: string, me?: string): bo
 /** Sinong papel ang pinapayagang bumago ng approval status. */
 function canDecide(role: string): boolean {
   return role === 'dc' || role === 'srs';
+}
+
+/**
+ * AV TRIAGE — habang "For evaluation" pa ang record (o bago pa ito
+ * naitala), ang AV team mismo ang may hawak ng status dropdown. Sila ang
+ * nagsusuri ng kakayahan at sila ang nagtutulak nito sa Division Chief.
+ * Kapareho ito ng ipinapatupad ng server sa authorise_().
+ */
+function canTriage(role: string, existing: AVEvent | null): boolean {
+  if (role !== 'admin' && role !== 'staff') return false;
+  if (!existing) return true;
+  return existing.approval === 'for-evaluation';
 }
 
 /**
@@ -1575,7 +1621,7 @@ function ConnectionPanel({
         <button
           onClick={onRetry}
           disabled={busy}
-          className="text-[11px] text-slate-9000 underline transition-colors hover:text-slate-600 disabled:opacity-50"
+          className="text-[11px] text-slate-500 underline transition-colors hover:text-slate-600 disabled:opacity-50"
         >
           {busy ? 'Testing…' : 'Test again'}
         </button>
@@ -1602,7 +1648,7 @@ function ConnectionPanel({
                 {shortUrl(pr.url)}
               </p>
               {pr.hint && (
-                <p className="mt-1 text-[11px] leading-relaxed text-slate-9000">{pr.hint}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{pr.hint}</p>
               )}
             </div>
           </div>
@@ -1636,7 +1682,7 @@ function SignInGate({
       >
         <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
         <h1 className="text-[17px] font-semibold tracking-tight text-slate-800">AV Nexus</h1>
-        <p className="mt-1 text-[12px] text-slate-9000">Broadcast &amp; Digital Media Section</p>
+        <p className="mt-1 text-[12px] text-slate-500">Broadcast &amp; Digital Media Section</p>
 
         <p className="mt-6 text-[13px] leading-relaxed text-slate-500">
           Sign in with your DOST-STII Google account to continue. Records can only be
@@ -1735,7 +1781,7 @@ function StatTile({
     <div className="rounded-lg border border-slate-200 bg-white px-4 py-3.5 shadow-sm">
       <div className="flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
-        <p className="truncate text-[11px] font-medium text-slate-9000">{label}</p>
+        <p className="truncate text-[11px] font-medium text-slate-500">{label}</p>
       </div>
       <p className="mt-2 font-mono text-[28px] font-medium leading-none text-slate-900 tabular-nums">
         {shown}
@@ -1788,7 +1834,7 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">{shown}%</span>
-          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-9000">
+          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-500">
             cleared
           </span>
         </div>
@@ -1967,9 +2013,9 @@ function OutputCard({
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600">
           {o.personnel || '—'}
         </span>
-        {o.type && <span className="text-[9px] text-slate-9000">{o.type}</span>}
+        {o.type && <span className="text-[9px] text-slate-500">{o.type}</span>}
         {o.seconds > 0 && (
-          <span className="font-mono text-[9px] text-slate-9000">{fmtRuntime(o.seconds)}</span>
+          <span className="font-mono text-[9px] text-slate-500">{fmtRuntime(o.seconds)}</span>
         )}
       </div>
 
@@ -2001,7 +2047,7 @@ function OutputCard({
               onClick={() => onAdvance(o)}
               disabled={busy}
               title={`Move to ${STAGE_META[STAGE_ORDER[STAGE_ORDER.indexOf(o.stage) + 1]].label}`}
-              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-9000 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
+              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-500 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
             >
               {busy ? '…' : '→'}
             </button>
@@ -2151,7 +2197,7 @@ function QuickLogModal({
 
   const field =
     'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-500';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
@@ -2160,11 +2206,11 @@ function QuickLogModal({
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h3 className="text-base font-semibold tracking-tight text-slate-900">Log a video output</h3>
-            <p className="text-[11px] text-slate-9000">
+            <p className="text-[11px] text-slate-500">
               For work that does not pass through DMC — shoot, edit, reel, livestream.
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -2405,7 +2451,7 @@ function KPIRing({
       </div>
       <div className="min-w-0">
         <p className="text-sm font-semibold tracking-tight text-slate-900">{label}</p>
-        <p className="mt-1 text-xs leading-relaxed text-slate-9000">{sub}</p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">{sub}</p>
         <p
           className="mt-2 text-[10px] font-bold uppercase tracking-[0.1em]"
           style={{ color: hex }}
@@ -2560,17 +2606,17 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
       )}
 
       <div className="flex flex-wrap items-center gap-5 border-t border-slate-200 pt-3">
-        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+        <span className="flex items-center gap-2 text-[10px] text-slate-500">
           <span className="h-2 w-4 rounded-sm bg-blue-300" /> Demand (received)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+        <span className="flex items-center gap-2 text-[10px] text-slate-500">
           <span className="h-2 w-4 rounded-sm bg-green-500" /> Capacity (rendered)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+        <span className="flex items-center gap-2 text-[10px] text-slate-500">
           <span className="font-mono font-bold text-red-600">−n</span> Unserved gap
         </span>
         {capacityPct !== null && (
-          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-9000">
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-500">
             Service fulfilment {capacityPct}%
           </span>
         )}
@@ -2643,7 +2689,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                 <p className="font-mono text-4xl font-black leading-none text-slate-900 tabular-nums">
                   {x.avg === null ? '—' : x.avg.toFixed(1)}
                 </p>
-                <p className="pb-1 text-xs text-slate-9000">avg working days from receipt</p>
+                <p className="pb-1 text-xs text-slate-500">avg working days from receipt</p>
               </div>
 
               {/* SLA bar: 100% = SLA limit */}
@@ -2658,14 +2704,14 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                 <div className="absolute inset-y-0 right-0 w-px bg-slate-400" />
               </div>
               <div className="mt-2 flex items-center justify-between text-[10px]">
-                <span className={over ? 'font-bold text-red-600' : 'text-slate-9000'}>
+                <span className={over ? 'font-bold text-red-600' : 'text-slate-500'}>
                   {x.avg === null
                     ? 'Nothing served yet'
                     : over
                     ? `${(x.avg - x.sla).toFixed(1)} WD over standard`
                     : `${(x.sla - x.avg).toFixed(1)} WD within standard`}
                 </span>
-                <span className="font-mono text-slate-9000">
+                <span className="font-mono text-slate-500">
                   {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
                 </span>
               </div>
@@ -2676,7 +2722,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
 
       {(stats.overdue.length > 0 || stats.atRisk.length > 0) && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
             Needs attention · {stats.overdue.length} overdue · {stats.atRisk.length} at risk
           </p>
           <div className="space-y-2">
@@ -2695,7 +2741,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-9000">
+                    <span className="font-mono text-[10px] text-slate-500">
                       {left === null ? '—' : left < 0 ? `${Math.abs(left)} WD over` : `${left} WD left`}
                     </span>
                     <SLABadge state={slaState(r)} />
@@ -2764,7 +2810,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
                   <p className="font-mono text-[10px] text-slate-400">{r.id}</p>
                 </td>
                 <td className="py-3 pr-3 text-slate-500">{r.client || '—'}</td>
-                <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                <td className="py-3 pr-3 font-mono text-[10px] text-slate-500">
                   {fmtDate(r.dateRequested)}
                 </td>
                 <td className="py-3 pr-3">
@@ -2877,7 +2923,7 @@ function ComplianceScorecard({
           <p className="text-sm font-semibold tracking-tight text-slate-900">
             Audit readiness
           </p>
-          <p className="text-[11px] text-slate-9000">
+          <p className="text-[11px] text-slate-500">
             PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025
           </p>
         </div>
@@ -2886,7 +2932,7 @@ function ComplianceScorecard({
             {metCount}
             <span className="text-lg text-slate-400">/{rows.length}</span>
           </p>
-          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">criteria met</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500">criteria met</p>
         </div>
       </div>
 
@@ -2901,7 +2947,7 @@ function ComplianceScorecard({
             }}
           >
             <div className="w-20 shrink-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-slate-9000">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
                 {r.item}
               </p>
               <p
@@ -2989,10 +3035,10 @@ function RequestTable({
                 <td className="p-3 font-mono text-[10px] uppercase text-slate-600">
                   {r.personnel || '—'}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-slate-9000">
+                <td className="p-3 font-mono text-[10px] text-slate-500">
                   {fmtDate(r.dateRequested)}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-slate-9000">
+                <td className="p-3 font-mono text-[10px] text-slate-500">
                   {fmtDate(effectiveTarget(r))}
                 </td>
                 <td className="p-3 font-mono text-[10px] tabular-nums">
@@ -3018,7 +3064,7 @@ function RequestTable({
                 <td className="p-3 text-right">
                   <button
                     onClick={() => onEdit(r)}
-                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
+                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-600"
                   >
                     Update
                   </button>
@@ -3098,7 +3144,7 @@ function RequestModal({
 
   const field =
     'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-500';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[6vh]">
@@ -3109,11 +3155,11 @@ function RequestModal({
             <h3 className="text-base font-semibold tracking-tight text-slate-900">
               {existing ? `Update request · ${existing.id}` : 'Log a service request'}
             </h3>
-            <p className="text-[11px] text-slate-9000">
+            <p className="text-[11px] text-slate-500">
               Request Register — PM-CRPD-AV-08-04 Rev 7 · Form FR-CRPD-AV No. 001
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -3539,6 +3585,7 @@ function EventCard({
   const nextOwners = next ? ownersOfStep(next.key, crew) : [];
   const accent = FULFIL_META[f].hex;
   const high = classifyPriority(ev.priority) === 'High';
+  const triage = ev.approval === 'for-evaluation';
 
   return (
     <div
@@ -3578,10 +3625,21 @@ function EventCard({
           <ServiceLedger ev={ev} compact />
         </div>
 
+        {triage && ev.approvalRemarks && (
+          <div className="mb-3 rounded-md border border-purple-200 bg-purple-50 px-3 py-2">
+            <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-purple-700">
+              AV recommendation
+            </p>
+            <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-purple-900">
+              {ev.approvalRemarks}
+            </p>
+          </div>
+        )}
+
         {crew.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-3">
             {crew.map((a) => (
-              <span key={a.id} className="text-[11px] text-slate-9000">
+              <span key={a.id} className="text-[11px] text-slate-500">
                 <span className="font-medium text-slate-600">{a.personnel}</span>
                 {a.roles.length > 0 && (
                   <span className="text-slate-400"> — {a.roles.join(', ')}</span>
@@ -3602,18 +3660,20 @@ function EventCard({
         </div>
 
         {next && (
-          <p className="mt-2 text-[11px] text-slate-9000">
+          <p className="mt-2 text-[11px] text-slate-500">
             Next: <span className="font-medium text-blue-600">{next.label}</span>
             {nextOwners.length > 0 ? (
-              <span className="text-slate-9000"> · {nextOwners.join(', ')}</span>
+              <span className="text-slate-500"> · {nextOwners.join(', ')}</span>
             ) : (
               <span className="text-amber-600"> · no one assigned to this role</span>
             )}
           </p>
         )}
         {awaitingAction(ev) && (
-          <p className="mt-2 text-[10px] text-amber-600">
-            Awaiting {ev.approval === 'for-approval' ? 'Division Chief' : 'Supervising SRS'}
+          <p className={`mt-2 text-[10px] ${triage ? 'text-purple-600' : 'text-amber-600'}`}>
+            {triage
+              ? 'With the AV Team — assess capacity, then send it to the Division Chief'
+              : `Awaiting ${awaitingWho(ev)}`}
           </p>
         )}
       </div>
@@ -3626,14 +3686,15 @@ function EventCard({
  *
  * COA: bawat outcome ay may sariling tile. Dati, pinagsama ang Declined,
  * Cancelled at Rescheduled sa iisang bilang — kaya hindi masagot ang
- * "ilan ang kinansela?" nang hindi bumubukas ng sheet. Pito ngayon:
- * Total, Approved, Limited service, Cancelled, Rescheduled, Declined,
- * Awaiting action.
+ * "ilan ang kinansela?" nang hindi bumubukas ng sheet. Walo ngayon:
+ * Total, For evaluation, Approved, Limited service, Cancelled,
+ * Rescheduled, Declined, Awaiting action.
  */
 function EventSummary({ events }: { events: AVEvent[] }) {
   const t = useMemo(() => {
     const base = {
       total: events.length,
+      triage: 0,
       approved: 0,
       declined: 0,
       cancelled: 0,
@@ -3645,8 +3706,13 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       gapCount: 0,
       noReason: 0,
       high: 0,
+      noAdvice: 0,
     };
     events.forEach((ev) => {
+      if (ev.approval === 'for-evaluation') {
+        base.triage += 1;
+        if (!ev.approvalRemarks.trim()) base.noAdvice += 1;
+      }
       if (isAuthorised(ev)) base.approved += 1;
       if (ev.approval === 'declined') base.declined += 1;
       if (ev.approval === 'cancelled') base.cancelled += 1;
@@ -3669,6 +3735,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
 
   const tiles = [
     { k: 'Total events', v: t.total, c: '#2563eb', s: 'Requests on record' },
+    { k: 'For evaluation', v: t.triage, c: '#8b5cf6', s: 'With the AV Team' },
     { k: 'Approved', v: t.approved, c: '#16a34a', s: `${t.full} fully served` },
     {
       k: 'Limited service',
@@ -3679,12 +3746,12 @@ function EventSummary({ events }: { events: AVEvent[] }) {
     { k: 'Cancelled', v: t.cancelled, c: '#64748b', s: 'Withdrawn by the client' },
     { k: 'Rescheduled', v: t.rescheduled, c: '#ca8a04', s: 'Moved to another date' },
     { k: 'Declined', v: t.declined, c: '#dc2626', s: 'Not served' },
-    { k: 'Awaiting action', v: t.waiting, c: '#94a3b8', s: 'With the approver' },
+    { k: 'Awaiting action', v: t.waiting, c: '#94a3b8', s: 'With an approver' },
   ];
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         {tiles.map((x) => (
           <div
             key={x.k}
@@ -3699,6 +3766,13 @@ function EventSummary({ events }: { events: AVEvent[] }) {
           </div>
         ))}
       </div>
+      {t.noAdvice > 0 && (
+        <div className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-2.5 text-xs text-purple-800">
+          {t.noAdvice} request{t.noAdvice === 1 ? ' is' : 's are'} sitting in AV evaluation
+          with no team recommendation yet. Write it before sending the request up — that
+          note is what the Division Chief reads in the approval email.
+        </div>
+      )}
       {t.high > 0 && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
           {t.high} event{t.high === 1 ? ' is' : 's are'} marked high priority.
@@ -3718,6 +3792,9 @@ function EventSummary({ events }: { events: AVEvent[] }) {
  * Buong detalye at pag-edit ng isang event.
  * Dalawang hanay ng checkbox: HINILING at NAIBIGAY. Awtomatikong lumalabas
  * ang agwat, at hindi makaka-save nang no reason kapag may kulang.
+ *
+ * TRIAGE: dito na rin isinusulat ang rekomendasyon ng AV team, at dito
+ * itinutulak ang request mula "For evaluation" tungo sa "For approval".
  */
 function EventModal({
   existing,
@@ -3753,7 +3830,11 @@ function EventModal({
     dateRequested: existing ? iso(existing.dateRequested) : today,
     eventDate: existing ? iso(existing.eventDate) : '',
     endDate: existing ? iso(existing.endDate) : '',
-    approvalStatus: existing ? APPROVAL_META[existing.approval].label : 'For approval',
+    // Bagong record → dumadaan muna sa AV triage, kapareho ng galing sa Form.
+    approvalStatus: existing
+      ? APPROVAL_META[existing.approval].label
+      : APPROVAL_META['for-evaluation'].label,
+    approvalRemarks: existing?.approvalRemarks ?? '',
     priority: existing ? classifyPriority(existing.priority) : 'Normal',
     reason: existing?.reason ?? '',
     lead: existing?.lead || 'Xyrus',
@@ -3834,12 +3915,28 @@ function EventModal({
   const readOnly = !!existing && !canEdit && !isApprover;
 
   /**
-   * COA: ang approval dropdown ay para lamang sa DC at SRS.
-   * Ang admin at staff ay nakikita ang status pero hindi ito magalaw —
-   * kapareho ito ng ipinapatupad ng server, kaya walang button na
-   * tatanggihan pagkatapos pindutin.
+   * AV TRIAGE — habang "For evaluation" pa (o bago pa maitala), ang AV team
+   * ang may hawak ng dropdown. Pagsapit sa "For approval", kandado na:
+   * DC at SRS na lang ang makakagalaw. Kapareho ito ng ipinapatupad ng
+   * server, kaya walang button na tatanggihan pagkatapos pindutin.
    */
-  const canChangeApproval = canDecide(role);
+  const inTriage = canTriage(role, existing);
+  const canChangeApproval = canDecide(role) || inTriage;
+
+  /** Hindi maaaring lagdaan ng AV team ang sarili nilang request. */
+  const approvalOptions = useMemo<ApprovalKey[]>(
+    () =>
+      canDecide(role)
+        ? APPROVAL_ORDER
+        : APPROVAL_ORDER.filter((k) => k !== 'approved' && k !== 'endorsed'),
+    [role]
+  );
+
+  /** Itinutulak na ba ito ngayon palabas ng triage papuntang DC? */
+  const pushingUp =
+    inTriage &&
+    (!existing || existing.approval === 'for-evaluation') &&
+    approvalKey === 'for-approval';
 
   /**
    * Ang parehong panuntunan ng server, ipinapakita bago pa mag-save.
@@ -3872,7 +3969,7 @@ function EventModal({
     `w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20${
       readOnly || approvalOnly ? ' pointer-events-none opacity-50' : ''
     }`;
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-500';
 
   const submit = () =>
     onSubmit(
@@ -3904,13 +4001,14 @@ function EventModal({
               {classifyPriority(f.priority) === 'High' && (
                 <PriorityBadge priority={f.priority} dense />
               )}
+              {approvalKey === 'for-evaluation' && <ApprovalChip k="for-evaluation" dense />}
             </div>
-            <p className="text-[11px] text-slate-9000">
+            <p className="text-[11px] text-slate-500">
               {existing ? `${existing.id} · ` : ''}Request Form FR-CRPD-AV No. 001 ·
               PM-CRPD-AV-08-04 Rev 7
             </p>
           </div>
-          <button onClick={onClose} className="shrink-0 text-slate-9000 hover:text-slate-900">
+          <button onClick={onClose} className="shrink-0 text-slate-500 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -4086,6 +4184,39 @@ function EventModal({
 
             {/* ----------- approval ----------- */}
             <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              {/* ---- AV TEAM RECOMMENDATION — binabasa ito ng DC sa email ---- */}
+              <div className="mb-5 rounded-lg border-2 border-purple-200 bg-purple-50 p-4">
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-purple-700">
+                    AV Team recommendation
+                  </label>
+                  <span className="font-mono text-[10px] text-purple-500">
+                    {f.approvalRemarks.trim().length} chars
+                  </span>
+                </div>
+                <textarea
+                  className={`w-full min-h-[92px] resize-y rounded-md border border-purple-300 bg-white px-3 py-2 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20${
+                    readOnly || approvalOnly ? ' pointer-events-none opacity-60' : ''
+                  }`}
+                  value={f.approvalRemarks}
+                  onChange={(e) => set('approvalRemarks', e.target.value)}
+                  placeholder="For example: Two personnel available on this date — Marx and Reiner are already committed to the NSTW dry run. Recommend approving photo coverage only, or moving the livestream to the following week."
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-purple-800">
+                  This is the AV Team&rsquo;s capacity assessment. It is injected into the
+                  approval email in a blue box, so the Division Chief reads it before
+                  deciding. Write it while the request is still{' '}
+                  <b>{APPROVAL_META['for-evaluation'].label}</b>.
+                </p>
+                {pushingUp && !f.approvalRemarks.trim() && (
+                  <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                    You are about to send this to the Division Chief with no
+                    recommendation. It will still go through, but he will be deciding
+                    blind on AV capacity.
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
                   <label className={lab}>Approval status</label>
@@ -4097,24 +4228,35 @@ function EventModal({
                     value={f.approvalStatus}
                     onChange={(e) => set('approvalStatus', e.target.value)}
                   >
-                    {APPROVAL_ORDER.map((k) => (
+                    {approvalOptions.map((k) => (
                       <option key={k}>{APPROVAL_META[k].label}</option>
                     ))}
                   </select>
                   {!canChangeApproval && (
                     <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
-                      Only the Division Chief and the Supervising SRS can change this.
-                      Send them the approval email instead.
+                      This request has left AV evaluation, so only the Division Chief and
+                      the Supervising SRS can change it. Send them the approval email
+                      instead.
                     </p>
                   )}
-                  {existing && APPROVAL_META[approvalKey].live && approvalKey !== 'endorsed' && (
-                    <button
-                      onClick={() => onNotify(existing.id)}
-                      className="mt-2 w-full rounded-lg border border-blue-300 px-3 py-1.5 text-[10px] font-bold text-blue-600 transition-colors hover:bg-blue-50"
-                    >
-                      Send approval email
-                    </button>
+                  {canChangeApproval && inTriage && (
+                    <p className="mt-1 text-[10px] leading-relaxed text-purple-600">
+                      In AV evaluation. Set this to{' '}
+                      <b>{APPROVAL_META['for-approval'].label}</b> to send it — with your
+                      recommendation and a schedule-conflict scan — to the Division Chief.
+                    </p>
                   )}
+                  {existing &&
+                    APPROVAL_META[approvalKey].live &&
+                    approvalKey !== 'endorsed' &&
+                    approvalKey !== 'for-evaluation' && (
+                      <button
+                        onClick={() => onNotify(existing.id)}
+                        className="mt-2 w-full rounded-lg border border-blue-300 px-3 py-1.5 text-[10px] font-bold text-blue-600 transition-colors hover:bg-blue-50"
+                      >
+                        Send approval email
+                      </button>
+                    )}
                 </div>
               </div>
 
@@ -4183,7 +4325,7 @@ function EventModal({
                               className={`rounded border px-2 py-1 text-[11px] transition-colors ${
                                 on
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:border-slate-300 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600'
                               }`}
                             >
                               {role}
@@ -4356,6 +4498,8 @@ function EventModal({
               ? `Still required: ${missingFields.join(', ')}.`
               : reasonMissing
               ? 'A reason is required before saving.'
+              : pushingUp
+              ? 'Saving will email the Division Chief with your recommendation and a schedule-conflict scan.'
               : 'Saved directly to the Events sheet.'}
           </p>
           <div className="flex gap-2">
@@ -4374,6 +4518,8 @@ function EventModal({
                 ? 'Saving…'
                 : approvalOnly
                 ? 'Record decision'
+                : pushingUp
+                ? 'Send to Division Chief'
                 : existing
                 ? 'Save changes'
                 : 'Create event'}
@@ -4470,7 +4616,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
           <div key={r.svc}>
             <div className="mb-1 flex items-baseline justify-between gap-3">
               <span className="truncate text-xs font-semibold text-slate-600">{r.svc}</span>
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-9000">
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-500">
                 {r.given}/{r.asked} served
                 {r.missed > 0 && (
                   <span className="ml-2 font-bold text-red-600">−{r.missed}</span>
@@ -4496,7 +4642,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
 
       {reasons.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
             Recorded reasons for non-delivery
           </p>
           <div className="space-y-2.5">
@@ -4617,7 +4763,7 @@ function KioskMode({
             <p className="font-mono text-2xl font-black text-slate-900 tabular-nums md:text-3xl">
               {now.toLocaleTimeString('en-PH', { hour12: false })}
             </p>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-9000">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
               {now.toLocaleDateString('en-PH', {
                 weekday: 'long',
                 day: 'numeric',
@@ -4628,7 +4774,7 @@ function KioskMode({
           </div>
           <button
             onClick={onClose}
-            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-9000 transition-colors hover:text-slate-900"
+            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-500 transition-colors hover:text-slate-900"
           >
             ✕ Exit
           </button>
@@ -4655,7 +4801,7 @@ function KioskMode({
                       <p className="text-3xl font-black uppercase tracking-wider text-slate-900">
                         {m.name}
                       </p>
-                      <p className="font-mono text-xs text-slate-9000">
+                      <p className="font-mono text-xs text-slate-500">
                         {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                       </p>
                     </div>
@@ -4671,7 +4817,7 @@ function KioskMode({
                         ) : (
                           <StageBadge stage={act.out.stage} />
                         )}
-                        <span className="font-mono text-xs text-slate-9000">{fmtDate(act.when)}</span>
+                        <span className="font-mono text-xs text-slate-500">{fmtDate(act.when)}</span>
                       </div>
                     </>
                   ) : (
@@ -4765,7 +4911,7 @@ function KioskMode({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-xl font-bold text-slate-800">{o.title}</p>
-                    <p className="font-mono text-xs text-slate-9000">
+                    <p className="font-mono text-xs text-slate-500">
                       {o.personnel} · {o.role || o.type}
                       {o.target ? ` · due ${fmtDate(o.target)}` : ''}
                     </p>
@@ -4847,7 +4993,7 @@ function KioskMode({
                         style={{ left: `${x.t}%` }}
                       />
                     </div>
-                    <p className="mt-3 text-xs text-slate-9000">{x.sub}</p>
+                    <p className="mt-3 text-xs text-slate-500">{x.sub}</p>
                   </div>
                 );
               })}
@@ -5033,7 +5179,7 @@ function AppWindow({
                     className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200"
                     style={{ borderTopColor: app.accent }}
                   />
-                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-9000">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-500">
                     Connecting to {app.name}
                   </p>
                 </div>
@@ -5145,7 +5291,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             placeholder="Search systems, people, records and actions…"
             className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
-          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-9000">
+          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
             ESC
           </kbd>
         </div>
@@ -5241,7 +5387,7 @@ function PersonnelDrawer({
             <h3 className="truncate text-lg font-semibold tracking-tight text-slate-900">
               {OFFICIAL[name]?.fullName || name}
             </h3>
-            <p className="truncate text-xs text-slate-9000">{OFFICIAL[name]?.designation}</p>
+            <p className="truncate text-xs text-slate-500">{OFFICIAL[name]?.designation}</p>
           </div>
           <button
             onClick={onClose}
@@ -5259,7 +5405,7 @@ function PersonnelDrawer({
           ].map((s) => (
             <div key={s.k} className="bg-white p-4 text-center">
               <p className="font-mono text-2xl font-black text-slate-900 tabular-nums">{s.v}</p>
-              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">{s.k}</p>
+              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500">{s.k}</p>
             </div>
           ))}
         </div>
@@ -5303,7 +5449,7 @@ type ViewKey =
 
 const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'portfolio',  label: 'Services',   hint: 'Public-facing AV services page' },
-  { key: 'events',     label: 'Events',     hint: 'Approval, services and delivery pipeline' },
+  { key: 'events',     label: 'Events',     hint: 'Triage, approval, services and delivery pipeline' },
   { key: 'gatepass',   label: 'Gate Pass',  hint: 'Equipment releasing and inventory' },
   { key: 'production', label: 'Production', hint: 'Video output board' },
   { key: 'pulse',      label: 'Archive',    hint: 'DMC archive, team and source sheets' },
@@ -5771,7 +5917,10 @@ export default function App() {
         evRows
           .filter((r: any) => r['Event Title'] || r['Event ID'])
           .map((r: any) => {
-            const approvalRaw = String(r['Approval Status'] || 'For Approval');
+            // Blangkong status = hindi pa nasusuri ng AV team. Kapareho ito
+            // ng normStatus_() sa backend — kung magkaiba, magkaibang chip
+            // ang makikita mo sa dashboard at sa sheet.
+            const approvalRaw = String(r['Approval Status'] || 'For Evaluation');
             return {
               id: String(r['Event ID'] || r['Event Title'] || Math.random()),
               dateRequested: parseDate(r['Date Requested']),
@@ -5931,8 +6080,10 @@ export default function App() {
       }
       setSubmitting(true);
 
-      const normalisedStatus = APPROVAL_META[classifyApproval(form.approvalStatus)].label
-        .replace('For approval', 'For Approval');
+      // Eksaktong anyo na tinatanggap ng sheet. Dalawa na ang status na
+      // nagsisimula sa "For ", kaya hindi na sapat ang isang .replace().
+      const statusKey = classifyApproval(form.approvalStatus);
+      const normalisedStatus = SERVER_STATUS[statusKey];
 
       const payload = {
         title: form.title,
@@ -5946,6 +6097,9 @@ export default function App() {
         deliveredServices: form.deliveredServices,
         reason: form.reason,
         approvalStatus: normalisedStatus,
+        // AV TRIAGE — ang rekomendasyon ng team. Ito ang isinisingit ng
+        // backend sa asul na kahon ng approval email.
+        approvalRemarks: form.approvalRemarks || '',
         priority: classifyPriority(form.priority),
         leadPersonnel: form.lead,
         team: form.team,
@@ -5965,7 +6119,8 @@ export default function App() {
        * nilalaman. Kapag ipinadala natin ang buong form sa pangalan nila,
        * tatanggihan ito ng server ("Approvers may approve or decline, but may
        * not edit the record itself"). Kaya ang ipinapadala nila ay ang
-       * desisyon lamang, at ang dahilan nito.
+       * desisyon lamang, at ang dahilan nito. Hindi kasama ang AV
+       * recommendation — hindi 'yon sa kanila.
        */
       const approverPatch = {
         approvalStatus: normalisedStatus,
@@ -5999,7 +6154,12 @@ export default function App() {
           if (out?.emailed) {
             toast(`Event updated — email sent to ${out.emailTo}`, 'ok');
           } else {
-            toast('Event updated', 'ok');
+            toast(
+              normalisedStatus === 'For Evaluation'
+                ? 'Saved — still with the AV Team for evaluation'
+                : 'Event updated',
+              'ok'
+            );
             if (out?.emailError) {
               setLastError({
                 what: 'Approval email',
@@ -6010,7 +6170,12 @@ export default function App() {
         } else if (out?.emailed) {
           toast(`Event created — approval email sent to ${out.emailTo || 'the Division Chief'}`, 'ok');
         } else {
-          toast('Event created', 'ok');
+          toast(
+            normalisedStatus === 'For Evaluation'
+              ? 'Event created — queued for AV evaluation'
+              : 'Event created',
+            'ok'
+          );
           if (out?.emailError) {
             setLastError({
               what: 'Approval email',
@@ -6262,13 +6427,54 @@ export default function App() {
     });
   }, [events, evQuery, evApproval, evFulfil, evPriority]);
 
+  /** Nasa AV team pa — sila ang dapat kumilos, hindi ang DC. */
+  const triageQueue = useMemo(
+    () =>
+      events
+        .filter((ev) => ev.approval === 'for-evaluation')
+        .sort((a, b) => {
+          const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
+          const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
+          if (pa !== pb) return pa - pb;
+          // Ang pinakamalapit na event date ang pinakaurgent na suriin.
+          const at = a.eventDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          const bt = b.eventDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          return at - bt;
+        }),
+    [events]
+  );
+
+  /** Nasa approver na — DC o SRS ang naghahawak. */
   const approvalQueue = useMemo(
     () =>
-      events.filter(awaitingAction).sort((a, b) => {
-        const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
-        const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
-        return pa - pb;
-      }),
+      events
+        .filter((ev) => awaitingAction(ev) && ev.approval !== 'for-evaluation')
+        .sort((a, b) => {
+          const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
+          const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
+          return pa - pb;
+        }),
+    [events]
+  );
+
+  /**
+   * Ilang buhay na event ang sabay sa parehong petsa — kapareho ng
+   * scanConflicts_() sa backend. Ito ang ipinapakita bago pa itulak ng
+   * team ang request sa Division Chief.
+   */
+  const conflictsFor = useCallback(
+    (ev: AVEvent): AVEvent[] => {
+      if (!ev.eventDate) return [];
+      const k = dayKey(ev.eventDate);
+      return events.filter(
+        (o) =>
+          o.id !== ev.id &&
+          o.eventDate &&
+          dayKey(o.eventDate) === k &&
+          APPROVAL_META[o.approval].live &&
+          o.approval !== 'for-evaluation'
+      );
+    },
     [events]
   );
 
@@ -6626,6 +6832,16 @@ export default function App() {
         run: () => setKioskOn(true),
       },
       {
+        id: 'triage',
+        label: 'Show the AV evaluation queue',
+        hint: 'Triage',
+        group: 'Actions',
+        run: () => {
+          setView('events');
+          setEvApproval('for-evaluation');
+        },
+      },
+      {
         id: 'high-priority',
         label: 'Show high priority events only',
         hint: 'Filter',
@@ -6876,7 +7092,7 @@ export default function App() {
                     fetchProduction();
                   }}
                   title={connMeta.label}
-                  className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-slate-9000 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                  className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-600"
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
                   <span className="font-mono">{refreshing ? 'Syncing' : connMeta.short}</span>
@@ -6899,14 +7115,15 @@ export default function App() {
                     ? outputs.length
                     : 0;
                 const external = v.key === 'portfolio' || v.key === 'gatepass';
-                const alert = v.key === 'events' ? approvalQueue.length : 0;
+                const alert =
+                  v.key === 'events' ? approvalQueue.length + triageQueue.length : 0;
                 return (
                   <button
                     key={v.key}
                     onClick={() => setView(v.key)}
                     title={v.hint}
                     className={`group relative shrink-0 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
-                      active ? 'text-slate-800' : 'text-slate-9000 hover:text-slate-600'
+                      active ? 'text-slate-800' : 'text-slate-500 hover:text-slate-600'
                     }`}
                   >
                     {v.label}
@@ -7098,29 +7315,29 @@ export default function App() {
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                     DMC status mix
                   </p>
                   <StatusDonut counts={stats.counts} total={stats.total} />
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                     Deployment load
                   </p>
                   <WorkloadBars data={workload} />
                   <div className="mt-4 flex gap-4 border-t border-slate-200 pt-3">
-                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
                       <span className="h-1.5 w-3 rounded-full bg-blue-600 hover:bg-blue-700" />
                       Field coverage (DMC)
                     </span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
                       <span className="h-1.5 w-3 rounded-full bg-amber-400" />
                       Video output
                     </span>
                   </div>
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                     Up next
                   </p>
                   <div className="space-y-3">
@@ -7142,7 +7359,7 @@ export default function App() {
               </div>
 
               <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                   Coverage density · last 26 weeks
                 </p>
                 <ActivityGrid coverages={coverages} />
@@ -7200,7 +7417,7 @@ export default function App() {
                             ) : (
                               <StageBadge stage={act.out.stage} />
                             )}
-                            <span className="font-mono text-[10px] text-slate-9000">
+                            <span className="font-mono text-[10px] text-slate-500">
                               {fmtDate(act.when)}
                             </span>
                           </div>
@@ -7234,7 +7451,7 @@ export default function App() {
                           className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                             prodPerson === n
                               ? 'border-blue-300 bg-blue-50 text-blue-600'
-                              : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              : 'border-slate-200 text-slate-500 hover:text-slate-600'
                           }`}
                         >
                           {n === 'ALL' ? 'Lahat' : n}
@@ -7254,7 +7471,7 @@ export default function App() {
               {prodReady === 'missing' ? (
                 <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
                   <p className="mb-2 text-sm font-bold text-slate-900">Production Log is not set up yet</p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
                     In the AV Production Log spreadsheet, open Extensions → Apps Script, paste{' '}
                     <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
                     <span className="font-mono text-blue-600">authorize()</span> then{' '}
@@ -7322,7 +7539,7 @@ export default function App() {
                         busyId={busyId}
                       />
                       <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
+                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
                           Output scoreboard · quantity, timeliness, revisions
                         </p>
                         <ProductionScoreboard
@@ -7359,7 +7576,7 @@ export default function App() {
                       className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     {query && (
-                      <button onClick={() => setQuery('')} className="text-xs text-slate-9000 hover:text-slate-900">
+                      <button onClick={() => setQuery('')} className="text-xs text-slate-500 hover:text-slate-900">
                         ✕
                       </button>
                     )}
@@ -7372,7 +7589,7 @@ export default function App() {
                         className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                           filterPerson === p
                             ? 'border-blue-300 bg-blue-50 text-blue-600'
-                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                            : 'border-slate-200 text-slate-500 hover:text-slate-600'
                         }`}
                       >
                         {p === 'ALL' ? 'All personnel' : p}
@@ -7386,7 +7603,7 @@ export default function App() {
                         className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                           filterStatus === s
                             ? 'border-red-300 bg-red-100 text-red-600'
-                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                            : 'border-slate-200 text-slate-500 hover:text-slate-600'
                         }`}
                       >
                         {s === 'ALL' ? 'All status' : STATUS_META[s as StatusKey].label}
@@ -7423,7 +7640,7 @@ export default function App() {
                             {relativeDay(cov.dateObj) && (
                               <>
                                 <span className="text-slate-400">•</span>
-                                <span className="text-slate-9000">{relativeDay(cov.dateObj)}</span>
+                                <span className="text-slate-500">{relativeDay(cov.dateObj)}</span>
                               </>
                             )}
                           </div>
@@ -7523,7 +7740,7 @@ export default function App() {
                         <kbd className="rounded border border-slate-200 bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">
                           {k}
                         </kbd>
-                        <span className="text-xs text-slate-9000">{v}</span>
+                        <span className="text-xs text-slate-500">{v}</span>
                       </div>
                     ))}
                   </div>
@@ -7540,7 +7757,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="Event monitoring"
-                    hint="For every event: what was requested, what was approved, and what was actually served."
+                    hint="Triage first: the AV team assesses capacity, writes its recommendation, then sends the request to the Division Chief."
                     right={
                       <button
                         onClick={() => setEvModal({ open: true, editing: null })}
@@ -7556,7 +7773,7 @@ export default function App() {
                       <p className="mb-2 text-sm font-bold text-slate-900">
                         Events sheet is not connected
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
                         paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
@@ -7569,13 +7786,76 @@ export default function App() {
                     <>
                       <EventSummary events={events} />
 
+                      {/* ---------------- AV TRIAGE QUEUE ---------------- */}
+                      {triageQueue.length > 0 && (
+                        <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-4">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-purple-700">
+                              AV evaluation queue · {triageQueue.length}
+                            </p>
+                            <span className="font-mono text-[10px] text-purple-500">
+                              AV Team → Division Chief → Supervising SRS
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {triageQueue.slice(0, 5).map((ev) => {
+                              const clash = conflictsFor(ev);
+                              return (
+                                <div
+                                  key={ev.id}
+                                  className="rounded-md border border-purple-200 bg-white px-3 py-2"
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <button
+                                      onClick={() => setEvModal({ open: true, editing: ev })}
+                                      className="min-w-0 flex-1 text-left"
+                                    >
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="truncate text-xs font-semibold text-slate-800">
+                                          {ev.title}
+                                        </p>
+                                        <PriorityBadge priority={ev.priority} dense />
+                                      </div>
+                                      <p className="truncate font-mono text-[10px] text-slate-400">
+                                        {ev.client || '—'} · {fmtDate(ev.eventDate)} ·{' '}
+                                        {ev.requested.length} services requested
+                                      </p>
+                                    </button>
+                                    <div className="flex shrink-0 items-center gap-2">
+                                      {!ev.approvalRemarks.trim() && (
+                                        <span className="rounded border border-purple-300 px-2 py-0.5 text-[9px] font-bold text-purple-700">
+                                          NO ADVICE
+                                        </span>
+                                      )}
+                                      <ApprovalChip k={ev.approval} dense />
+                                    </div>
+                                  </div>
+                                  {clash.length > 0 && (
+                                    <p className="mt-1.5 border-t border-purple-100 pt-1.5 text-[10px] leading-relaxed text-amber-700">
+                                      ⚠ {clash.length} other active event
+                                      {clash.length === 1 ? '' : 's'} on {fmtDate(ev.eventDate)}:{' '}
+                                      {clash.map((c) => c.title || c.id).join(', ')}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-3 text-[10px] leading-relaxed text-purple-700">
+                            Open each one, write the team recommendation, then set it to{' '}
+                            <b>{APPROVAL_META['for-approval'].label}</b>. That is what emails
+                            the Division Chief — with your advice and a schedule-conflict scan.
+                          </p>
+                        </div>
+                      )}
+
                       {approvalQueue.length > 0 && (
                         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
                           <div className="mb-3 flex items-center justify-between">
                             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">
-                              Awaiting action · {approvalQueue.length}
+                              Awaiting approver · {approvalQueue.length}
                             </p>
-                            <span className="font-mono text-[10px] text-slate-9000">
+                            <span className="font-mono text-[10px] text-slate-500">
                               Division Chief → Supervising SRS
                             </span>
                           </div>
@@ -7596,8 +7876,8 @@ export default function App() {
                                     <PriorityBadge priority={ev.priority} dense />
                                   </div>
                                   <p className="truncate font-mono text-[10px] text-slate-400">
-                                    {ev.client || '—'} ·{' '}
-                                    {ev.requested.length} services requested
+                                    {ev.client || '—'} · {ev.requested.length} services requested ·
+                                    with {awaitingWho(ev)}
                                   </p>
                                 </button>
                                 <div className="flex shrink-0 items-center gap-2">
@@ -7605,7 +7885,7 @@ export default function App() {
                                   <button
                                     onClick={() => notifyApprover(ev.id)}
                                     title="Resend approval email"
-                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
+                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-600"
                                   >
                                     Email
                                   </button>
@@ -7628,7 +7908,7 @@ export default function App() {
                           {evQuery && (
                             <button
                               onClick={() => setEvQuery('')}
-                              className="text-xs text-slate-9000 hover:text-slate-900"
+                              className="text-xs text-slate-500 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -7642,7 +7922,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evApproval === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All approval' : APPROVAL_META[k as ApprovalKey].label}
@@ -7656,7 +7936,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evFulfil === k
                                   ? 'border-red-300 bg-red-100 text-red-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All service' : FULFIL_META[k as Fulfilment].label}
@@ -7670,7 +7950,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evPriority === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All priority' : `${k} priority`}
@@ -7684,7 +7964,7 @@ export default function App() {
                           <p className="mb-1 text-sm text-slate-600">No matching events.</p>
                           <p className="mb-4 text-xs text-slate-400">
                             Dito nagsisimula ang lahat — gumawa ng event para masimulan ang
-                            approval at tasking.
+                            evaluation, approval at tasking.
                           </p>
                           <button
                             onClick={() => setEvModal({ open: true, editing: null })}
@@ -7700,7 +7980,11 @@ export default function App() {
                               key={ev.id}
                               ev={ev}
                               crew={assignments.filter((a) => a.eventId === ev.id)}
-                              canEdit={can('edit', myRole, ev.createdBy, myName)}
+                              canEdit={
+                                ev.approval === 'for-evaluation'
+                                  ? myRole === 'admin' || myRole === 'staff'
+                                  : can('edit', myRole, ev.createdBy, myName)
+                              }
                               onOpen={() => setEvModal({ open: true, editing: ev })}
                               onStep={(k, next) => stepEvent(ev, k, next)}
                             />
@@ -7745,7 +8029,7 @@ export default function App() {
                       <p className="mb-2 text-sm font-bold text-slate-900">
                         Request Register is not set up
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
                         paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
@@ -7768,7 +8052,7 @@ export default function App() {
                           {reqQuery && (
                             <button
                               onClick={() => setReqQuery('')}
-                              className="text-xs text-slate-9000 hover:text-slate-900"
+                              className="text-xs text-slate-500 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -7782,7 +8066,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 reqStatusFilter === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL'
@@ -7798,7 +8082,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 reqStreamFilter === k
                                   ? 'border-red-300 bg-red-100 text-red-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All streams' : STREAM_META[k as Stream].short}
@@ -7838,7 +8122,7 @@ export default function App() {
                   <p className="mb-2 text-sm font-bold text-slate-900">
                     Register is not connected
                   </p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
                     No compliance data can be shown until requests are recorded. Paste{' '}
                     <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
                     <span className="font-mono text-blue-600">authorize()</span> then{' '}
@@ -7926,10 +8210,10 @@ export default function App() {
                             <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
                               {r.roleCount}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-9000 tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-500 tabular-nums">
                               {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
                             </td>
-                            <td className="px-4 py-3 text-[12px] text-slate-9000">
+                            <td className="px-4 py-3 text-[12px] text-slate-500">
                               {r.top.length
                                 ? r.top.map(([role, n]) => `${role} (${n})`).join(', ')
                                 : '—'}
@@ -8488,6 +8772,21 @@ export default function App() {
           <button
             onClick={() => {
               setView('events');
+              setEvApproval('for-evaluation');
+            }}
+            title="AV evaluation queue"
+            className="relative flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+          >
+            Triage
+            {triageQueue.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-purple-100 px-1.5 font-mono text-[10px] font-bold text-purple-700">
+                {triageQueue.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => {
+              setView('events');
               setEvModal({ open: true, editing: null });
             }}
             title="New event request"
@@ -8561,7 +8860,12 @@ export default function App() {
           }
           role={myRole}
           canEdit={
-            !evModal.editing || can('edit', myRole, evModal.editing.createdBy, myName)
+            !evModal.editing ||
+            // Sa AV triage, walang may-ari pa — kaya kahit sinong AV staff
+            // ay makakapag-edit. Kapareho ito ng ipinapatupad ng server.
+            (evModal.editing.approval === 'for-evaluation'
+              ? myRole === 'admin' || myRole === 'staff'
+              : can('edit', myRole, evModal.editing.createdBy, myName))
           }
         />
       )}
