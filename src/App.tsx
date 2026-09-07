@@ -610,19 +610,35 @@ function monthLabel(key: string): string {
 /**
  * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3, with the
  * new AV triage step in front:
- *   for-evaluation → the AV team assesses capacity and writes its advice
- *   for-approval   → Division Chief acts
- *   approved       → cleared by the Division Chief, awaiting endorsement
- *   endorsed       → released to the AV Team by the Supervising SRS
+ *   for-evaluation  → SRS II assesses completeness, schedule availability and
+ *                     technical feasibility, then records a recommendation
+ *   for-endorsement → SVSRS forwards the request with that recommendation
+ *   for-approval    → Division Chief reviews and decides
+ *   approved        → cleared; proceed to AV Production (3A) or AV Coverage (3B)
+ *
+ * TANDAAN: ang endorsement ay BAGO ang approval, hindi pagkatapos. Ito ang
+ * pagkakasunod-sunod sa PM. Ang lumang "Endorsed" na yugto ay naging
+ * "Approved" — parehong ibig sabihin: malinis na, pwede nang magtrabaho.
  */
 type ApprovalKey =
-  | 'for-evaluation' | 'for-approval' | 'approved' | 'endorsed'
+  | 'for-evaluation' | 'for-endorsement' | 'for-approval' | 'approved'
   | 'declined' | 'cancelled' | 'rescheduled';
 
 /** Kinakalkula, hindi ini-input. */
 type Fulfilment = 'full' | 'partial' | 'none' | 'declined' | 'pending';
 
-type PipelineKey = 'coordination' | 'documents' | 'deliverables' | 'archiving';
+/**
+ * ANG EXECUTION PIPELINE, HAKBANG-HAKBANG AYON SA PM.
+ *   3A AV Production — pre-production meeting, script (SVSRS approves, client
+ *      signs off), pre-inspection, shoot, post-inspection, edit, SVSRS
+ *      approves final cut, submit sa kliyente + Acknowledgement Receipt
+ *   3B AV Coverage   — coordinate, pre-inspection, cover, post-inspection,
+ *      edit, ihatid sa kliyente
+ *   4  Post          — handover sa Digital Media Archive Unit, tapos CSM
+ */
+type PipelineKey =
+  | 'coordination' | 'documents' | 'script' | 'preInspection' | 'execution'
+  | 'postInspection' | 'editing' | 'finalCut' | 'delivery' | 'archiving' | 'csm';
 type PipelineState = 'not-started' | 'in-progress' | 'done' | 'na';
 
 interface AVEvent {
@@ -635,6 +651,8 @@ interface AVEvent {
   endDate: Date | null;
   venue: string;
   requested: string[];
+  /** Ang pinangako ng AV team matapos suriin ang kakayahan. */
+  agreed: string[];
   delivered: string[];
   reason: string;
   approval: ApprovalKey;
@@ -647,6 +665,10 @@ interface AVEvent {
   lead: string;
   team: string;
   priority: string;
+  /** PM prioritisation — Office of the Secretary pababa sa Regional Offices. */
+  clientTier: string;
+  /** "Urgent requests may override with notice." Ang paunawa mismo. */
+  urgentNote: string;
   pipeline: Record<PipelineKey, PipelineState>;
   targetDate: Date | null;
   dateDelivered: Date | null;
@@ -699,26 +721,68 @@ function splitList(v: unknown): string[] {
     .filter(Boolean);
 }
 
-const SERVICE_CATALOG = [
-  'Photo coverage',
-  'Video coverage',
-  'Photo shoot',
-  'Video shoot',
-  'AVP production',
-  'Hybrid livestream',
-  'Livestream (multi-cam)',
-  'Audio technical set-up',
-  'Same-Day-Edit (SDE)',
-  'Video editing (clean-cut)',
-  'Motion graphics',
-  'Script writing',
-  'Social media posting',
+/**
+ * KATALOGO NG SERBISYO — eksakto ang nasa AV Services PM. Dalawang stream,
+ * apat na serbisyo bawat isa. Walang idinagdag, walang binawas.
+ */
+const PRODUCTION_SERVICES = [
+  'Full Video Production',
+  'Video Production',
+  'Video Shoot',
+  'Photo Shoot',
 ];
+const COVERAGE_SERVICES = [
+  'Photo Coverage',
+  'Video Coverage',
+  'Livestreaming with multi-camera setup',
+  'SDE',
+];
+const SERVICE_CATALOG = [...PRODUCTION_SERVICES, ...COVERAGE_SERVICES];
 
-/** Mabibigat na serbisyo → 13 WD SLA. Iba → 3 WD. Per PM section 6. */
-const HEAVY_SERVICES = [
-  'AVP production', 'Video editing (clean-cut)', 'Script writing', 'Motion graphics',
-];
+/**
+ * Aling stream ang isang listahan ng serbisyo. Kapag may kahit isang
+ * Production service, Production ito — doon nakasalalay ang 13 WD na SLA.
+ * May keyword fallback para sa mga lumang pangalan ng serbisyo, kaya
+ * hindi biglang nagiging 3 WD ang isang lumang AVP production.
+ */
+function streamOfServices(list: string[]): Stream {
+  const prod = new Set(PRODUCTION_SERVICES.map((x) => x.toLowerCase()));
+  return list.some((raw) => {
+    const x = raw.trim().toLowerCase();
+    return (
+      prod.has(x) ||
+      x.includes('production') || x.includes('shoot') ||
+      x.includes('editing') || x.includes('script') || x.includes('motion')
+    );
+  })
+    ? 'production'
+    : 'coverage';
+}
+
+/**
+ * PRIORITISATION — eksaktong pagkakasunod-sunod na nakasaad sa PM, at ang
+ * sagot sa puna ng COA na magdagdag ng prioritization category.
+ * Ang urgent na kahilingan ay maaaring lumampas dito, PERO kailangan ng
+ * nakasulat na paunawa — 'yon ang "with notice" sa PM.
+ */
+const CLIENT_TIERS = [
+  'Office of the Secretary',
+  'Office of the Undersecretary / Assistant Secretary',
+  'DOST Flagship Programs',
+  'DOST Attached Agencies',
+  'Regional Offices',
+  'Other / External',
+] as const;
+
+function tierRank(tier: string): number {
+  const i = (CLIENT_TIERS as readonly string[]).indexOf(String(tier || '').trim());
+  return i === -1 ? CLIENT_TIERS.length : i;
+}
+
+/** Urgent muna, tapos ang opisyal na ranggo ng kliyente. */
+function queueRank(ev: AVEvent): number {
+  return (ev.urgentNote.trim() ? 0 : 1) * 100 + tierRank(ev.clientTier);
+}
 
 /* ------------------------------------------------------------- PRIORITY -- */
 
@@ -741,7 +805,7 @@ function classifyPriority(raw: unknown): PriorityKey {
 }
 
 const APPROVAL_ORDER: ApprovalKey[] = [
-  'for-evaluation', 'for-approval', 'approved', 'endorsed',
+  'for-evaluation', 'for-endorsement', 'for-approval', 'approved',
   'declined', 'rescheduled', 'cancelled',
 ];
 
@@ -753,16 +817,16 @@ const APPROVAL_META: Record<
     label: 'For evaluation', short: 'TRIAGE', hex: '#8b5cf6',
     chip: 'bg-purple-100 text-purple-800 border-purple-200', live: true,
   },
+  'for-endorsement': {
+    label: 'For endorsement', short: 'FOR SRS', hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200', live: true,
+  },
   'for-approval': {
     label: 'For approval', short: 'FOR DC', hex: '#94a3b8',
     chip: 'bg-slate-100 text-slate-700 border-slate-200', live: true,
   },
   approved: {
-    label: 'Approved', short: 'FOR SRS', hex: '#d97706',
-    chip: 'bg-amber-100 text-amber-800 border-amber-200', live: true,
-  },
-  endorsed: {
-    label: 'Endorsed', short: 'CLEARED', hex: '#2563eb',
+    label: 'Approved', short: 'CLEARED', hex: '#2563eb',
     chip: 'bg-blue-100 text-blue-800 border-blue-200', live: true,
   },
   declined: {
@@ -786,9 +850,9 @@ const APPROVAL_META: Record<
  */
 const SERVER_STATUS: Record<ApprovalKey, string> = {
   'for-evaluation': 'For Evaluation',
+  'for-endorsement': 'For Endorsement',
   'for-approval': 'For Approval',
   approved: 'Approved',
-  endorsed: 'Endorsed',
   declined: 'Declined',
   rescheduled: 'Rescheduled',
   cancelled: 'Cancelled',
@@ -820,24 +884,79 @@ const FULFIL_META: Record<
   },
 };
 
-const PIPELINE_STEPS: { key: PipelineKey; label: string; short: string; detail: string }[] = [
+/**
+ * `only` = applicable sa isang stream lamang. Ang script at ang final cut
+ * ay Production lamang — awtomatikong N/A sa Coverage, kaya hindi
+ * nagmumukhang kulang ang isang coverage na tapos na.
+ *
+ * Ang "Office documents" ay wala sa PM pero totoong trabaho (gate pass,
+ * travel order) at may sariling sistema na. Iniwan bilang hakbang.
+ */
+const PIPELINE_STEPS: {
+  key: PipelineKey; label: string; short: string; detail: string; only?: Stream;
+}[] = [
   {
     key: 'coordination', label: 'Coordination', short: 'COORD',
-    detail: 'Pre-production and client coordination meeting',
+    detail: 'PM 3A.1 / 3B.1 — pre-production meeting or event coordination with the client',
   },
   {
     key: 'documents', label: 'Office documents', short: 'DOCS',
     detail: 'Gate pass, travel order, pass slip, special order',
   },
   {
-    key: 'deliverables', label: 'Deliverables', short: 'DELIV',
-    detail: 'Shoot, edit and delivery to the client',
+    key: 'script', label: 'Script approval', short: 'SCRIPT', only: 'production',
+    detail: 'PM 3A.2 — SRS II drafts the editing script, SVSRS approves, client signs off',
+  },
+  {
+    key: 'preInspection', label: 'Pre-inspection', short: 'PRE-INSP',
+    detail: 'PM 3A.3 / 3B.2 — equipment pre-inspection before deployment',
+  },
+  {
+    key: 'execution', label: 'Shoot / coverage', short: 'SHOOT',
+    detail: 'PM 3A.3 / 3B.2 — production shoot per approved script, or event coverage',
+  },
+  {
+    key: 'postInspection', label: 'Post-inspection', short: 'POST-INSP',
+    detail: 'PM 3A.3 / 3B.2 — equipment post-inspection after deployment',
+  },
+  {
+    key: 'editing', label: 'Editing', short: 'EDIT',
+    detail: 'PM 3A.4 / 3B.3 — edit and produce the output',
+  },
+  {
+    key: 'finalCut', label: 'Final cut approval', short: 'FINAL', only: 'production',
+    detail: 'PM 3A.5 — SVSRS previews and approves the final cut; revisions loop back',
+  },
+  {
+    key: 'delivery', label: 'Client delivery', short: 'DELIVER',
+    detail: 'PM 3A.6 / 3B.3 — submit to the client; Acknowledgement Receipt. SDE is submitted during the event.',
   },
   {
     key: 'archiving', label: 'Archiving', short: 'DMC',
-    detail: 'Transfer to DMC NAS and pre-archival record',
+    detail: 'PM 4 — handover to the BDMS Digital Media Archive Unit for renaming',
+  },
+  {
+    key: 'csm', label: 'CSM form', short: 'CSM',
+    detail: 'PM 4 — administer the Client Satisfaction Measurement form',
   },
 ];
+
+/** Aling hakbang ang totoong applicable sa event na ito. */
+function stepsFor(stream: Stream) {
+  return PIPELINE_STEPS.filter((s) => !s.only || s.only === stream);
+}
+
+/**
+ * Ang pangalan ng field na ipinapadala sa server para sa isang hakbang.
+ *
+ * MAHALAGA: ang hakbang na `csm` (naibigay na ba ang CSM form?) ay IBA sa
+ * `csm` na CSM RATING (1–5). Iisa ang pangalan nila, magkaiba ang hanay.
+ * Kapag hindi ito pinaghiwalay, nasusulatan ng "Done" ang rating column at
+ * nasisira ang buong KPI ng PM 2.2.
+ */
+function stepField(key: PipelineKey): string {
+  return key === 'csm' ? 'csmStep' : key;
+}
 
 const PIPELINE_META: Record<PipelineState, { label: string; hex: string }> = {
   'not-started': { label: 'Not started', hex: '#cbd5e1' },
@@ -860,10 +979,7 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
   else if (ev.dateDelivered) status = 'completed';
   else status = 'ongoing';
 
-  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
-  const stream: Stream = ev.requested.some((x) => heavy.has(x.toLowerCase()))
-    ? 'production'
-    : 'coverage';
+  const stream: Stream = streamOfServices(ev.requested);
 
   return {
     id: ev.id,
@@ -896,19 +1012,19 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
  * so both states must count here.
  */
 function isAuthorised(ev: AVEvent): boolean {
-  return ev.approval === 'approved' || ev.approval === 'endorsed';
+  return ev.approval === 'approved';
 }
 
 /** Still needs a signature from either the Division Chief or the SRS. */
 function awaitingAction(ev: AVEvent): boolean {
-  return APPROVAL_META[ev.approval].live && ev.approval !== 'endorsed';
+  return APPROVAL_META[ev.approval].live && ev.approval !== 'approved';
 }
 
 /** Sinong bahay ang may hawak ngayon. Ito ang lumalabas sa card at sa queue. */
 function awaitingWho(ev: AVEvent): string {
-  if (ev.approval === 'for-evaluation') return 'AV Team evaluation';
+  if (ev.approval === 'for-evaluation') return 'SRS II assessment';
+  if (ev.approval === 'for-endorsement') return 'Supervising SRS';
   if (ev.approval === 'for-approval') return 'Division Chief';
-  if (ev.approval === 'approved') return 'Supervising SRS';
   return '';
 }
 
@@ -919,11 +1035,14 @@ function classifyApproval(raw: string): ApprovalKey {
   if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
   // Bago ang "for approval" — ang "For evaluation" ay nagsisimula rin sa "for".
   if (s.includes('eval') || s.includes('triage')) return 'for-evaluation';
+  if (s.includes('for endors')) return 'for-endorsement';
+  // LEGACY: sa lumang modelo ang "Endorsed" ay huling yugto — matapos nang
+  // maaprubahan. Sa PM, katumbas na ito ng "Approved".
+  if (s.trim() === 'endorsed') return 'approved';
   // "For approval" must be tested before "approved" — it contains the word.
-  if (s.includes('for approval') || s.includes('for endorsement')) return 'for-approval';
-  if (s.includes('endorsed')) return 'endorsed';
+  if (s.includes('for approval')) return 'for-approval';
   if (s.includes('approved')) return 'approved';
-  return 'for-approval';
+  return 'for-evaluation';
 }
 
 function classifyPipeline(raw: string): PipelineState {
@@ -948,6 +1067,32 @@ function serviceGap(ev: AVEvent): string[] {
   return ev.requested.filter((x) => !got.has(x.toLowerCase()));
 }
 
+/**
+ * Ang epektibong AGREED VOLUME.
+ * Blangko sa mga lumang record → ang hiniling ang ituturing na pinangako,
+ * kaya hindi nagbabago ang dating bilang. Walang agreed sa mga tinanggihan.
+ */
+function agreedVolume(ev: AVEvent): string[] {
+  if (!APPROVAL_META[ev.approval].live) return [];
+  return ev.agreed.length ? ev.agreed : ev.requested;
+}
+
+/**
+ * HINILING PERO HINDI PINANGAKO — kulang ang tao o kagamitan sa mismong
+ * araw. Ito ang pinakamalinis na ebidensiya para sa Audit Item 44:
+ * hindi tinanggihan ang buong request, pero hindi rin naibigay nang buo.
+ */
+function capacityGap(ev: AVEvent): string[] {
+  const promised = new Set(agreedVolume(ev).map((x) => x.toLowerCase()));
+  return ev.requested.filter((x) => !promised.has(x.toLowerCase()));
+}
+
+/** PINANGAKO PERO HINDI NATUPAD. Ibang usapan ito sa capacity gap. */
+function deliveryGap(ev: AVEvent): string[] {
+  const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
+  return agreedVolume(ev).filter((x) => !got.has(x.toLowerCase()));
+}
+
 /** Naibigay pero hindi orihinal na hiniling — dagdag na serbisyo. */
 function serviceExtra(ev: AVEvent): string[] {
   const asked = new Set(ev.requested.map((x) => x.toLowerCase()));
@@ -958,18 +1103,20 @@ function fulfilment(ev: AVEvent): Fulfilment {
   if (ev.approval === 'declined' || ev.approval === 'cancelled' || ev.approval === 'rescheduled')
     return 'declined';
   if (!isAuthorised(ev)) return 'pending';
-  if (ev.requested.length === 0) return 'pending';
-  const gap = serviceGap(ev);
+  // Sinusukat laban sa PINANGAKO, hindi sa hiniling. Kung tatlo ang hiniling,
+  // dalawa ang kayang ibigay at dalawa ang naibigay — natupad ang pangako.
+  // Ang kulang na isa ay hindi pagkukulang sa paghahatid; kakulangan 'yon
+  // sa tao, at hiwalay itong iniuulat sa capacity gap.
+  const promised = agreedVolume(ev);
+  if (promised.length === 0) return 'pending';
+  const gap = deliveryGap(ev);
   if (gap.length === 0) return 'full';
   if (ev.delivered.length === 0) return 'none';
   return 'partial';
 }
 
 function slaForEvent(ev: AVEvent): number {
-  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
-  return ev.requested.some((x) => heavy.has(x.toLowerCase()))
-    ? SLA_WD.production
-    : SLA_WD.coverage;
+  return SLA_WD[streamOfServices(ev.requested)];
 }
 
 /**
@@ -978,8 +1125,41 @@ function slaForEvent(ev: AVEvent): number {
  */
 function eventTarget(ev: AVEvent): Date | null {
   if (ev.targetDate) return ev.targetDate;
-  const start = ev.dateRequested;
+  const start = slaBaseDate(ev);
   return start ? addWorkingDays(start, slaForEvent(ev)) : null;
+}
+
+/**
+ * Kailan dapat magsimula ang orasan ng TARGET DATE.
+ *
+ * Dati, ang petsa ng pagtanggap lang. Kapag maaga kang nag-book — natanggap
+ * Agosto 1, event Agosto 12–16 — Agosto 6 ang target: bago pa mangyari ang
+ * event. OVERDUE agad ang bawat advance booking, at sira ang buong KPI.
+ *
+ * Hindi mo maie-edit ang footage ng event na hindi pa natatapos. Kaya ang
+ * orasan ay nagsisimula sa mas HULI sa dalawa: pagtanggap, o huling araw
+ * ng event. Sa multi-day, ang End Date ang sinusunod.
+ *
+ * Ang TAT na iniuulat sa COA ay hiwalay: pagtanggap → paghahatid pa rin,
+ * dahil 'yon ang buong hinintay ng kliyente. Hindi 'yon ginagalaw.
+ */
+function slaBaseDate(ev: AVEvent): Date | null {
+  const ends = ev.endDate || ev.eventDate;
+  if (!ev.dateRequested) return ends;
+  if (!ends) return ev.dateRequested;
+  return ends.getTime() > ev.dateRequested.getTime() ? ends : ev.dateRequested;
+}
+
+/**
+ * Ilang araw tumatakbo ang event. Ito ay PANG-IPAKITA lamang.
+ * Ang isang limang araw na coverage ay ISANG serbisyo pa rin sa KPI —
+ * isang request, isang target date, isang bilang. Hindi lima.
+ */
+function eventSpanDays(ev: AVEvent): number {
+  if (!ev.eventDate) return 0;
+  const end = ev.endDate || ev.eventDate;
+  return Math.max(1, Math.round(
+    (end.getTime() - ev.eventDate.getTime()) / 86400000) + 1);
 }
 
 /** Aktwal na turnaround: Date Requested → Date Served, sa working days. */
@@ -1006,19 +1186,22 @@ function eventSLA(ev: AVEvent): SLAState {
 
 /** 0–100, batay sa apat na hakbang ng pipeline. N/A ay binibilang na tapos. */
 function pipelineProgress(ev: AVEvent): number {
-  const states = PIPELINE_STEPS.map((s) => ev.pipeline[s.key]);
-  const score = states.reduce((a, st) => {
+  // Ang hindi applicable na hakbang ay hindi binibilang, hindi ibinibilang
+  // na tapos — kung hindi, laging mas mataas ang coverage kaysa production.
+  const steps = stepsFor(streamOfServices(ev.requested));
+  const score = steps.reduce((a, s) => {
+    const st = ev.pipeline[s.key];
     if (st === 'done' || st === 'na') return a + 1;
     if (st === 'in-progress') return a + 0.5;
     return a;
   }, 0);
-  return Math.round((score / PIPELINE_STEPS.length) * 100);
+  return Math.round((score / Math.max(1, steps.length)) * 100);
 }
 
 /** Ang susunod na hakbang na dapat asikasuhin. */
 function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | null {
   if (!isAuthorised(ev)) return null;
-  for (const step of PIPELINE_STEPS) {
+  for (const step of stepsFor(streamOfServices(ev.requested))) {
     const st = ev.pipeline[step.key];
     if (st === 'not-started' || st === 'in-progress') return { key: step.key, label: step.label };
   }
@@ -1033,18 +1216,21 @@ function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | nu
 const STEP_ROLES: Record<PipelineKey, string[]> = {
   coordination: ['Coordinator'],
   documents: ['Documents / Admin'],
-  deliverables: [
-    'Editor',
-    'Colorist',
-    'Motion / Graphics Artist',
+  script: ['Scriptwriter', 'Director / DP'],
+  preInspection: ['Documents / Admin', 'Camera Operator', 'Audio Technician'],
+  execution: [
     'Camera Operator',
     'Photographer',
     'Director / DP',
     'Audio Technician',
     'Livestream Technician',
-    'Scriptwriter',
   ],
+  postInspection: ['Documents / Admin', 'Camera Operator', 'Audio Technician'],
+  editing: ['Editor', 'Colorist', 'Motion / Graphics Artist'],
+  finalCut: ['Editor', 'Director / DP'],
+  delivery: ['Coordinator', 'Documents / Admin'],
   archiving: ['Archiving / DMC'],
+  csm: ['Coordinator', 'Documents / Admin'],
 };
 
 /**
@@ -1320,7 +1506,7 @@ function SystemFrame({ app }: { app: SystemApp }) {
                   className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200"
                   style={{ borderTopColor: app.accent }}
                 />
-                <p className="font-mono text-[11px] text-slate-500">Loading {app.name}</p>
+                <p className="font-mono text-[11px] text-slate-9000">Loading {app.name}</p>
               </div>
             )}
           </>
@@ -1331,7 +1517,7 @@ function SystemFrame({ app }: { app: SystemApp }) {
             <h3 className="text-[15px] font-medium text-slate-800">
               {app.name} cannot be displayed here
             </h3>
-            <p className="max-w-lg text-[13px] leading-relaxed text-slate-500">
+            <p className="max-w-lg text-[13px] leading-relaxed text-slate-9000">
               The site sends a header that prevents it from being embedded in another
               page. Open it in a new tab instead — or, if you own the site, allow this
               dashboard to frame it (see the note below).
@@ -1621,7 +1807,7 @@ function ConnectionPanel({
         <button
           onClick={onRetry}
           disabled={busy}
-          className="text-[11px] text-slate-500 underline transition-colors hover:text-slate-600 disabled:opacity-50"
+          className="text-[11px] text-slate-9000 underline transition-colors hover:text-slate-600 disabled:opacity-50"
         >
           {busy ? 'Testing…' : 'Test again'}
         </button>
@@ -1648,7 +1834,7 @@ function ConnectionPanel({
                 {shortUrl(pr.url)}
               </p>
               {pr.hint && (
-                <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{pr.hint}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-9000">{pr.hint}</p>
               )}
             </div>
           </div>
@@ -1682,7 +1868,7 @@ function SignInGate({
       >
         <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
         <h1 className="text-[17px] font-semibold tracking-tight text-slate-800">AV Nexus</h1>
-        <p className="mt-1 text-[12px] text-slate-500">Broadcast &amp; Digital Media Section</p>
+        <p className="mt-1 text-[12px] text-slate-9000">Broadcast &amp; Digital Media Section</p>
 
         <p className="mt-6 text-[13px] leading-relaxed text-slate-500">
           Sign in with your DOST-STII Google account to continue. Records can only be
@@ -1781,7 +1967,7 @@ function StatTile({
     <div className="rounded-lg border border-slate-200 bg-white px-4 py-3.5 shadow-sm">
       <div className="flex items-center gap-1.5">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
-        <p className="truncate text-[11px] font-medium text-slate-500">{label}</p>
+        <p className="truncate text-[11px] font-medium text-slate-9000">{label}</p>
       </div>
       <p className="mt-2 font-mono text-[28px] font-medium leading-none text-slate-900 tabular-nums">
         {shown}
@@ -1834,7 +2020,7 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">{shown}%</span>
-          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-500">
+          <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-9000">
             cleared
           </span>
         </div>
@@ -2013,9 +2199,9 @@ function OutputCard({
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600">
           {o.personnel || '—'}
         </span>
-        {o.type && <span className="text-[9px] text-slate-500">{o.type}</span>}
+        {o.type && <span className="text-[9px] text-slate-9000">{o.type}</span>}
         {o.seconds > 0 && (
-          <span className="font-mono text-[9px] text-slate-500">{fmtRuntime(o.seconds)}</span>
+          <span className="font-mono text-[9px] text-slate-9000">{fmtRuntime(o.seconds)}</span>
         )}
       </div>
 
@@ -2047,7 +2233,7 @@ function OutputCard({
               onClick={() => onAdvance(o)}
               disabled={busy}
               title={`Move to ${STAGE_META[STAGE_ORDER[STAGE_ORDER.indexOf(o.stage) + 1]].label}`}
-              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-500 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
+              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-9000 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
             >
               {busy ? '…' : '→'}
             </button>
@@ -2171,7 +2357,8 @@ function QuickLogModal({
   onSubmit: (payload: Record<string, string | number>) => void;
   submitting: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // dayKey, hindi toISOString — sa Manila (UTC+8) umaatras ng isang araw.
+  const today = dayKey(new Date());
   const [f, setF] = useState({
     title: '',
     event: '',
@@ -2197,7 +2384,7 @@ function QuickLogModal({
 
   const field =
     'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-500';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
@@ -2206,11 +2393,11 @@ function QuickLogModal({
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h3 className="text-base font-semibold tracking-tight text-slate-900">Log a video output</h3>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-9000">
               For work that does not pass through DMC — shoot, edit, reel, livestream.
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-900">
+          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -2451,7 +2638,7 @@ function KPIRing({
       </div>
       <div className="min-w-0">
         <p className="text-sm font-semibold tracking-tight text-slate-900">{label}</p>
-        <p className="mt-1 text-xs leading-relaxed text-slate-500">{sub}</p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-9000">{sub}</p>
         <p
           className="mt-2 text-[10px] font-bold uppercase tracking-[0.1em]"
           style={{ color: hex }}
@@ -2606,17 +2793,17 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
       )}
 
       <div className="flex flex-wrap items-center gap-5 border-t border-slate-200 pt-3">
-        <span className="flex items-center gap-2 text-[10px] text-slate-500">
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
           <span className="h-2 w-4 rounded-sm bg-blue-300" /> Demand (received)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-500">
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
           <span className="h-2 w-4 rounded-sm bg-green-500" /> Capacity (rendered)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-500">
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
           <span className="font-mono font-bold text-red-600">−n</span> Unserved gap
         </span>
         {capacityPct !== null && (
-          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-500">
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-9000">
             Service fulfilment {capacityPct}%
           </span>
         )}
@@ -2689,7 +2876,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                 <p className="font-mono text-4xl font-black leading-none text-slate-900 tabular-nums">
                   {x.avg === null ? '—' : x.avg.toFixed(1)}
                 </p>
-                <p className="pb-1 text-xs text-slate-500">avg working days from receipt</p>
+                <p className="pb-1 text-xs text-slate-9000">avg working days from receipt</p>
               </div>
 
               {/* SLA bar: 100% = SLA limit */}
@@ -2704,14 +2891,14 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                 <div className="absolute inset-y-0 right-0 w-px bg-slate-400" />
               </div>
               <div className="mt-2 flex items-center justify-between text-[10px]">
-                <span className={over ? 'font-bold text-red-600' : 'text-slate-500'}>
+                <span className={over ? 'font-bold text-red-600' : 'text-slate-9000'}>
                   {x.avg === null
                     ? 'Nothing served yet'
                     : over
                     ? `${(x.avg - x.sla).toFixed(1)} WD over standard`
                     : `${(x.sla - x.avg).toFixed(1)} WD within standard`}
                 </span>
-                <span className="font-mono text-slate-500">
+                <span className="font-mono text-slate-9000">
                   {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
                 </span>
               </div>
@@ -2722,7 +2909,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
 
       {(stats.overdue.length > 0 || stats.atRisk.length > 0) && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
             Needs attention · {stats.overdue.length} overdue · {stats.atRisk.length} at risk
           </p>
           <div className="space-y-2">
@@ -2741,7 +2928,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-500">
+                    <span className="font-mono text-[10px] text-slate-9000">
                       {left === null ? '—' : left < 0 ? `${Math.abs(left)} WD over` : `${left} WD left`}
                     </span>
                     <SLABadge state={slaState(r)} />
@@ -2810,7 +2997,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
                   <p className="font-mono text-[10px] text-slate-400">{r.id}</p>
                 </td>
                 <td className="py-3 pr-3 text-slate-500">{r.client || '—'}</td>
-                <td className="py-3 pr-3 font-mono text-[10px] text-slate-500">
+                <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(r.dateRequested)}
                 </td>
                 <td className="py-3 pr-3">
@@ -2866,7 +3053,7 @@ function ComplianceScorecard({
       {
         item: 'Item 41',
         title: 'Turnaround time & workload monitoring',
-        ask: 'Measure actual processing time against the standard, and the workload of each staff member.',
+        ask: 'Measure actual processing time from receipt of the request until the service is done, and the workload of each staff member.',
         met: withTat > 0,
         evidence:
           withTat === 0
@@ -2884,10 +3071,11 @@ function ComplianceScorecard({
             (ev) => isAuthorised(ev) || !APPROVAL_META[ev.approval].live
           );
           const asked = decided.reduce((a, ev) => a + ev.requested.length, 0);
-          const missed = decided.reduce((a, ev) => a + serviceGap(ev).length, 0);
+          const noCap = decided.reduce((a, ev) => a + capacityGap(ev).length, 0);
+          const undelivered = decided.reduce((a, ev) => a + deliveryGap(ev).length, 0);
           const base = `Demand ${tracked} · rendered ${served} · unmet ${unmet.length}.`;
           return asked > 0
-            ? `${base} At service level: ${asked} requested, ${missed} not served — the basis for personnel augmentation.`
+            ? `${base} At service level: ${asked} requested, ${noCap} could not be agreed for lack of capacity, ${undelivered} agreed but not delivered. The capacity figure is the direct basis for personnel augmentation.`
             : `${base} The monthly comparison is in the Demand vs Capacity panel.`;
         })(),
       },
@@ -2923,7 +3111,7 @@ function ComplianceScorecard({
           <p className="text-sm font-semibold tracking-tight text-slate-900">
             Audit readiness
           </p>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-9000">
             PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025
           </p>
         </div>
@@ -2932,7 +3120,7 @@ function ComplianceScorecard({
             {metCount}
             <span className="text-lg text-slate-400">/{rows.length}</span>
           </p>
-          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500">criteria met</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">criteria met</p>
         </div>
       </div>
 
@@ -2947,7 +3135,7 @@ function ComplianceScorecard({
             }}
           >
             <div className="w-20 shrink-0">
-              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-slate-9000">
                 {r.item}
               </p>
               <p
@@ -3035,10 +3223,10 @@ function RequestTable({
                 <td className="p-3 font-mono text-[10px] uppercase text-slate-600">
                   {r.personnel || '—'}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-slate-500">
+                <td className="p-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(r.dateRequested)}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-slate-500">
+                <td className="p-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(effectiveTarget(r))}
                 </td>
                 <td className="p-3 font-mono text-[10px] tabular-nums">
@@ -3064,7 +3252,7 @@ function RequestTable({
                 <td className="p-3 text-right">
                   <button
                     onClick={() => onEdit(r)}
-                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-600"
+                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
                   >
                     Update
                   </button>
@@ -3094,8 +3282,11 @@ function RequestModal({
   onSubmit: (payload: Record<string, string>, id: string | null) => void;
   submitting: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
+  const today = dayKey(new Date());
+  // dayKey, hindi toISOString. Ang toISOString ay nagko-convert sa UTC —
+  // sa Manila (UTC+8) ang hatinggabi ay nagiging KAHAPON. Kaya tuwing
+  // bubuksan mo ang lumang record, umaatras ng isang araw ang mga petsa.
+  const iso = (d: Date | null) => (d ? dayKey(d) : '');
 
   const [f, setF] = useState({
     title: existing?.title ?? '',
@@ -3144,7 +3335,7 @@ function RequestModal({
 
   const field =
     'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-500';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[6vh]">
@@ -3155,11 +3346,11 @@ function RequestModal({
             <h3 className="text-base font-semibold tracking-tight text-slate-900">
               {existing ? `Update request · ${existing.id}` : 'Log a service request'}
             </h3>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-9000">
               Request Register — PM-CRPD-AV-08-04 Rev 7 · Form FR-CRPD-AV No. 001
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-900">
+          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -3430,9 +3621,13 @@ function FulfilChip({ f, dense = false }: { f: Fulfilment; dense?: boolean }) {
  * Asul = naibigay kahit hindi hiniling.
  */
 function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean }) {
-  const gap = serviceGap(ev);
+  const capGap = capacityGap(ev);
+  const delGap = deliveryGap(ev);
   const extra = serviceExtra(ev);
-  const gapSet = new Set(gap.map((x) => x.toLowerCase()));
+  // Dilaw = hiniling pero hindi napangako (kulang sa tao).
+  // Pula   = pinangako pero hindi naihatid.
+  const capSet = new Set(capGap.map((x) => x.toLowerCase()));
+  const gapSet = new Set(delGap.map((x) => x.toLowerCase()));
 
   // Hindi pa naaaprubahan — wala pang dapat ihambing, kaya neutral ang lahat.
   const pending = fulfilment(ev) === 'pending';
@@ -3460,18 +3655,27 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
     <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
       <div className="flex flex-wrap gap-1.5">
         {ev.requested.map((svc) => {
+          const notAgreed = capSet.has(svc.toLowerCase());
           const missing = gapSet.has(svc.toLowerCase());
           return (
             <span
               key={svc}
-              title={missing ? 'Requested but not served' : 'Requested and served'}
+              title={
+                notAgreed
+                  ? 'Requested but not agreed — no capacity'
+                  : missing
+                  ? 'Agreed but not delivered'
+                  : 'Agreed and delivered'
+              }
               className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${
-                missing
+                notAgreed
+                  ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : missing
                   ? 'border-red-200 bg-red-50 text-red-700 line-through decoration-red-500/60'
                   : 'border-green-200 bg-green-50 text-green-700'
               }`}
             >
-              {missing ? '✕' : '✓'} {svc}
+              {notAgreed ? '⊘' : missing ? '✕' : '✓'} {svc}
             </span>
           );
         })}
@@ -3489,11 +3693,19 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
         )}
       </div>
 
-      {gap.length > 0 && (
+      {(capGap.length > 0 || delGap.length > 0) && (
         <p className="text-[11px] leading-relaxed">
-          <span className="font-bold text-red-600">
-            {gap.length} service{gap.length === 1 ? '' : 's'} not served:
-          </span>{' '}
+          {capGap.length > 0 && (
+            <span className="font-bold text-amber-700">
+              {capGap.length} requested but not agreed
+              {delGap.length > 0 ? '; ' : ': '}
+            </span>
+          )}
+          {delGap.length > 0 && (
+            <span className="font-bold text-red-600">
+              {delGap.length} agreed but not delivered:{' '}
+            </span>
+          )}
           {ev.reason ? (
             <span className="text-slate-500">{ev.reason}</span>
           ) : (
@@ -3521,9 +3733,38 @@ function PipelineTrack({
   const locked = !isAuthorised(ev) || readOnly;
   const cycle: PipelineState[] = ['not-started', 'in-progress', 'done', 'na'];
 
+  const steps = stepsFor(streamOfServices(ev.requested));
+
+  /**
+   * Labing-isang hakbang ang PM pipeline. Hindi kasya ang labing-isang chip
+   * sa isang card, kaya sa compact ay progress bar + susunod na hakbang —
+   * 'yon naman ang aktwal na binabasa ng tao. Buong chips sa modal.
+   */
+  if (compact) {
+    const pct = pipelineProgress(ev);
+    const nxt = nextPipelineStep(ev);
+    return (
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{
+              width: `${locked ? 0 : pct}%`,
+              background: pct === 100 ? '#16a34a' : '#2563eb',
+            }}
+          />
+        </div>
+        <span className="shrink-0 font-mono text-[10px] text-slate-400">{pct}%</span>
+        <span className="truncate text-[10px] text-slate-9000">
+          {locked ? 'awaiting approval' : nxt ? nxt.label : 'complete'}
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex items-center ${compact ? 'gap-1' : 'gap-1.5'}`}>
-      {PIPELINE_STEPS.map((step, i) => {
+    <div className="flex flex-wrap items-center gap-1.5">
+      {steps.map((step, i) => {
         const st = ev.pipeline[step.key];
         const meta = PIPELINE_META[st];
         const clickable = !!onStep && !locked;
@@ -3557,11 +3798,9 @@ function PipelineTrack({
           </React.Fragment>
         );
       })}
-      {!compact && (
-        <span className="ml-2 font-mono text-[10px] text-slate-400">
-          {pipelineProgress(ev)}%
-        </span>
-      )}
+      <span className="ml-2 font-mono text-[10px] text-slate-400">
+        {pipelineProgress(ev)}%
+      </span>
     </div>
   );
 }
@@ -3607,6 +3846,11 @@ function EventCard({
             </div>
             <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
               {ev.id} · {ev.client || 'no client'}
+              {ev.clientTier && (
+                <span className="text-slate-400">
+                  {' '}· #{tierRank(ev.clientTier) + 1} {ev.clientTier}
+                </span>
+              )}
             {ev.createdBy && (
               <span className={canEdit ? 'text-slate-400' : 'text-amber-600'}>
                 {' '}· {canEdit ? 'yours' : ev.createdBy}
@@ -3639,7 +3883,7 @@ function EventCard({
         {crew.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-200 pt-3">
             {crew.map((a) => (
-              <span key={a.id} className="text-[11px] text-slate-500">
+              <span key={a.id} className="text-[11px] text-slate-9000">
                 <span className="font-medium text-slate-600">{a.personnel}</span>
                 {a.roles.length > 0 && (
                   <span className="text-slate-400"> — {a.roles.join(', ')}</span>
@@ -3660,10 +3904,10 @@ function EventCard({
         </div>
 
         {next && (
-          <p className="mt-2 text-[11px] text-slate-500">
+          <p className="mt-2 text-[11px] text-slate-9000">
             Next: <span className="font-medium text-blue-600">{next.label}</span>
             {nextOwners.length > 0 ? (
-              <span className="text-slate-500"> · {nextOwners.join(', ')}</span>
+              <span className="text-slate-9000"> · {nextOwners.join(', ')}</span>
             ) : (
               <span className="text-amber-600"> · no one assigned to this role</span>
             )}
@@ -3704,6 +3948,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       partial: 0,
       none: 0,
       gapCount: 0,
+      capShort: 0,
       noReason: 0,
       high: 0,
       noAdvice: 0,
@@ -3723,11 +3968,13 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       if (f === 'full') base.full += 1;
       if (f === 'partial') base.partial += 1;
       if (f === 'none') base.none += 1;
-      const gap = serviceGap(ev);
+      const capGap = capacityGap(ev);
+      const delGap = deliveryGap(ev);
       const decided = isAuthorised(ev) || !APPROVAL_META[ev.approval].live;
-      if (gap.length && decided) {
-        if (isAuthorised(ev)) base.gapCount += gap.length;
-        if (!ev.reason.trim()) base.noReason += 1;
+      base.capShort += capGap.length;
+      if (isAuthorised(ev)) base.gapCount += delGap.length;
+      if ((capGap.length || (delGap.length && decided)) && !ev.reason.trim()) {
+        base.noReason += 1;
       }
     });
     return base;
@@ -3741,7 +3988,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       k: 'Limited service',
       v: t.partial,
       c: '#d97706',
-      s: `${t.gapCount} service${t.gapCount === 1 ? '' : 's'} short`,
+      s: `${t.gapCount} promised not delivered`,
     },
     { k: 'Cancelled', v: t.cancelled, c: '#64748b', s: 'Withdrawn by the client' },
     { k: 'Rescheduled', v: t.rescheduled, c: '#ca8a04', s: 'Moved to another date' },
@@ -3778,9 +4025,16 @@ function EventSummary({ events }: { events: AVEvent[] }) {
           {t.high} event{t.high === 1 ? ' is' : 's are'} marked high priority.
         </div>
       )}
+      {t.capShort > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+          {t.capShort} requested service{t.capShort === 1 ? ' was' : 's were'} never agreed —
+          the AV team did not have the capacity. This is the service-level evidence for
+          personnel augmentation under Audit Item 44.
+        </div>
+      )}
       {t.noReason > 0 && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
-          {t.noReason} event(s) have unserved services with no recorded reason. Audit
+          {t.noReason} event(s) have a service shortfall with no recorded reason. Audit
           Item 40 requires this — open the event and add the reason.
         </div>
       )}
@@ -3819,8 +4073,9 @@ function EventModal({
   role: string;
   canEdit: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
+  const today = dayKey(new Date());
+  // Tingnan ang paliwanag sa RequestModal — parehong off-by-one bug.
+  const iso = (d: Date | null) => (d ? dayKey(d) : '');
 
   const [f, setF] = useState({
     title: existing?.title ?? '',
@@ -3835,6 +4090,8 @@ function EventModal({
       ? APPROVAL_META[existing.approval].label
       : APPROVAL_META['for-evaluation'].label,
     approvalRemarks: existing?.approvalRemarks ?? '',
+    clientTier: existing?.clientTier || CLIENT_TIERS[CLIENT_TIERS.length - 1],
+    urgentNote: existing?.urgentNote ?? '',
     priority: existing ? classifyPriority(existing.priority) : 'Normal',
     reason: existing?.reason ?? '',
     lead: existing?.lead || 'Xyrus',
@@ -3847,13 +4104,23 @@ function EventModal({
   });
 
   const [requested, setRequested] = useState<string[]>(existing?.requested ?? []);
+  const [agreed, setAgreed] = useState<string[]>(
+    existing ? (existing.agreed.length ? existing.agreed : existing.requested) : []
+  );
   const [delivered, setDelivered] = useState<string[]>(existing?.delivered ?? []);
   const [pipeline, setPipeline] = useState<Record<PipelineKey, PipelineState>>(
-    existing?.pipeline ?? {
+existing?.pipeline ?? {
       coordination: 'not-started',
       documents: 'not-started',
-      deliverables: 'not-started',
+      script: 'not-started',
+      preInspection: 'not-started',
+      execution: 'not-started',
+      postInspection: 'not-started',
+      editing: 'not-started',
+      finalCut: 'not-started',
+      delivery: 'not-started',
       archiving: 'not-started',
+      csm: 'not-started',
     }
   );
 
@@ -3888,26 +4155,76 @@ function EventModal({
     setList(list.includes(svc) ? list.filter((x) => x !== svc) : [...list, svc]);
 
   const approvalKey = classifyApproval(f.approvalStatus);
-  const gap = requested.filter((x) => !delivered.includes(x));
+
+  /**
+   * Tinanggihan / kinansela / inilipat → WALANG agreed volume. Walang
+   * ipinangako, kaya walang dapat sukatin. Hindi ito nakadepende sa
+   * naka-tsek sa screen — pinipilit ito ng status mismo.
+   */
+  const notApproved = !APPROVAL_META[approvalKey].live;
+  const agreedEff = notApproved ? [] : agreed;
+
+  /** Hiniling pero hindi pinangako — kulang sa tao. Ebidensiya ng Item 44. */
+  const capGap = requested.filter((x) => !agreedEff.includes(x));
+  /** Pinangako pero hindi natupad — ebidensiya ng PM 2.1. */
+  const delGap = agreedEff.filter((x) => !delivered.includes(x));
   const extra = delivered.filter((x) => !requested.includes(x));
 
-  const notApproved = !APPROVAL_META[approvalKey].live;
-  const hasGap = approvalKey === 'approved' && gap.length > 0 && delivered.length >= 0;
-  const reasonRequired = notApproved || (hasGap && requested.length > 0);
+  /**
+   * ANG DATING BUG: `approvalKey === 'approved'` lang ang tinitingnan.
+   * Pero ang paghahatid ay nangyayari kapag ENDORSED na — kaya sa mismong
+   * yugtong may kulang na serbisyo, NAWAWALA ang reason box. Wala tuloy
+   * naitatalang dahilan, at 'yon mismo ang hinahanap ng auditor.
+   *
+   * Ngayon: hinihingi ang dahilan sa TATLONG pagkakataon —
+   *   1. hindi naipagpatuloy ang request (declined / cancelled / moved)
+   *   2. may hiniling na hindi napangako (kulang sa tao)  ← Item 44
+   *   3. may pinangako na hindi naihatid (approved o endorsed) ← PM 2.1
+   */
+  const authorisedNow = approvalKey === 'approved';
+  const reasonRequired =
+    notApproved || capGap.length > 0 || (authorisedNow && delGap.length > 0);
   const reasonMissing = reasonRequired && !f.reason.trim();
 
-  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
-  const sla = requested.some((x) => heavy.has(x.toLowerCase()))
-    ? SLA_WD.production
-    : SLA_WD.coverage;
+  /** Ilang araw tumatakbo ang event — pang-ipakita lang, isa pa rin ang bilang. */
+  const spanDays = useMemo(() => {
+    const a = parseDate(f.eventDate);
+    const b = parseDate(f.endDate) || a;
+    if (!a || !b) return 0;
+    return Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000) + 1);
+  }, [f.eventDate, f.endDate]);
 
+  const streamKey = streamOfServices(requested);
+  const sla = SLA_WD[streamKey];
+  const applicableSteps = useMemo(() => stepsFor(streamKey), [streamKey]);
+
+  /**
+   * Pinalitan ng PM catalogue ang lumang listahan ng serbisyo. Ang mga
+   * lumang record ay may pangalan na wala na sa katalogo — kung hindi
+   * ipapakita, mawawala sila sa screen at tahimik na mabubura sa pag-save.
+   * Kaya isinasama sila sa listahan, may babala.
+   */
+  const legacyServices = useMemo(() => {
+    const known = new Set(SERVICE_CATALOG.map((x) => x.toLowerCase()));
+    return Array.from(new Set([...requested, ...agreed, ...delivered])).filter(
+      (x) => !known.has(x.toLowerCase())
+    );
+  }, [requested, agreed, delivered]);
+
+  const catalogue = useMemo(
+    () => [...SERVICE_CATALOG, ...legacyServices],
+    [legacyServices]
+  );
+
+  // Mas huli sa dalawa: pagtanggap, o huling araw ng event. Kung hindi,
+  // OVERDUE agad ang bawat advance booking bago pa mangyari ang event.
   const previewTarget = useMemo(() => {
     if (f.targetDate) return f.targetDate;
-    const base = f.dateRequested;
-    if (!base) return '';
-    const d = parseDate(base);
-    return d ? dayKey(addWorkingDays(d, sla)) : '';
-  }, [f.targetDate, f.dateRequested, sla]);
+    const got = parseDate(f.dateRequested);
+    const ends = parseDate(f.endDate) || parseDate(f.eventDate);
+    const base = !got ? ends : !ends ? got : (ends.getTime() > got.getTime() ? ends : got);
+    return base ? dayKey(addWorkingDays(base, sla)) : '';
+  }, [f.targetDate, f.dateRequested, f.eventDate, f.endDate, sla]);
 
   // Ang mga approver ay maaaring mag-aprub, pero hindi mag-edit ng nilalaman.
   const isApprover = role === 'dc' || role === 'srs';
@@ -3928,7 +4245,9 @@ function EventModal({
     () =>
       canDecide(role)
         ? APPROVAL_ORDER
-        : APPROVAL_ORDER.filter((k) => k !== 'approved' && k !== 'endorsed'),
+        // Ayon sa PM, ang AV team ay NAGRERECOMMEND lamang. Hindi sila
+        // makakapagpadala nang diretso sa DC at hindi sila makaka-approve.
+        : APPROVAL_ORDER.filter((k) => k !== 'approved' && k !== 'for-approval'),
     [role]
   );
 
@@ -3936,7 +4255,7 @@ function EventModal({
   const pushingUp =
     inTriage &&
     (!existing || existing.approval === 'for-evaluation') &&
-    approvalKey === 'for-approval';
+    approvalKey === 'for-endorsement';
 
   /**
    * Ang parehong panuntunan ng server, ipinapakita bago pa mag-save.
@@ -3953,10 +4272,10 @@ function EventModal({
     return out;
   }, [f.title, f.client, f.eventDate, f.dateRequested, requested]);
 
-  // Hindi maaaring maibigay ang hindi naman hiniling.
+  // Hindi maaaring maihatid ang hindi naman ipinangako.
   const strayDelivered = useMemo(
-    () => delivered.filter((d) => !requested.includes(d)),
-    [delivered, requested]
+    () => delivered.filter((d) => !agreedEff.includes(d)),
+    [delivered, agreedEff]
   );
 
   const canSave =
@@ -3969,7 +4288,7 @@ function EventModal({
     `w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20${
       readOnly || approvalOnly ? ' pointer-events-none opacity-50' : ''
     }`;
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-500';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   const submit = () =>
     onSubmit(
@@ -3978,11 +4297,18 @@ function EventModal({
         lead: crew.find((c) => c.roles.length)?.personnel || f.lead,
         team: crew.map((c) => c.personnel).filter(Boolean).join(', '),
         requestedServices: requested.join(', '),
+        agreedServices: agreedEff.join(', '),
         deliveredServices: delivered.join(', '),
-        coordination: PIPELINE_META[pipeline.coordination].label,
-        documents: PIPELINE_META[pipeline.documents].label,
-        deliverables: PIPELINE_META[pipeline.deliverables].label,
-        archiving: PIPELINE_META[pipeline.archiving].label,
+        ...Object.fromEntries(
+          PIPELINE_STEPS.map((st) => [
+            stepField(st.key),
+            // Ang hindi applicable sa stream na ito ay N/A, hindi "not started" —
+            // kung hindi, hindi kailanman aabot sa 100% ang isang coverage.
+            applicableSteps.some((a) => a.key === st.key)
+              ? PIPELINE_META[pipeline[st.key]].label
+              : PIPELINE_META.na.label,
+          ])
+        ),
       },
       existing?.id ?? null,
       crew.filter((c) => c.personnel && c.roles.length)
@@ -3998,17 +4324,15 @@ function EventModal({
               <h3 className="truncate text-base font-semibold tracking-tight text-slate-900">
                 {existing ? existing.title || existing.id : 'New event request'}
               </h3>
-              {classifyPriority(f.priority) === 'High' && (
-                <PriorityBadge priority={f.priority} dense />
-              )}
+              {f.urgentNote.trim() && <PriorityBadge priority="High" dense />}
               {approvalKey === 'for-evaluation' && <ApprovalChip k="for-evaluation" dense />}
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-9000">
               {existing ? `${existing.id} · ` : ''}Request Form FR-CRPD-AV No. 001 ·
               PM-CRPD-AV-08-04 Rev 7
             </p>
           </div>
-          <button onClick={onClose} className="shrink-0 text-slate-500 hover:text-slate-900">
+          <button onClick={onClose} className="shrink-0 text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -4088,48 +4412,97 @@ function EventModal({
               </p>
             </div>
 
-            <div className="md:col-span-2">
-              <label className={lab}>Priority</label>
+            {/*
+                PRIORITISATION — eksakto ang pagkakasunod-sunod sa PM, at ito
+                ang sagot sa puna ng COA na magdagdag ng prioritization
+                category. Hindi na ito basta High/Normal/Low na hulaan.
+            */}
+            <div>
+              <label className={lab}>Client priority (PM order)</label>
               <select
                 className={field}
-                value={f.priority}
-                onChange={(e) => set('priority', e.target.value)}
+                value={f.clientTier || CLIENT_TIERS[CLIENT_TIERS.length - 1]}
+                onChange={(e) => set('clientTier', e.target.value)}
               >
-                {PRIORITY_ORDER.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
+                {CLIENT_TIERS.map((t, i) => (
+                  <option key={t} value={t}>
+                    {i + 1}. {t}
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-[10px] text-slate-400">
-                High priority puts this request at the top of the approver&rsquo;s queue and
-                flags it on the board. Use it for genuinely urgent work only.
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                Office of the Secretary ranks first, Regional Offices last. This drives
+                the order of the evaluation and approval queues.
+              </p>
+            </div>
+            <div>
+              <label className={lab}>
+                Urgent override <span className="text-slate-400">— notice required</span>
+              </label>
+              <textarea
+                className={`${field} min-h-[74px] resize-y`}
+                value={f.urgentNote}
+                onChange={(e) => set('urgentNote', e.target.value)}
+                placeholder="Leave blank unless this genuinely jumps the queue. State why, e.g. Secretary's directive issued 3 days before the event."
+              />
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                The PM allows an urgent request to override the client order{' '}
+                <b>with notice</b>. Writing here is that notice — and it is what marks
+                the request High priority. Blank means normal.
               </p>
             </div>
 
             {/* ----------- ang service ledger ----------- */}
+            {/*
+                TATLONG HANAY, HINDI DALAWA.
+                  Hiniling   = demand ng kliyente
+                  Pinangako  = kayang ibigay ng AV team (AGREED VOLUME)
+                  Naibigay   = aktwal na naihatid
+                Dalawang magkaibang kulang ang lumalabas dito, at magkaiba
+                rin ang ibig sabihin nila sa auditor: ang una ay kulang na
+                TAO, ang pangalawa ay hindi natupad na PANGAKO.
+            */}
             <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-3 flex items-baseline justify-between">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
                 <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
-                  Serbisyo — hiniling laban sa naibigay
+                  Serbisyo — hiniling, pinangako, naibigay
                 </p>
-                <span className="font-mono text-[10px] text-slate-400">SLA {sla} WD</span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  SLA {sla} WD
+                  {spanDays > 1 && ` · ${spanDays}-day event, counted as 1 service`}
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
-                  <p className={lab}>Requested by the client</p>
+                  <p className={lab}>Hiniling ng kliyente</p>
+                  {legacyServices.length > 0 && (
+                    <p className="mb-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-relaxed text-amber-800">
+                      Naka-tala sa record ang mga lumang pangalan ng serbisyo:{' '}
+                      <b>{legacyServices.join(', ')}</b>. Wala na ang mga ito sa PM
+                      catalogue pero ipinapakita pa rin para hindi mawala ang datos.
+                    </p>
+                  )}
                   <div className="space-y-1">
-                    {SERVICE_CATALOG.map((svc) => (
+                    {catalogue.map((svc) => (
                       <label
                         key={svc}
-                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-slate-600 hover:bg-white"
                       >
                         <input
                           type="checkbox"
                           className="accent-blue-600"
                           checked={requested.includes(svc)}
-                          onChange={() => toggle(requested, setRequested, svc)}
+                          onChange={() => {
+                            const on = requested.includes(svc);
+                            toggle(requested, setRequested, svc);
+                            // Kapag tinanggal sa hiniling, hindi na ito
+                            // pwedeng manatiling pinangako o naibigay.
+                            if (on) {
+                              setAgreed((p) => p.filter((x) => x !== svc));
+                              setDelivered((p) => p.filter((x) => x !== svc));
+                            }
+                          }}
                         />
                         {svc}
                       </label>
@@ -4138,39 +4511,117 @@ function EventModal({
                 </div>
 
                 <div>
-                  <p className={lab}>Aktwal na naibigay</p>
-                  <div className="space-y-1">
-                    {SERVICE_CATALOG.map((svc) => {
-                      const asked = requested.includes(svc);
-                      const got = delivered.includes(svc);
-                      const missing = asked && !got;
-                      return (
-                        <label
-                          key={svc}
-                          className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-slate-50 ${
-                            missing ? 'text-red-600' : got ? 'text-green-600' : 'text-slate-400'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="accent-green-600"
-                            checked={got}
-                            onChange={() => toggle(delivered, setDelivered, svc)}
-                          />
-                          {svc}
-                          {missing && <span className="ml-auto text-[9px] font-bold">KULANG</span>}
-                        </label>
-                      );
-                    })}
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                    <p className="text-[11px] font-medium text-slate-9000">
+                      Pinangako <span className="text-purple-600">(agreed volume)</span>
+                    </p>
+                    {!notApproved && requested.length > 0 && (
+                      <button
+                        onClick={() => setAgreed(requested)}
+                        className="text-[10px] text-purple-600 underline transition-colors hover:text-purple-800"
+                      >
+                        Lahat
+                      </button>
+                    )}
                   </div>
+                  {notApproved ? (
+                    <p className="rounded border border-dashed border-slate-300 px-3 py-6 text-center text-[11px] leading-relaxed text-slate-400">
+                      Walang agreed volume.<br />
+                      {APPROVAL_META[approvalKey].label} ang request — walang ipinangako.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {catalogue.map((svc) => {
+                        const asked = requested.includes(svc);
+                        const promised = agreed.includes(svc);
+                        return (
+                          <label
+                            key={svc}
+                            className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
+                              asked ? 'cursor-pointer hover:bg-white' : 'opacity-30'
+                            } ${
+                              asked && !promised
+                                ? 'font-medium text-amber-700'
+                                : promised
+                                ? 'text-purple-700'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-purple-600"
+                              disabled={!asked}
+                              checked={promised}
+                              onChange={() => {
+                                const on = agreed.includes(svc);
+                                toggle(agreed, setAgreed, svc);
+                                if (on) setDelivered((p) => p.filter((x) => x !== svc));
+                              }}
+                            />
+                            {svc}
+                            {asked && !promised && (
+                              <span className="ml-auto text-[9px] font-bold">HINDI KAYA</span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p className={lab}>Aktwal na naibigay</p>
+                  {notApproved ? (
+                    <p className="rounded border border-dashed border-slate-300 px-3 py-6 text-center text-[11px] text-slate-400">
+                      Walang naihatid.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {catalogue.map((svc) => {
+                        const promised = agreed.includes(svc);
+                        const got = delivered.includes(svc);
+                        const missing = promised && !got;
+                        return (
+                          <label
+                            key={svc}
+                            className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
+                              promised ? 'cursor-pointer hover:bg-white' : 'opacity-30'
+                            } ${missing ? 'text-red-600' : got ? 'text-green-600' : 'text-slate-400'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-green-600"
+                              disabled={!promised}
+                              checked={got}
+                              onChange={() => toggle(delivered, setDelivered, svc)}
+                            />
+                            {svc}
+                            {missing && <span className="ml-auto text-[9px] font-bold">KULANG</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {(gap.length > 0 || extra.length > 0) && (
-                <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-[11px]">
-                  {gap.length > 0 && (
+              {(capGap.length > 0 || delGap.length > 0 || extra.length > 0) && (
+                <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-[11px]">
+                  {capGap.length > 0 && (
+                    <p className="text-amber-700">
+                      <b>{capGap.length} hiniling na hindi napangako:</b> {capGap.join(', ')}
+                      <span className="text-slate-500">
+                        {' '}— kulang sa tao o kagamitan. Ito ang ebidensiya para sa
+                        personnel augmentation (Audit Item 44).
+                      </span>
+                    </p>
+                  )}
+                  {delGap.length > 0 && (
                     <p className="text-red-600">
-                      <b>{gap.length} not served:</b> {gap.join(', ')}
+                      <b>{delGap.length} pinangako na hindi naihatid:</b> {delGap.join(', ')}
+                      <span className="text-slate-500">
+                        {' '}— hindi natupad na pangako (PM 2.1).
+                      </span>
                     </p>
                   )}
                   {extra.length > 0 && (
@@ -4241,14 +4692,16 @@ function EventModal({
                   )}
                   {canChangeApproval && inTriage && (
                     <p className="mt-1 text-[10px] leading-relaxed text-purple-600">
-                      In AV evaluation. Set this to{' '}
-                      <b>{APPROVAL_META['for-approval'].label}</b> to send it — with your
-                      recommendation and a schedule-conflict scan — to the Division Chief.
+                      SRS II assessment stage. Set the agreed volume and the
+                      recommendation, then move this to{' '}
+                      <b>{APPROVAL_META['for-endorsement'].label}</b> — that emails the
+                      Supervising SRS, who forwards it to the Division Chief. Per the PM,
+                      the AV team recommends; it does not approve.
                     </p>
                   )}
                   {existing &&
                     APPROVAL_META[approvalKey].live &&
-                    approvalKey !== 'endorsed' &&
+                    approvalKey !== 'approved' &&
                     approvalKey !== 'for-evaluation' && (
                       <button
                         onClick={() => onNotify(existing.id)}
@@ -4325,7 +4778,7 @@ function EventModal({
                               className={`rounded border px-2 py-1 text-[11px] transition-colors ${
                                 on
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-9000 hover:border-slate-300 hover:text-slate-600'
                               }`}
                             >
                               {role}
@@ -4380,10 +4833,15 @@ function EventModal({
                         : 'required when services were not served'}
                     </span>
                   </label>
+                  {/* HINDI ginagamit ang `field` dito. Ang `field` ay
+                      pointer-events-none para sa approver — kaya dati,
+                      hindi makapag-type ng dahilan si DC kapag nagde-decline
+                      sa dashboard, samantalang kinakailangan ito bago
+                      makapag-save. Naiipit siya. */}
                   <textarea
-                    className={`${field} min-h-[76px] resize-y ${
-                      reasonMissing ? 'border-red-400' : ''
-                    }`}
+                    className={`w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-h-[76px] resize-y ${
+                      reasonMissing ? 'border-red-400' : 'border-slate-300'
+                    }${readOnly ? ' pointer-events-none opacity-50' : ''}`}
                     value={f.reason}
                     onChange={(e) => set('reason', e.target.value)}
                     placeholder="For example: Hybrid livestream not provided — no available personnel, team deployed to another DOST event."
@@ -4397,11 +4855,24 @@ function EventModal({
 
             {/* ----------- pipeline ----------- */}
             <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
-                Execution pipeline
-              </p>
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+                  Execution pipeline — {STREAM_META[streamKey].label}
+                </p>
+                <span className="font-mono text-[10px] text-slate-400">
+                  PM {streamKey === 'production' ? '3A' : '3B'} + 4 ·{' '}
+                  {applicableSteps.length} steps
+                </span>
+              </div>
+              {streamKey === 'coverage' && (
+                <p className="mb-3 text-[10px] leading-relaxed text-slate-400">
+                  Script approval and final-cut approval are Production-only steps under
+                  PM 3A, so they are not shown for a Coverage request and are recorded
+                  as N/A.
+                </p>
+              )}
               <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                {PIPELINE_STEPS.map((step) => (
+                {applicableSteps.map((step) => (
                   <div key={step.key}>
                     <label className={lab}>{step.label}</label>
                     <select
@@ -4493,13 +4964,13 @@ function EventModal({
               : approvalOnly
               ? 'You may approve or decline. Editing the record is done by its owner.'
               : strayDelivered.length > 0
-              ? `Marked served but never requested: ${strayDelivered.join(', ')}. Add them to the requested services first.`
+              ? `Marked delivered but never agreed: ${strayDelivered.join(', ')}. Tick them under Pinangako first.`
               : missingFields.length > 0
               ? `Still required: ${missingFields.join(', ')}.`
               : reasonMissing
               ? 'A reason is required before saving.'
               : pushingUp
-              ? 'Saving will email the Division Chief with your recommendation and a schedule-conflict scan.'
+              ? 'Saving will email the Supervising SRS with your recommendation and a schedule-conflict scan.'
               : 'Saved directly to the Events sheet.'}
           </p>
           <div className="flex gap-2">
@@ -4519,7 +4990,7 @@ function EventModal({
                 : approvalOnly
                 ? 'Record decision'
                 : pushingUp
-                ? 'Send to Division Chief'
+                ? 'Send to Supervising SRS'
                 : existing
                 ? 'Save changes'
                 : 'Create event'}
@@ -4538,7 +5009,10 @@ function EventModal({
  */
 function ServiceGapPanel({ events }: { events: AVEvent[] }) {
   const rows = useMemo(() => {
-    const map = new Map<string, { asked: number; given: number; missed: number }>();
+    const map = new Map<
+      string,
+      { asked: number; given: number; missed: number; noCap?: number }
+    >();
     events.forEach((ev) => {
       // Naghihintay pa ng approval — wala pang masasabing naibigay o hindi
       if (APPROVAL_META[ev.approval].live && !isAuthorised(ev)) return;
@@ -4553,11 +5027,15 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
         return;
       }
       const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
+      const promised = new Set(agreedVolume(ev).map((x) => x.toLowerCase()));
       ev.requested.forEach((svc) => {
         const cur = map.get(svc) || { asked: 0, given: 0, missed: 0 };
         cur.asked += 1;
         if (got.has(svc.toLowerCase())) cur.given += 1;
         else cur.missed += 1;
+        // Hindi man lang napangako — ito ang purong kakulangan sa tao,
+        // hindi pagkukulang sa paghahatid. Hiwalay ang bilang.
+        if (!promised.has(svc.toLowerCase())) cur.noCap = (cur.noCap || 0) + 1;
         map.set(svc, cur);
       });
     });
@@ -4567,8 +5045,12 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
   }, [events]);
 
   const totals = rows.reduce(
-    (a, r) => ({ asked: a.asked + r.asked, missed: a.missed + r.missed }),
-    { asked: 0, missed: 0 }
+    (a, r) => ({
+      asked: a.asked + r.asked,
+      missed: a.missed + r.missed,
+      noCap: a.noCap + (r.noCap || 0),
+    }),
+    { asked: 0, missed: 0, noCap: 0 }
   );
 
   const reasons = useMemo(() => {
@@ -4592,10 +5074,11 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { k: 'Services requested', v: totals.asked, c: '#2563eb' },
           { k: 'Services served', v: totals.asked - totals.missed, c: '#16a34a' },
+          { k: 'No capacity to agree', v: totals.noCap, c: '#d97706' },
           { k: 'Services not served', v: totals.missed, c: '#dc2626' },
         ].map((x) => (
           <div
@@ -4616,7 +5099,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
           <div key={r.svc}>
             <div className="mb-1 flex items-baseline justify-between gap-3">
               <span className="truncate text-xs font-semibold text-slate-600">{r.svc}</span>
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-500">
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-9000">
                 {r.given}/{r.asked} served
                 {r.missed > 0 && (
                   <span className="ml-2 font-bold text-red-600">−{r.missed}</span>
@@ -4642,7 +5125,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
 
       {reasons.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
             Recorded reasons for non-delivery
           </p>
           <div className="space-y-2.5">
@@ -4763,7 +5246,7 @@ function KioskMode({
             <p className="font-mono text-2xl font-black text-slate-900 tabular-nums md:text-3xl">
               {now.toLocaleTimeString('en-PH', { hour12: false })}
             </p>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-9000">
               {now.toLocaleDateString('en-PH', {
                 weekday: 'long',
                 day: 'numeric',
@@ -4774,7 +5257,7 @@ function KioskMode({
           </div>
           <button
             onClick={onClose}
-            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-500 transition-colors hover:text-slate-900"
+            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-9000 transition-colors hover:text-slate-900"
           >
             ✕ Exit
           </button>
@@ -4801,7 +5284,7 @@ function KioskMode({
                       <p className="text-3xl font-black uppercase tracking-wider text-slate-900">
                         {m.name}
                       </p>
-                      <p className="font-mono text-xs text-slate-500">
+                      <p className="font-mono text-xs text-slate-9000">
                         {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                       </p>
                     </div>
@@ -4817,7 +5300,7 @@ function KioskMode({
                         ) : (
                           <StageBadge stage={act.out.stage} />
                         )}
-                        <span className="font-mono text-xs text-slate-500">{fmtDate(act.when)}</span>
+                        <span className="font-mono text-xs text-slate-9000">{fmtDate(act.when)}</span>
                       </div>
                     </>
                   ) : (
@@ -4911,7 +5394,7 @@ function KioskMode({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-xl font-bold text-slate-800">{o.title}</p>
-                    <p className="font-mono text-xs text-slate-500">
+                    <p className="font-mono text-xs text-slate-9000">
                       {o.personnel} · {o.role || o.type}
                       {o.target ? ` · due ${fmtDate(o.target)}` : ''}
                     </p>
@@ -4993,7 +5476,7 @@ function KioskMode({
                         style={{ left: `${x.t}%` }}
                       />
                     </div>
-                    <p className="mt-3 text-xs text-slate-500">{x.sub}</p>
+                    <p className="mt-3 text-xs text-slate-9000">{x.sub}</p>
                   </div>
                 );
               })}
@@ -5179,7 +5662,7 @@ function AppWindow({
                     className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200"
                     style={{ borderTopColor: app.accent }}
                   />
-                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-500">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-9000">
                     Connecting to {app.name}
                   </p>
                 </div>
@@ -5291,7 +5774,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             placeholder="Search systems, people, records and actions…"
             className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
-          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-9000">
             ESC
           </kbd>
         </div>
@@ -5387,7 +5870,7 @@ function PersonnelDrawer({
             <h3 className="truncate text-lg font-semibold tracking-tight text-slate-900">
               {OFFICIAL[name]?.fullName || name}
             </h3>
-            <p className="truncate text-xs text-slate-500">{OFFICIAL[name]?.designation}</p>
+            <p className="truncate text-xs text-slate-9000">{OFFICIAL[name]?.designation}</p>
           </div>
           <button
             onClick={onClose}
@@ -5405,7 +5888,7 @@ function PersonnelDrawer({
           ].map((s) => (
             <div key={s.k} className="bg-white p-4 text-center">
               <p className="font-mono text-2xl font-black text-slate-900 tabular-nums">{s.v}</p>
-              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-500">{s.k}</p>
+              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">{s.k}</p>
             </div>
           ))}
         </div>
@@ -5449,7 +5932,7 @@ type ViewKey =
 
 const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'portfolio',  label: 'Services',   hint: 'Public-facing AV services page' },
-  { key: 'events',     label: 'Events',     hint: 'Triage, approval, services and delivery pipeline' },
+  { key: 'events',     label: 'Events',     hint: 'PM workflow — assessment, endorsement, approval, production' },
   { key: 'gatepass',   label: 'Gate Pass',  hint: 'Equipment releasing and inventory' },
   { key: 'production', label: 'Production', hint: 'Video output board' },
   { key: 'pulse',      label: 'Archive',    hint: 'DMC archive, team and source sheets' },
@@ -5931,6 +6414,11 @@ export default function App() {
               endDate: parseDate(r['End Date']),
               venue: String(r['Venue'] || ''),
               requested: splitServices(r['Requested Services']),
+              // Blangko sa lumang record → ang hiniling ang ituturing na
+              // pinangako, kaya hindi nagbabago ang dating bilang.
+              agreed: splitServices(
+                String(r['Agreed Services'] ?? '').trim() || r['Requested Services']
+              ),
               delivered: splitServices(r['Delivered Services']),
               reason: String(r['Reason for Gap'] || ''),
               approval: classifyApproval(approvalRaw),
@@ -5943,11 +6431,21 @@ export default function App() {
               lead: String(r['Lead Personnel'] || ''),
               team: String(r['Team'] || ''),
               priority: String(r['Priority'] || 'Normal'),
+              clientTier: String(r['Client Tier'] || ''),
+              urgentNote: String(r['Urgent Note'] || ''),
               pipeline: {
                 coordination: classifyPipeline(String(r['Coordination'] || '')),
                 documents: classifyPipeline(String(r['Documents'] || '')),
-                deliverables: classifyPipeline(String(r['Deliverables'] || '')),
+                script: classifyPipeline(String(r['Script Approval'] || '')),
+                preInspection: classifyPipeline(String(r['Pre-Inspection'] || '')),
+                // Ang lumang "Deliverables" ang shoot / coverage step.
+                execution: classifyPipeline(String(r['Deliverables'] || '')),
+                postInspection: classifyPipeline(String(r['Post-Inspection'] || '')),
+                editing: classifyPipeline(String(r['Editing'] || '')),
+                finalCut: classifyPipeline(String(r['Final Cut Approval'] || '')),
+                delivery: classifyPipeline(String(r['Client Delivery'] || '')),
                 archiving: classifyPipeline(String(r['Archiving'] || '')),
+                csm: classifyPipeline(String(r['CSM'] || '')),
               },
               targetDate: parseDate(r['Target Date']),
               dateDelivered: parseDate(r['Date Delivered']),
@@ -6094,6 +6592,7 @@ export default function App() {
         eventDate: form.eventDate,
         endDate: form.endDate,
         requestedServices: form.requestedServices,
+        agreedServices: form.agreedServices || '',
         deliveredServices: form.deliveredServices,
         reason: form.reason,
         approvalStatus: normalisedStatus,
@@ -6103,10 +6602,11 @@ export default function App() {
         priority: classifyPriority(form.priority),
         leadPersonnel: form.lead,
         team: form.team,
-        coordination: form.coordination,
-        documents: form.documents,
-        deliverables: form.deliverables,
-        archiving: form.archiving,
+        ...Object.fromEntries(
+          PIPELINE_STEPS.map((st) => [stepField(st.key), form[stepField(st.key)] || ''])
+        ),
+        clientTier: form.clientTier || '',
+        urgentNote: form.urgentNote || '',
         targetDate: form.targetDate,
         dateDelivered: form.dateDelivered,
         csm: form.csm,
@@ -6125,6 +6625,8 @@ export default function App() {
       const approverPatch = {
         approvalStatus: normalisedStatus,
         reason: form.reason,
+        // Kapag tinanggihan, nililinis ng server ang agreed at delivered —
+        // walang ipinangako sa isang tinanggihang request.
         actor,
       };
 
@@ -6227,17 +6729,11 @@ export default function App() {
           x.id === ev.id ? { ...x, pipeline: { ...x.pipeline, [key]: next } } : x
         )
       );
-      const fieldMap: Record<PipelineKey, string> = {
-        coordination: 'coordination',
-        documents: 'documents',
-        deliverables: 'deliverables',
-        archiving: 'archiving',
-      };
       try {
         await authedPost({
             action: 'updateEvent',
             id: ev.id,
-            patch: { [fieldMap[key]]: PIPELINE_META[next].label },
+            patch: { [stepField(key)]: PIPELINE_META[next].label },
           });
       } catch (err) {
         // Ang optimistic na pagbabago ay bumalik sa dating anyo kapag
@@ -6419,12 +6915,9 @@ export default function App() {
         return false;
       return true;
     });
-    // Mataas na prayoridad ang unang nakikita — 'yon ang punto ng pagmarka.
-    return list.sort((a, b) => {
-      const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
-      const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
-      return pa - pb;
-    });
+    // PM order: urgent muna (may nakasulat na paunawa), tapos ang opisyal
+    // na ranggo ng kliyente — Office of the Secretary pababa.
+    return list.sort((a, b) => queueRank(a) - queueRank(b));
   }, [events, evQuery, evApproval, evFulfil, evPriority]);
 
   /** Nasa AV team pa — sila ang dapat kumilos, hindi ang DC. */
@@ -6433,10 +6926,9 @@ export default function App() {
       events
         .filter((ev) => ev.approval === 'for-evaluation')
         .sort((a, b) => {
-          const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
-          const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
-          if (pa !== pb) return pa - pb;
-          // Ang pinakamalapit na event date ang pinakaurgent na suriin.
+          const r = queueRank(a) - queueRank(b);
+          if (r !== 0) return r;
+          // Pantay ang ranggo → ang pinakamalapit na event ang unang suriin.
           const at = a.eventDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
           const bt = b.eventDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
           return at - bt;
@@ -6449,11 +6941,7 @@ export default function App() {
     () =>
       events
         .filter((ev) => awaitingAction(ev) && ev.approval !== 'for-evaluation')
-        .sort((a, b) => {
-          const pa = classifyPriority(a.priority) === 'High' ? 0 : 1;
-          const pb = classifyPriority(b.priority) === 'High' ? 0 : 1;
-          return pa - pb;
-        }),
+        .sort((a, b) => queueRank(a) - queueRank(b)),
     [events]
   );
 
@@ -7092,7 +7580,7 @@ export default function App() {
                     fetchProduction();
                   }}
                   title={connMeta.label}
-                  className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                  className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] text-slate-9000 transition-colors hover:bg-slate-100 hover:text-slate-600"
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
                   <span className="font-mono">{refreshing ? 'Syncing' : connMeta.short}</span>
@@ -7123,7 +7611,7 @@ export default function App() {
                     onClick={() => setView(v.key)}
                     title={v.hint}
                     className={`group relative shrink-0 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
-                      active ? 'text-slate-800' : 'text-slate-500 hover:text-slate-600'
+                      active ? 'text-slate-800' : 'text-slate-9000 hover:text-slate-600'
                     }`}
                   >
                     {v.label}
@@ -7315,29 +7803,29 @@ export default function App() {
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                     DMC status mix
                   </p>
                   <StatusDonut counts={stats.counts} total={stats.total} />
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                     Deployment load
                   </p>
                   <WorkloadBars data={workload} />
                   <div className="mt-4 flex gap-4 border-t border-slate-200 pt-3">
-                    <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
                       <span className="h-1.5 w-3 rounded-full bg-blue-600 hover:bg-blue-700" />
                       Field coverage (DMC)
                     </span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
                       <span className="h-1.5 w-3 rounded-full bg-amber-400" />
                       Video output
                     </span>
                   </div>
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                     Up next
                   </p>
                   <div className="space-y-3">
@@ -7359,7 +7847,7 @@ export default function App() {
               </div>
 
               <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                   Coverage density · last 26 weeks
                 </p>
                 <ActivityGrid coverages={coverages} />
@@ -7417,7 +7905,7 @@ export default function App() {
                             ) : (
                               <StageBadge stage={act.out.stage} />
                             )}
-                            <span className="font-mono text-[10px] text-slate-500">
+                            <span className="font-mono text-[10px] text-slate-9000">
                               {fmtDate(act.when)}
                             </span>
                           </div>
@@ -7451,7 +7939,7 @@ export default function App() {
                           className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                             prodPerson === n
                               ? 'border-blue-300 bg-blue-50 text-blue-600'
-                              : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                              : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                           }`}
                         >
                           {n === 'ALL' ? 'Lahat' : n}
@@ -7471,7 +7959,7 @@ export default function App() {
               {prodReady === 'missing' ? (
                 <div className="rounded-lg border border-dashed border-slate-300 bg-white p-8 text-center">
                   <p className="mb-2 text-sm font-bold text-slate-900">Production Log is not set up yet</p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                     In the AV Production Log spreadsheet, open Extensions → Apps Script, paste{' '}
                     <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
                     <span className="font-mono text-blue-600">authorize()</span> then{' '}
@@ -7539,7 +8027,7 @@ export default function App() {
                         busyId={busyId}
                       />
                       <div className="mt-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-9000">
                           Output scoreboard · quantity, timeliness, revisions
                         </p>
                         <ProductionScoreboard
@@ -7576,7 +8064,7 @@ export default function App() {
                       className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     {query && (
-                      <button onClick={() => setQuery('')} className="text-xs text-slate-500 hover:text-slate-900">
+                      <button onClick={() => setQuery('')} className="text-xs text-slate-9000 hover:text-slate-900">
                         ✕
                       </button>
                     )}
@@ -7589,7 +8077,7 @@ export default function App() {
                         className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                           filterPerson === p
                             ? 'border-blue-300 bg-blue-50 text-blue-600'
-                            : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                         }`}
                       >
                         {p === 'ALL' ? 'All personnel' : p}
@@ -7603,7 +8091,7 @@ export default function App() {
                         className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                           filterStatus === s
                             ? 'border-red-300 bg-red-100 text-red-600'
-                            : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                         }`}
                       >
                         {s === 'ALL' ? 'All status' : STATUS_META[s as StatusKey].label}
@@ -7640,7 +8128,7 @@ export default function App() {
                             {relativeDay(cov.dateObj) && (
                               <>
                                 <span className="text-slate-400">•</span>
-                                <span className="text-slate-500">{relativeDay(cov.dateObj)}</span>
+                                <span className="text-slate-9000">{relativeDay(cov.dateObj)}</span>
                               </>
                             )}
                           </div>
@@ -7740,7 +8228,7 @@ export default function App() {
                         <kbd className="rounded border border-slate-200 bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">
                           {k}
                         </kbd>
-                        <span className="text-xs text-slate-500">{v}</span>
+                        <span className="text-xs text-slate-9000">{v}</span>
                       </div>
                     ))}
                   </div>
@@ -7757,7 +8245,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="Event monitoring"
-                    hint="Triage first: the AV team assesses capacity, writes its recommendation, then sends the request to the Division Chief."
+                    hint="AV Services PM: SRS II assesses → Supervising SRS endorses → Division Chief approves → production or coverage."
                     right={
                       <button
                         onClick={() => setEvModal({ open: true, editing: null })}
@@ -7773,7 +8261,7 @@ export default function App() {
                       <p className="mb-2 text-sm font-bold text-slate-900">
                         Events sheet is not connected
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
                         paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
@@ -7794,7 +8282,7 @@ export default function App() {
                               AV evaluation queue · {triageQueue.length}
                             </p>
                             <span className="font-mono text-[10px] text-purple-500">
-                              AV Team → Division Chief → Supervising SRS
+                              SRS II → Supervising SRS → Division Chief
                             </span>
                           </div>
                           <div className="space-y-2">
@@ -7817,8 +8305,8 @@ export default function App() {
                                         <PriorityBadge priority={ev.priority} dense />
                                       </div>
                                       <p className="truncate font-mono text-[10px] text-slate-400">
-                                        {ev.client || '—'} · {fmtDate(ev.eventDate)} ·{' '}
-                                        {ev.requested.length} services requested
+                                        #{tierRank(ev.clientTier) + 1} {ev.clientTier || 'Unranked'} ·{' '}
+                                        {fmtDate(ev.eventDate)} · {ev.requested.length} requested
                                       </p>
                                     </button>
                                     <div className="flex shrink-0 items-center gap-2">
@@ -7842,9 +8330,10 @@ export default function App() {
                             })}
                           </div>
                           <p className="mt-3 text-[10px] leading-relaxed text-purple-700">
-                            Open each one, write the team recommendation, then set it to{' '}
-                            <b>{APPROVAL_META['for-approval'].label}</b>. That is what emails
-                            the Division Chief — with your advice and a schedule-conflict scan.
+                            Open each one, set the agreed volume, write the recommendation,
+                            then move it to <b>{APPROVAL_META['for-endorsement'].label}</b>.
+                            That emails the Supervising SRS — with your advice and a
+                            schedule-conflict scan — who then forwards it to the Division Chief.
                           </p>
                         </div>
                       )}
@@ -7855,8 +8344,8 @@ export default function App() {
                             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-amber-600">
                               Awaiting approver · {approvalQueue.length}
                             </p>
-                            <span className="font-mono text-[10px] text-slate-500">
-                              Division Chief → Supervising SRS
+                            <span className="font-mono text-[10px] text-slate-9000">
+                              Supervising SRS → Division Chief
                             </span>
                           </div>
                           <div className="space-y-2">
@@ -7876,8 +8365,8 @@ export default function App() {
                                     <PriorityBadge priority={ev.priority} dense />
                                   </div>
                                   <p className="truncate font-mono text-[10px] text-slate-400">
-                                    {ev.client || '—'} · {ev.requested.length} services requested ·
-                                    with {awaitingWho(ev)}
+                                    #{tierRank(ev.clientTier) + 1} {ev.clientTier || 'Unranked'} ·{' '}
+                                    {ev.requested.length} requested · with {awaitingWho(ev)}
                                   </p>
                                 </button>
                                 <div className="flex shrink-0 items-center gap-2">
@@ -7885,7 +8374,7 @@ export default function App() {
                                   <button
                                     onClick={() => notifyApprover(ev.id)}
                                     title="Resend approval email"
-                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-500 transition-colors hover:border-blue-400 hover:text-blue-600"
+                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
                                   >
                                     Email
                                   </button>
@@ -7908,7 +8397,7 @@ export default function App() {
                           {evQuery && (
                             <button
                               onClick={() => setEvQuery('')}
-                              className="text-xs text-slate-500 hover:text-slate-900"
+                              className="text-xs text-slate-9000 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -7922,7 +8411,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evApproval === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All approval' : APPROVAL_META[k as ApprovalKey].label}
@@ -7936,7 +8425,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evFulfil === k
                                   ? 'border-red-300 bg-red-100 text-red-600'
-                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All service' : FULFIL_META[k as Fulfilment].label}
@@ -7950,7 +8439,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 evPriority === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All priority' : `${k} priority`}
@@ -8029,7 +8518,7 @@ export default function App() {
                       <p className="mb-2 text-sm font-bold text-slate-900">
                         Request Register is not set up
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
                         paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
@@ -8052,7 +8541,7 @@ export default function App() {
                           {reqQuery && (
                             <button
                               onClick={() => setReqQuery('')}
-                              className="text-xs text-slate-500 hover:text-slate-900"
+                              className="text-xs text-slate-9000 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -8066,7 +8555,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 reqStatusFilter === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL'
@@ -8082,7 +8571,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                                 reqStreamFilter === k
                                   ? 'border-red-300 bg-red-100 text-red-600'
-                                  : 'border-slate-200 text-slate-500 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All streams' : STREAM_META[k as Stream].short}
@@ -8122,7 +8611,7 @@ export default function App() {
                   <p className="mb-2 text-sm font-bold text-slate-900">
                     Register is not connected
                   </p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-500">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                     No compliance data can be shown until requests are recorded. Paste{' '}
                     <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
                     <span className="font-mono text-blue-600">authorize()</span> then{' '}
@@ -8210,10 +8699,10 @@ export default function App() {
                             <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
                               {r.roleCount}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-500 tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-9000 tabular-nums">
                               {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
                             </td>
-                            <td className="px-4 py-3 text-[12px] text-slate-500">
+                            <td className="px-4 py-3 text-[12px] text-slate-9000">
                               {r.top.length
                                 ? r.top.map(([role, n]) => `${role} (${n})`).join(', ')
                                 : '—'}
