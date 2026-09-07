@@ -370,35 +370,47 @@ const REQ_ORDER: ReqStatus[] = [
 
 const REQ_META: Record<
   ReqStatus,
-  { label: string; hex: string; chip: string; served: boolean; unmet: boolean }
+  {
+    label: string; hex: string; chip: string;
+    served: boolean; unmet: boolean;
+    /** Hindi kasalanan ng AV team — ibinubukod sa KPI, binibilang nang hiwalay. */
+    excluded: boolean;
+  }
 > = {
   pending: {
     label: 'Pending', hex: '#94a3b8',
-    chip: 'bg-slate-100 text-slate-700 border-slate-200', served: false, unmet: false,
+    chip: 'bg-slate-100 text-slate-700 border-slate-200',
+    served: false, unmet: false, excluded: false,
   },
   approved: {
     label: 'Approved', hex: '#1d4ed8',
-    chip: 'bg-blue-100 text-blue-800 border-blue-200', served: false, unmet: false,
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
+    served: false, unmet: false, excluded: false,
   },
   ongoing: {
     label: 'Ongoing', hex: '#d97706',
-    chip: 'bg-amber-100 text-amber-800 border-amber-200', served: false, unmet: false,
+    chip: 'bg-amber-100 text-amber-800 border-amber-200',
+    served: false, unmet: false, excluded: false,
   },
   completed: {
     label: 'Completed', hex: '#16a34a',
-    chip: 'bg-green-100 text-green-800 border-green-200', served: true, unmet: false,
+    chip: 'bg-green-100 text-green-800 border-green-200',
+    served: true, unmet: false, excluded: false,
   },
   rescheduled: {
     label: 'Rescheduled', hex: '#ca8a04',
-    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', served: false, unmet: true,
+    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    served: false, unmet: true, excluded: true,
   },
   disapproved: {
     label: 'Disapproved', hex: '#dc2626',
-    chip: 'bg-red-100 text-red-800 border-red-200', served: false, unmet: true,
+    chip: 'bg-red-100 text-red-800 border-red-200',
+    served: false, unmet: true, excluded: false,
   },
   cancelled: {
     label: 'Cancelled', hex: '#64748b',
-    chip: 'bg-slate-100 text-slate-600 border-slate-200', served: false, unmet: true,
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
+    served: false, unmet: true, excluded: true,
   },
 };
 
@@ -568,7 +580,10 @@ function daysToTarget(r: ServiceRequest): number | null {
 type SLAState = 'ontime' | 'overdue' | 'atrisk' | 'open' | 'na';
 
 function slaState(r: ServiceRequest): SLAState {
-  if (r.status === 'disapproved' || r.status === 'cancelled') return 'na';
+  // Ang inilipat ay dating nakakakuha ng SLA state at pwedeng lumabas na
+  // OVERDUE — sinusukat laban sa petsang hindi na naman natuloy.
+  if (r.status === 'disapproved' || r.status === 'cancelled' ||
+      r.status === 'rescheduled') return 'na';
   const target = effectiveTarget(r);
   if (!target) return 'na';
 
@@ -624,8 +639,21 @@ type ApprovalKey =
   | 'for-evaluation' | 'for-endorsement' | 'for-approval' | 'approved'
   | 'declined' | 'cancelled' | 'rescheduled';
 
-/** Kinakalkula, hindi ini-input. */
-type Fulfilment = 'full' | 'partial' | 'none' | 'declined' | 'pending';
+/**
+ * Kinakalkula, hindi ini-input.
+ *
+ * MAHALAGA ANG PAGKAKAIBA NG TATLONG HULING ESTADO. Dati, iisang
+ * "DECLINED" lang ang lumalabas sa lahat ng hindi naipagpatuloy — kaya
+ * ang isang event na inilipat ng kliyente dahil sa bagyo ay mukhang
+ * tinanggihan ng AV team. Mali 'yon, at 'yon mismo ang ikakalito ng COA:
+ *
+ *   declined    → ang DOST ang tumanggi (Division Chief). Sa atin ito.
+ *   cancelled   → ang KLIYENTE ang bumawi. Hindi sa atin.
+ *   rescheduled → inilipat sa ibang petsa. Hindi sa atin.
+ */
+type Fulfilment =
+  | 'full' | 'partial' | 'none'
+  | 'declined' | 'cancelled' | 'rescheduled' | 'pending';
 
 /**
  * ANG EXECUTION PIPELINE, HAKBANG-HAKBANG AYON SA PM.
@@ -875,8 +903,16 @@ const FULFIL_META: Record<
     chip: 'bg-red-100 text-red-800 border-red-200',
   },
   declined: {
-    label: 'DECLINED', hex: '#dc2626',
+    label: 'DECLINED BY DC', hex: '#dc2626',
     chip: 'bg-red-100 text-red-800 border-red-200',
+  },
+  cancelled: {
+    label: 'CANCELLED BY CLIENT', hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
+  },
+  rescheduled: {
+    label: 'MOVED BY CLIENT', hex: '#ca8a04',
+    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   },
   pending: {
     label: 'AWAITING APPROVAL', hex: '#94a3b8',
@@ -1068,6 +1104,30 @@ function serviceGap(ev: AVEvent): string[] {
 }
 
 /**
+ * HINDI SA ATIN ANG DESISYON.
+ *
+ * Ang kinansela at inilipat na event ay hindi pagkukulang ng AV team —
+ * bumawi ang kliyente, o pinigil ng bagyo. Hindi tayo nabigyan ng
+ * pagkakataong mag-cover, kaya walang serbisyong dapat sukatin.
+ *
+ * Ito ang batayan ng EXCLUSION: hindi kasama sa KPI denominator, pero
+ * BINIBILANG NANG HIWALAY at may nakatalang dahilan. Hindi ito pagtatago —
+ * ang standard na paraan ito ng paghawak sa non-attributable na pagkabigo
+ * sa service delivery: ibukod sa performance, pero ipakita nang buo.
+ *
+ * Ang DECLINED ay HINDI kasama dito. Desisyon 'yon ng Division Chief —
+ * atin 'yon, at dapat bilangin bilang hindi naibigay na demand.
+ */
+function isExcluded(ev: AVEvent): boolean {
+  return ev.approval === 'cancelled' || ev.approval === 'rescheduled';
+}
+
+/** May kinalaman pa ba ang AV team sa hindi pagkakabigay nito? */
+function isProviderAttributable(ev: AVEvent): boolean {
+  return !isExcluded(ev);
+}
+
+/**
  * Ang epektibong AGREED VOLUME.
  * Blangko sa mga lumang record → ang hiniling ang ituturing na pinangako,
  * kaya hindi nagbabago ang dating bilang. Walang agreed sa mga tinanggihan.
@@ -1083,6 +1143,12 @@ function agreedVolume(ev: AVEvent): string[] {
  * hindi tinanggihan ang buong request, pero hindi rin naibigay nang buo.
  */
 function capacityGap(ev: AVEvent): string[] {
+  // Kinansela o inilipat → hindi natin naabot ang capacity decision.
+  // Walang capacity gap dito; hindi tayo tinanong.
+  if (isExcluded(ev)) return [];
+  // Tinanggihan ng DC → hindi rin ito capacity issue. Nabibilang ito
+  // bilang hindi naibigay na demand, pero sa ibang kategorya.
+  if (ev.approval === 'declined') return [];
   const promised = new Set(agreedVolume(ev).map((x) => x.toLowerCase()));
   return ev.requested.filter((x) => !promised.has(x.toLowerCase()));
 }
@@ -1100,8 +1166,9 @@ function serviceExtra(ev: AVEvent): string[] {
 }
 
 function fulfilment(ev: AVEvent): Fulfilment {
-  if (ev.approval === 'declined' || ev.approval === 'cancelled' || ev.approval === 'rescheduled')
-    return 'declined';
+  if (ev.approval === 'declined') return 'declined';
+  if (ev.approval === 'cancelled') return 'cancelled';
+  if (ev.approval === 'rescheduled') return 'rescheduled';
   if (!isAuthorised(ev)) return 'pending';
   // Sinusukat laban sa PINANGAKO, hindi sa hiniling. Kung tatlo ang hiniling,
   // dalawa ang kayang ibigay at dalawa ang naibigay — natupad ang pangako.
@@ -2657,15 +2724,21 @@ function KPIRing({
  */
 function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
   const { months, maxV, totals } = useMemo(() => {
-    const map = new Map<string, { demand: number; served: number; unmet: number }>();
+    const map = new Map<
+      string,
+      { demand: number; served: number; unmet: number; excluded: number }
+    >();
     requests.forEach((r) => {
       const d = r.dateRequested || r.eventDate;
       if (!d) return;
       const k = monthKey(d);
-      const cur = map.get(k) || { demand: 0, served: 0, unmet: 0 };
+      const cur = map.get(k) || { demand: 0, served: 0, unmet: 0, excluded: 0 };
       cur.demand += 1;
       if (REQ_META[r.status].served) cur.served += 1;
-      if (REQ_META[r.status].unmet) cur.unmet += 1;
+      // Ang unmet ay ang HINDI NAIBIGAY NA ATIN. Ang kinansela at inilipat
+      // ay hiwalay — hindi tayo nabigyan ng pagkakataon.
+      if (REQ_META[r.status].excluded) cur.excluded += 1;
+      else if (REQ_META[r.status].unmet) cur.unmet += 1;
       map.set(k, cur);
     });
 
@@ -2675,12 +2748,13 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
       (a, r) => {
         a.demand += 1;
         if (REQ_META[r.status].served) a.served += 1;
-        if (REQ_META[r.status].unmet) a.unmet += 1;
+        if (REQ_META[r.status].excluded) a.excluded += 1;
+        else if (REQ_META[r.status].unmet) a.unmet += 1;
         if (r.status === 'pending' || r.status === 'approved' || r.status === 'ongoing')
           a.inflight += 1;
         return a;
       },
-      { demand: 0, served: 0, unmet: 0, inflight: 0 }
+      { demand: 0, served: 0, unmet: 0, excluded: 0, inflight: 0 }
     );
     return { months: rows, maxV: Math.max(1, ...rows.map((x) => x.demand)), totals: t };
   }, [requests]);
@@ -2691,16 +2765,23 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
   const slot = months.length ? (W - PAD * 2) / months.length : 0;
   const barW = Math.min(26, slot * 0.34);
 
-  const capacityPct = totals.demand ? Math.round((totals.served / totals.demand) * 100) : null;
+  /**
+   * Ang denominator ay ang demand na TALAGANG NAABOT NATIN. Ang kinansela
+   * at inilipat ay inaalis — kung hindi, bumababa ang fulfilment tuwing
+   * may bagyo, na wala namang kinalaman sa kakayahan ng seksyon.
+   */
+  const inScope = totals.demand - totals.excluded;
+  const capacityPct = inScope > 0 ? Math.round((totals.served / inScope) * 100) : null;
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {[
           { k: 'Service demand', v: totals.demand, c: '#2563eb', s: 'Total requests received' },
           { k: 'Services rendered', v: totals.served, c: '#16a34a', s: 'Completed / served' },
           { k: 'In progress', v: totals.inflight, c: '#d97706', s: 'Pending, approved, ongoing' },
-          { k: 'Unmet requests', v: totals.unmet, c: '#dc2626', s: 'Declined, cancelled, moved' },
+          { k: 'Unmet requests', v: totals.unmet, c: '#dc2626', s: 'Declined — counts against us' },
+          { k: 'Client-side', v: totals.excluded, c: '#64748b', s: 'Cancelled or moved · KPI-excluded' },
         ].map((x) => (
           <div
             key={x.k}
@@ -2805,6 +2886,11 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
         {capacityPct !== null && (
           <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-9000">
             Service fulfilment {capacityPct}%
+            {totals.excluded > 0 && (
+              <span className="text-slate-400">
+                {' '}· {totals.excluded} client-side excluded
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -2820,7 +2906,11 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
 function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
   const stats = useMemo(() => {
     const byStream = (['coverage', 'production'] as Stream[]).map((st) => {
-      const mine = requests.filter((r) => r.stream === st);
+      // Ang kinansela at inilipat ay walang turnaround na masusukat —
+      // hindi sila dapat magpalaki ng n= at magpalabnaw ng on-time rate.
+      const mine = requests.filter(
+        (r) => r.stream === st && !REQ_META[r.status].excluded
+      );
       const tats = mine.map(actualTAT).filter((v): v is number => v !== null);
       const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'overdue');
       return {
@@ -2835,17 +2925,26 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
       };
     });
 
-    const live = requests.filter((r) => !r.dateDelivered);
+    const inScope = requests.filter((r) => !REQ_META[r.status].excluded);
+    const live = inScope.filter((r) => !r.dateDelivered);
     return {
       byStream,
-      overdue: requests.filter((r) => slaState(r) === 'overdue'),
+      overdue: inScope.filter((r) => slaState(r) === 'overdue'),
       atRisk: live.filter((r) => slaState(r) === 'atrisk'),
-      undated: requests.filter((r) => !r.dateRequested).length,
+      undated: inScope.filter((r) => !r.dateRequested).length,
+      excluded: requests.length - inScope.length,
     };
   }, [requests]);
 
   return (
     <div className="space-y-5">
+      {stats.excluded > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
+          {stats.excluded} cancelled or rescheduled request(s) are not measured here. There
+          is no turnaround to measure when the event did not take place — including them
+          would dilute the on-time rate with something outside the section&rsquo;s control.
+        </div>
+      )}
       {stats.undated > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
           {stats.undated} request(s) have no date of receipt, so their turnaround cannot be
@@ -2986,6 +3085,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
               <th className="pb-2 pr-3 font-bold">Client</th>
               <th className="pb-2 pr-3 font-bold">Date</th>
               <th className="pb-2 pr-3 font-bold">Outcome</th>
+              <th className="pb-2 pr-3 font-bold">Attributable to</th>
               <th className="pb-2 font-bold">Reason for non-service</th>
             </tr>
           </thead>
@@ -3002,6 +3102,21 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
                 </td>
                 <td className="py-3 pr-3">
                   <ReqBadge status={r.status} dense />
+                </td>
+                <td className="py-3 pr-3">
+                  {REQ_META[r.status].excluded ? (
+                    <span className="text-slate-500">
+                      Client
+                      <span className="block text-[9px] text-slate-400">KPI-excluded</span>
+                    </span>
+                  ) : (
+                    <span className="font-medium text-red-700">
+                      DOST
+                      <span className="block text-[9px] font-normal text-slate-400">
+                        counts as unmet
+                      </span>
+                    </span>
+                  )}
                 </td>
                 <td className="py-3">
                   {r.reason.trim() ? (
@@ -3033,7 +3148,11 @@ function ComplianceScorecard({
   events?: AVEvent[];
 }) {
   const rows = useMemo(() => {
+    // Kailangan ng dahilan ang LAHAT ng hindi naibigay — pati ang
+    // kinansela at inilipat. Ang exclusion ay sa KPI, hindi sa Item 40.
     const unmet = requests.filter((r) => REQ_META[r.status].unmet);
+    const ours = unmet.filter((r) => !REQ_META[r.status].excluded).length;
+    const clientSide = unmet.length - ours;
     const withReason = unmet.filter((r) => r.reason.trim()).length;
     const tracked = requests.length;
     const withTat = requests.filter((r) => actualTAT(r) !== null).length;
@@ -3048,7 +3167,7 @@ function ComplianceScorecard({
         evidence:
           tracked === 0
             ? 'No requests on record yet.'
-            : `${tracked} requests tracked across 7 statuses. ${withReason} of ${unmet.length} unserved requests have a recorded reason.`,
+            : `${tracked} requests tracked across 7 statuses. ${withReason} of ${unmet.length} unserved requests have a recorded reason — ${ours} attributable to DOST (declined), ${clientSide} client-side (cancelled or moved) and excluded from the service KPI but still reasoned here.`,
       },
       {
         item: 'Item 41',
@@ -3068,7 +3187,9 @@ function ComplianceScorecard({
         evidence: (() => {
           if (tracked === 0) return 'No demand data yet.';
           const decided = events.filter(
-            (ev) => isAuthorised(ev) || !APPROVAL_META[ev.approval].live
+            (ev) =>
+              !isExcluded(ev) &&
+              (isAuthorised(ev) || !APPROVAL_META[ev.approval].live)
           );
           const asked = decided.reduce((a, ev) => a + ev.requested.length, 0);
           const noCap = decided.reduce((a, ev) => a + capacityGap(ev).length, 0);
@@ -3629,6 +3750,55 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
   const capSet = new Set(capGap.map((x) => x.toLowerCase()));
   const gapSet = new Set(delGap.map((x) => x.toLowerCase()));
 
+  /**
+   * HINDI NAIPAGPATULOY — i-lock ang serbisyo.
+   *
+   * ANG DATING BUG: nahuhulog dito ang kinansela at inilipat na event, at
+   * dahil walang agreed volume, LAHAT ng serbisyo ay lumalabas na berde
+   * (na para bang naibigay) o dilaw na ⊘ (na para bang tayo ang tumanggi).
+   * Pareho silang mali. Walang nangyari — kaya walang dapat markahan.
+   */
+  const notLive = !APPROVAL_META[ev.approval].live;
+  if (notLive) {
+    const tone =
+      ev.approval === 'declined'
+        ? { border: 'border-red-200', text: 'text-red-700', head: 'Declined by the Division Chief' }
+        : ev.approval === 'cancelled'
+        ? { border: 'border-slate-300', text: 'text-slate-600', head: 'Cancelled by the client' }
+        : { border: 'border-yellow-300', text: 'text-yellow-800', head: 'Moved by the client to another date' };
+    return (
+      <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
+        <div className="flex flex-wrap gap-1.5">
+          {ev.requested.map((svc) => (
+            <span
+              key={svc}
+              title="Not evaluated — the event did not proceed"
+              className={`inline-flex items-center gap-1 rounded border border-dashed ${tone.border} bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-500`}
+            >
+              {svc}
+            </span>
+          ))}
+          {ev.requested.length === 0 && (
+            <span className="text-[10px] italic text-slate-400">No services listed</span>
+          )}
+        </div>
+        <p className="text-[11px] leading-relaxed">
+          <span className={`font-bold ${tone.text}`}>{tone.head}.</span>{' '}
+          {ev.reason ? (
+            <span className="text-slate-500">{ev.reason}</span>
+          ) : (
+            <span className="font-medium text-red-600">No reason on record</span>
+          )}
+          {isExcluded(ev) && (
+            <span className="text-slate-400">
+              {' '}· Not counted against service KPI; tracked under schedule volatility.
+            </span>
+          )}
+        </p>
+      </div>
+    );
+  }
+
   // Hindi pa naaaprubahan — wala pang dapat ihambing, kaya neutral ang lahat.
   const pending = fulfilment(ev) === 'pending';
 
@@ -3741,6 +3911,18 @@ function PipelineTrack({
    * 'yon naman ang aktwal na binabasa ng tao. Buong chips sa modal.
    */
   if (compact) {
+    // Ang hindi naipagpatuloy ay walang progreso — hindi 0%, wala talaga.
+    if (!APPROVAL_META[ev.approval].live) {
+      return (
+        <span className="text-[10px] text-slate-400">
+          {ev.approval === 'declined'
+            ? 'Declined — pipeline closed'
+            : ev.approval === 'cancelled'
+            ? 'Cancelled — pipeline closed'
+            : 'Moved — pipeline closed'}
+        </span>
+      );
+    }
     const pct = pipelineProgress(ev);
     const nxt = nextPipelineStep(ev);
     return (
@@ -3949,6 +4131,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       none: 0,
       gapCount: 0,
       capShort: 0,
+      excluded: 0,
       noReason: 0,
       high: 0,
       noAdvice: 0,
@@ -3968,14 +4151,19 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       if (f === 'full') base.full += 1;
       if (f === 'partial') base.partial += 1;
       if (f === 'none') base.none += 1;
+      if (isExcluded(ev)) base.excluded += 1;
       const capGap = capacityGap(ev);
       const delGap = deliveryGap(ev);
       const decided = isAuthorised(ev) || !APPROVAL_META[ev.approval].live;
       base.capShort += capGap.length;
       if (isAuthorised(ev)) base.gapCount += delGap.length;
-      if ((capGap.length || (delGap.length && decided)) && !ev.reason.trim()) {
-        base.noReason += 1;
-      }
+      // Kailangan pa rin ng dahilan ang kinansela at inilipat — Item 40 —
+      // kahit hindi sila binibilang laban sa KPI.
+      const needsWhy =
+        !APPROVAL_META[ev.approval].live ||
+        capGap.length > 0 ||
+        (delGap.length > 0 && decided);
+      if (needsWhy && !ev.reason.trim()) base.noReason += 1;
     });
     return base;
   }, [events]);
@@ -3990,9 +4178,9 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       c: '#d97706',
       s: `${t.gapCount} promised not delivered`,
     },
-    { k: 'Cancelled', v: t.cancelled, c: '#64748b', s: 'Withdrawn by the client' },
-    { k: 'Rescheduled', v: t.rescheduled, c: '#ca8a04', s: 'Moved to another date' },
-    { k: 'Declined', v: t.declined, c: '#dc2626', s: 'Not served' },
+    { k: 'Cancelled', v: t.cancelled, c: '#64748b', s: 'Client withdrew · KPI-excluded' },
+    { k: 'Rescheduled', v: t.rescheduled, c: '#ca8a04', s: 'Moved · KPI-excluded' },
+    { k: 'Declined', v: t.declined, c: '#dc2626', s: 'DOST decision · counts as unmet' },
     { k: 'Awaiting action', v: t.waiting, c: '#94a3b8', s: 'With an approver' },
   ];
 
@@ -4023,6 +4211,14 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       {t.high > 0 && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
           {t.high} event{t.high === 1 ? ' is' : 's are'} marked high priority.
+        </div>
+      )}
+      {t.excluded > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
+          {t.excluded} request{t.excluded === 1 ? ' was' : 's were'} cancelled or moved by
+          the client. These are <b>excluded from the service KPI</b> — the AV team was
+          never given the chance to deliver — but they are counted and reasoned in the
+          Schedule volatility panel under Compliance.
         </div>
       )}
       {t.capShort > 0 && (
@@ -5016,6 +5212,9 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
     events.forEach((ev) => {
       // Naghihintay pa ng approval — wala pang masasabing naibigay o hindi
       if (APPROVAL_META[ev.approval].live && !isAuthorised(ev)) return;
+      // Kinansela / inilipat ng kliyente → hindi ito unmet demand ng AV.
+      // Binibilang ito sa Schedule volatility, hindi dito.
+      if (isExcluded(ev)) return;
       if (!APPROVAL_META[ev.approval].live) {
         // Declined: bilangin pa rin ang hiniling — demand pa rin 'yon
         ev.requested.forEach((svc) => {
@@ -5145,6 +5344,161 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
   );
 }
 
+
+/**
+ * SCHEDULE VOLATILITY — ang sariling bilang ng kinansela at inilipat.
+ *
+ * BAKIT HIWALAY. Ang isang event na pinigil ng bagyo ay hindi pagkukulang
+ * sa serbisyo — hindi natin naabot ang pagkakataong mag-cover. Kapag
+ * ibinilang ito sa KPI, pinaparusahan ang AV team sa bagay na wala sa
+ * kanilang kontrol, at nagiging mali ang basa ng auditor.
+ *
+ * PERO HINDI ITO ITINATAGO. Ito ang standard na paghawak sa non-attributable
+ * na pagkabigo: ibukod sa performance ratio, ipakita nang buo, may dahilan
+ * bawat isa. Ang volatility rate mismo ay kapaki-pakinabang — kapag mataas,
+ * senyas 'yon ng problema sa pagpaplano ng kliyente o sa panahon, at
+ * basehan ng buffer sa iskedyul.
+ *
+ * Ang 10% ay INTERNAL na watch level, hindi opisyal na pamantayan.
+ */
+function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
+  const v = useMemo(() => {
+    const cancelled = events.filter((e) => e.approval === 'cancelled');
+    const moved = events.filter((e) => e.approval === 'rescheduled');
+    const excluded = [...cancelled, ...moved];
+    const lostServices = excluded.reduce((a, e) => a + e.requested.length, 0);
+    const noReason = excluded.filter((e) => !e.reason.trim()).length;
+    const rate = events.length
+      ? Math.round((excluded.length / events.length) * 1000) / 10
+      : null;
+    const byMonth = new Map<string, number>();
+    excluded.forEach((e) => {
+      const d = e.eventDate || e.dateRequested;
+      if (d) byMonth.set(monthKey(d), (byMonth.get(monthKey(d)) || 0) + 1);
+    });
+    return {
+      cancelled, moved, excluded, lostServices, noReason, rate,
+      worst: Array.from(byMonth.entries()).sort((a, b) => b[1] - a[1])[0] || null,
+    };
+  }, [events]);
+
+  if (v.excluded.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center">
+        <p className="text-sm text-slate-600">No cancellations or reschedules on record.</p>
+        <p className="mt-1 text-xs text-slate-400">
+          Every request received either proceeded or was decided on its merits.
+        </p>
+      </div>
+    );
+  }
+
+  const hot = v.rate !== null && v.rate > 10;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { k: 'Cancelled by client', v: v.cancelled.length, c: '#64748b' },
+          { k: 'Moved by client', v: v.moved.length, c: '#ca8a04' },
+          { k: 'Services stood down', v: v.lostServices, c: '#2563eb' },
+          { k: 'Volatility rate', v: v.rate === null ? 0 : v.rate, c: hot ? '#dc2626' : '#16a34a', pct: true },
+        ].map((x) => (
+          <div
+            key={x.k}
+            className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+            style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
+          >
+            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">
+              {x.v}
+              {x.pct && <span className="text-lg text-slate-400">%</span>}
+            </p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">
+              {x.k}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-[12px] leading-relaxed text-slate-600">
+        <b>These {v.excluded.length} request(s) are excluded from the service KPI.</b> The
+        AV team was never given the opportunity to deliver, so counting them as unmet
+        service would misstate performance. They remain on record with a reason, and are
+        reported here so the exclusion is visible rather than silent.
+        {v.rate !== null && (
+          <>
+            {' '}Volatility is <b>{v.rate}%</b> of all requests received
+            {hot ? (
+              <span className="text-red-600">
+                {' '}— above the 10% internal watch level. Worth raising with clients on
+                lead time and weather contingency.
+              </span>
+            ) : (
+              <span className="text-slate-500"> — within the 10% internal watch level.</span>
+            )}
+          </>
+        )}
+        {v.worst && (
+          <> Highest month: <b>{monthLabel(v.worst[0])}</b> with {v.worst[1]}.</>
+        )}
+      </div>
+
+      {v.noReason > 0 && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
+          {v.noReason} of these have no recorded reason. Audit Item 40 requires one for
+          every request that was not served — exclusion from the KPI does not remove that
+          obligation, it depends on it.
+        </div>
+      )}
+
+      <div className="overflow-x-auto custom-scrollbar">
+        <table className="w-full min-w-[720px] text-left text-xs">
+          <thead>
+            <tr className="border-b border-slate-200 text-[9px] uppercase tracking-[0.1em] text-slate-400">
+              <th className="pb-2 pr-3 font-bold">Event</th>
+              <th className="pb-2 pr-3 font-bold">Client</th>
+              <th className="pb-2 pr-3 font-bold">Event date</th>
+              <th className="pb-2 pr-3 font-bold">Outcome</th>
+              <th className="pb-2 pr-3 font-bold">Services</th>
+              <th className="pb-2 font-bold">Reason on record</th>
+            </tr>
+          </thead>
+          <tbody>
+            {v.excluded
+              .slice()
+              .sort((a, b) => (b.eventDate?.getTime() ?? 0) - (a.eventDate?.getTime() ?? 0))
+              .map((e) => (
+                <tr key={e.id} className="border-b border-slate-200 align-top last:border-0">
+                  <td className="py-3 pr-3">
+                    <p className="font-semibold text-slate-700">{e.title}</p>
+                    <p className="font-mono text-[10px] text-slate-400">{e.id}</p>
+                  </td>
+                  <td className="py-3 pr-3 text-slate-500">{e.client || '—'}</td>
+                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                    {fmtDate(e.eventDate)}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <FulfilChip f={fulfilment(e)} dense />
+                  </td>
+                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                    {e.requested.length}
+                  </td>
+                  <td className="py-3">
+                    {e.reason.trim() ? (
+                      <span className="text-slate-600">{e.reason}</span>
+                    ) : (
+                      <span className="font-bold text-red-600">No reason on record</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------- KIOSK ---- */
 
 function KioskMode({
@@ -5213,9 +5567,12 @@ function KioskMode({
 
   const svc = useMemo(() => {
     const served = requests.filter((r) => REQ_META[r.status].served).length;
-    const unmet = requests.filter((r) => REQ_META[r.status].unmet).length;
+    const excluded = requests.filter((r) => REQ_META[r.status].excluded).length;
+    const unmet = requests.filter(
+      (r) => REQ_META[r.status].unmet && !REQ_META[r.status].excluded
+    ).length;
     const overdue = requests.filter((r) => slaState(r) === 'overdue').length;
-    return { demand: requests.length, served, unmet, overdue };
+    return { demand: requests.length, served, unmet, overdue, excluded };
   }, [requests]);
 
   const ticker = useMemo(() => {
@@ -5418,7 +5775,7 @@ function KioskMode({
                 { k: 'Service demand', v: svc.demand, c: '#2563eb' },
                 { k: 'Services rendered', v: svc.served, c: '#16a34a' },
                 { k: 'Unmet requests', v: svc.unmet, c: '#dc2626' },
-                { k: 'Past due', v: svc.overdue, c: '#d97706' },
+                { k: 'Client-side', v: svc.excluded, c: '#64748b' },
               ].map((x) => (
                 <div
                   key={x.k}
@@ -6980,8 +7337,11 @@ export default function App() {
     const delivered = approvedOrBeyond.filter((r) => r.status === 'completed');
     const rated = isoRequests.filter((r) => r.csm > 0);
     const passing = rated.filter((r) => r.csm >= CSM_PASS);
+    // Hindi kasama sa denominator — binibilang lang para ipakita.
+    const excluded = isoRequests.filter((r) => REQ_META[r.status].excluded).length;
 
     return {
+      excluded,
       execution: approvedOrBeyond.length
         ? Math.round((delivered.length / approvedOrBeyond.length) * 100)
         : null,
@@ -8418,7 +8778,9 @@ export default function App() {
                             </button>
                           ))}
                           <span className="mx-1 w-px bg-slate-100" />
-                          {(['ALL', 'full', 'partial', 'none', 'declined'] as const).map((k) => (
+                          {(
+                            ['ALL', 'full', 'partial', 'none', 'declined', 'cancelled', 'rescheduled'] as const
+                          ).map((k) => (
                             <button
                               key={k}
                               onClick={() => setEvFulfil(k as 'ALL' | Fulfilment)}
@@ -8635,7 +8997,11 @@ export default function App() {
                         value={kpi.execution}
                         target={KPI_EXECUTION_TARGET}
                         label="Requests executed"
-                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests served to the client.`}
+                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests served to the client.${
+                          kpi.excluded
+                            ? ` ${kpi.excluded} cancelled or rescheduled request(s) excluded — see Schedule volatility.`
+                            : ''
+                        }`}
                       />
                     </div>
                     <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -8646,6 +9012,16 @@ export default function App() {
                         sub={`${kpi.rated} request ang may CSM rating. Target: 93% na Very Satisfactory pataas.`}
                       />
                     </div>
+                  </div>
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="Schedule volatility"
+                    hint="Cancelled and rescheduled requests — excluded from the service KPI, counted and reasoned here."
+                  />
+                  <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                    <ScheduleVolatilityPanel events={events} />
                   </div>
                 </section>
 
