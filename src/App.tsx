@@ -33,14 +33,14 @@ interface SystemApp {
 /* ---------------------------------------------------------------- CONFIG -- */
 
 const SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbyU3SyLrptMwqwfkVh8UrcocsPUCKPSEIPMJsjzTcxBwXa279xmN8dJR5XOhi_68gRmrg/exec';
+  'https://script.google.com/macros/s/AKfycbxsDu-1jDqDyowhT6DX0NNYBP8pFy5e3oyn3QVsEPBK3soo4njMBbGhtnttvm-YCeIBwA/exec';
 
 /**
  * BAGONG production backend — HIWALAY na spreadsheet, hiwalay na script.
  * Ilagay dito ang /exec URL mula sa ProductionLog.gs deployment.
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
-const PROD_SCRIPT_URL = 'ILAGAY_DITO_ANG_PRODUCTION_EXEC_URL';
+const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxvyWZALIz3Lh_OugI2-zbUjjeVffu-K6MogSji5vecgOv2C1NtkHrS9XcbdD1HxVLjQg/exec';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 /**
@@ -52,7 +52,7 @@ const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/')
  * → OAuth client ID → Web application, at idagdag ang URL ng dashboard
  * sa "Authorized JavaScript origins".
  */
-const GOOGLE_CLIENT_ID = '';
+const GOOGLE_CLIENT_ID = '164697482985-nbn507amjb0c1grm6lpcamaq5mv2o4rd.apps.googleusercontent.com';
 const AUTH_ENABLED = GOOGLE_CLIENT_ID.length > 0;
 
 /**
