@@ -3,6 +3,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 /* ============================================================================
    AV NEXUS — Broadcast & Digital Media Section (DOST-STII)
    Master Control Room for coverage, DMC monitoring, and AV systems.
+
+   UI: light mode. Slate ground, white panels, DOST blue accent.
+   COA: turnaround time is measured from the date the request was RECEIVED.
+   TRIAGE: every request lands in AV evaluation first. The team writes the
+   recommendation, then pushes it to the Division Chief.
    ========================================================================== */
 
 interface Coverage {
@@ -130,7 +135,8 @@ const DMC_MONITORING_LINK =
 const CAL_EMBED =
   'https://calendar.google.com/calendar/embed?src=av%40stii.dost.gov.ph&ctz=Asia%2FSingapore';
 
-const CYAN = '#00aeef';
+/** DOST corporate blue — blue-600. Pumalit sa dating neon cyan. */
+const CYAN = '#2563eb'; // DOST corporate blue (blue-600)
 
 const SYSTEMS: SystemApp[] = [
   {
@@ -150,7 +156,7 @@ const SYSTEMS: SystemApp[] = [
     role: 'Public capability page',
     url: 'https://bdms-av-portfolio.vercel.app',
     tag: 'PUBLIC FACING',
-    accent: '#ee4444',
+    accent: '#dc2626',
     glyph: 'AV',
     embeddable: true,
     points: ['Service catalogue', 'Camera & lens kit', 'Showreel embeds'],
@@ -161,7 +167,7 @@ const SYSTEMS: SystemApp[] = [
     role: 'Field assignment log',
     url: 'https://www.appsheet.com/start/013e44a8-f18a-49f5-98b6-b28f027dd3b7?platform=desktop#appName=DMCUploadingMonitoringBackend-264496452&vss=H4sIAAAAAAAAA6XOsQrCMBQF0F-RO-cLsok4iNhF6WIcYvMKwTYpJtWWkH_3VS3O6pgbzn034Wbpvo-6ukAe0-e1pRESSeEwdqQgFVbexatvFIRCodtXuCwXBQ19UMjIJzH7SAEyfcflf9cFrCEXbW3pOnVNkjvejr8nxcFskAXaPupzQ8_BbHLmrPZVH8iUPOWHCWHj1kOnndl5w5W1bgLlB_LM-uFlAQAA&view=AV%20Nexus',
     tag: 'APPSHEET',
-    accent: '#f59e0b',
+    accent: '#d97706',
     glyph: 'TS',
     embeddable: false,
     points: ['Assignment queue', 'Mobile field capture', 'Feeds this dashboard'],
@@ -188,34 +194,34 @@ const STATUS_META: Record<
   { label: string; icon: string; chip: string; hex: string }
 > = {
   pending: {
-    label: 'Pending',
+    label: 'PENDING',
     icon: '',
-    chip: 'bg-[#272831] text-[#aab8c5] border-[#363c44]',
-    hex: '#a1a1aa',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200',
+    hex: '#94a3b8',
   },
   upcoming: {
-    label: 'Upcoming',
+    label: 'UPCOMING',
     icon: '',
-    chip: 'bg-red-500/10 text-[#f07070] border-red-500/30',
-    hex: '#ee4444',
+    chip: 'bg-red-100 text-red-800 border-red-200',
+    hex: '#dc2626',
   },
   checked: {
-    label: 'Checked',
+    label: 'CHECKED',
     icon: '',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
-    hex: '#0e7fae',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
+    hex: '#1d4ed8',
   },
   transferred: {
-    label: 'DMC transferred',
+    label: 'DMC TRANSFERRED',
     icon: '',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
-    hex: '#00aeef',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
+    hex: '#2563eb',
   },
   archived: {
-    label: 'Archived',
+    label: 'ARCHIVED',
     icon: '',
-    chip: 'bg-[#1a1b22] text-[#8391a2] border-[#293036]',
-    hex: '#52525b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
+    hex: '#94a3b8',
   },
 };
 
@@ -251,39 +257,39 @@ const STAGE_ORDER: StageKey[] = ['assigned', 'shooting', 'editing', 'review', 'a
 const STAGE_META: Record<StageKey, { label: string; short: string; hex: string; chip: string }> = {
   assigned: {
     label: 'Assigned',
-    short: 'Queued',
-    hex: '#71717a',
-    chip: 'bg-[#272831] text-[#aab8c5] border-[#363c44]',
+    short: 'QUEUE',
+    hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200',
   },
   shooting: {
     label: 'Shooting',
-    short: 'In field',
-    hex: '#ee4444',
-    chip: 'bg-red-500/10 text-[#f07070] border-red-500/30',
+    short: 'FIELD',
+    hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200',
   },
   editing: {
     label: 'Editing',
-    short: 'In post',
-    hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    short: 'POST',
+    hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   review: {
     label: 'For Review',
-    short: 'In review',
-    hex: '#a855f7',
-    chip: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
+    short: 'REVIEW',
+    hex: '#9333ea',
+    chip: 'bg-purple-100 text-purple-800 border-purple-200',
   },
   approved: {
     label: 'Approved',
-    short: 'Cleared',
-    hex: '#00aeef',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30',
+    short: 'CLEARED',
+    hex: '#2563eb',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
   },
   published: {
     label: 'Published',
-    short: 'Published',
-    hex: '#44a887',
-    chip: 'bg-green-500/10 text-[#5cbf9c] border-green-500/30',
+    short: 'ON AIR',
+    hex: '#16a34a',
+    chip: 'bg-green-100 text-green-800 border-green-200',
   },
 };
 
@@ -354,8 +360,8 @@ interface ServiceRequest {
 const SLA_WD: Record<Stream, number> = { coverage: 3, production: 13 };
 
 const STREAM_META: Record<Stream, { label: string; short: string; hex: string }> = {
-  coverage:   { label: 'AV Coverage',    short: 'Coverage',   hex: '#00aeef' },
-  production: { label: 'AVP Production', short: 'Production', hex: '#a855f7' },
+  coverage:   { label: 'AV Coverage',    short: 'COVERAGE',   hex: '#2563eb' },
+  production: { label: 'AVP Production', short: 'PRODUCTION', hex: '#9333ea' },
 };
 
 const REQ_ORDER: ReqStatus[] = [
@@ -364,35 +370,47 @@ const REQ_ORDER: ReqStatus[] = [
 
 const REQ_META: Record<
   ReqStatus,
-  { label: string; hex: string; chip: string; served: boolean; unmet: boolean }
+  {
+    label: string; hex: string; chip: string;
+    served: boolean; unmet: boolean;
+    /** Hindi kasalanan ng AV team — ibinubukod sa KPI, binibilang nang hiwalay. */
+    excluded: boolean;
+  }
 > = {
   pending: {
-    label: 'Pending', hex: '#a1a1aa',
-    chip: 'bg-[#272831] text-[#aab8c5] border-[#363c44]', served: false, unmet: false,
+    label: 'Pending', hex: '#94a3b8',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200',
+    served: false, unmet: false, excluded: false,
   },
   approved: {
-    label: 'Approved', hex: '#0e7fae',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', served: false, unmet: false,
+    label: 'Approved', hex: '#1d4ed8',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200',
+    served: false, unmet: false, excluded: false,
   },
   ongoing: {
-    label: 'Ongoing', hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', served: false, unmet: false,
+    label: 'Ongoing', hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200',
+    served: false, unmet: false, excluded: false,
   },
   completed: {
-    label: 'Completed', hex: '#44a887',
-    chip: 'bg-green-500/10 text-[#5cbf9c] border-green-500/30', served: true, unmet: false,
+    label: 'Completed', hex: '#16a34a',
+    chip: 'bg-green-100 text-green-800 border-green-200',
+    served: true, unmet: false, excluded: false,
   },
   rescheduled: {
-    label: 'Rescheduled', hex: '#eab308',
-    chip: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30', served: false, unmet: true,
+    label: 'Rescheduled', hex: '#ca8a04',
+    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    served: false, unmet: true, excluded: true,
   },
   disapproved: {
-    label: 'Disapproved', hex: '#ee4444',
-    chip: 'bg-red-500/10 text-[#f07070] border-red-500/30', served: false, unmet: true,
+    label: 'Disapproved', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200',
+    served: false, unmet: true, excluded: false,
   },
   cancelled: {
-    label: 'Cancelled', hex: '#71717a',
-    chip: 'bg-[#1a1b22] text-[#8391a2] border-[#293036]', served: false, unmet: true,
+    label: 'Cancelled', hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
+    served: false, unmet: true, excluded: true,
   },
 };
 
@@ -521,9 +539,20 @@ function parseCSM(v: unknown): number {
   return 0;
 }
 
-/** Simula ng TAT clock: mula pagkaaprub; kung wala, mula pagkatanggap. */
+/**
+ * COA TAT RULE — ang orasan ay nagsisimula sa PAGTANGGAP ng kahilingan.
+ *
+ * Dati, ang pagkaaprub ang simula. Ang problema: ang mga araw na naghintay
+ * ang kliyente bago pa man mapirmahan ang request ay hindi nabibilang —
+ * kaya mukhang mabilis ang serbisyo kahit dalawang linggong nakabinbin.
+ * Ang hinahanap ng COA ay ang buong hinintay ng kliyente, mula sa araw na
+ * natanggap natin ang kahilingan hanggang sa araw na naihatid ito.
+ *
+ * Kapag walang Date Requested, walang masusukat — at 'yon ay senyas na may
+ * kulang sa record, hindi bagay na dapat takpan ng hulaan.
+ */
 function tatStart(r: ServiceRequest): Date | null {
-  return r.dateApproved || r.dateRequested;
+  return r.dateRequested;
 }
 
 /** SLA target — gamitin ang nakatakda; kung wala, kalkulahin mula sa PM. */
@@ -551,7 +580,10 @@ function daysToTarget(r: ServiceRequest): number | null {
 type SLAState = 'ontime' | 'overdue' | 'atrisk' | 'open' | 'na';
 
 function slaState(r: ServiceRequest): SLAState {
-  if (r.status === 'disapproved' || r.status === 'cancelled') return 'na';
+  // Ang inilipat ay dating nakakakuha ng SLA state at pwedeng lumabas na
+  // OVERDUE — sinusukat laban sa petsang hindi na naman natuloy.
+  if (r.status === 'disapproved' || r.status === 'cancelled' ||
+      r.status === 'rescheduled') return 'na';
   const target = effectiveTarget(r);
   if (!target) return 'na';
 
@@ -566,11 +598,11 @@ function slaState(r: ServiceRequest): SLAState {
 }
 
 const SLA_META: Record<SLAState, { label: string; hex: string; chip: string }> = {
-  ontime:   { label: 'On time',  hex: '#44a887', chip: 'bg-green-500/10 text-[#5cbf9c] border-green-500/30' },
-  overdue: { label: 'Overdue', hex: '#ee4444', chip: 'bg-red-500/10 text-[#f07070] border-red-500/30' },
-  atrisk:   { label: 'At risk',  hex: '#f59e0b', chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
-  open:     { label: 'Within target',   hex: '#00aeef', chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30' },
-  na:       { label: 'N/A',      hex: '#52525b', chip: 'bg-[#1a1b22] text-[#76828f] border-[#293036]' },
+  ontime:   { label: 'ON TIME',  hex: '#16a34a', chip: 'bg-green-100 text-green-800 border-green-200' },
+  overdue: { label: 'OVERDUE', hex: '#dc2626', chip: 'bg-red-100 text-red-800 border-red-200' },
+  atrisk:   { label: 'AT RISK',  hex: '#d97706', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
+  open:     { label: 'WITHIN',   hex: '#2563eb', chip: 'bg-blue-100 text-blue-800 border-blue-200' },
+  na:       { label: 'N/A',      hex: '#94a3b8', chip: 'bg-slate-100 text-slate-500 border-slate-200' },
 };
 
 function monthKey(d: Date): string {
@@ -591,19 +623,50 @@ function monthLabel(key: string): string {
    ========================================================================== */
 
 /**
- * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3:
- *   for-approval → Division Chief acts
- *   approved     → cleared by the Division Chief, awaiting endorsement
- *   endorsed     → released to the AV Team by the Supervising SRS
+ * Approval chain per PM-CRPD-AV-08-04 Rev 7, sections 5.2 and 5.3, with the
+ * new AV triage step in front:
+ *   for-evaluation  → SRS II assesses completeness, schedule availability and
+ *                     technical feasibility, then records a recommendation
+ *   for-endorsement → SVSRS forwards the request with that recommendation
+ *   for-approval    → Division Chief reviews and decides
+ *   approved        → cleared; proceed to AV Production (3A) or AV Coverage (3B)
+ *
+ * TANDAAN: ang endorsement ay BAGO ang approval, hindi pagkatapos. Ito ang
+ * pagkakasunod-sunod sa PM. Ang lumang "Endorsed" na yugto ay naging
+ * "Approved" — parehong ibig sabihin: malinis na, pwede nang magtrabaho.
  */
 type ApprovalKey =
-  | 'for-approval' | 'approved' | 'endorsed'
+  | 'for-evaluation' | 'for-endorsement' | 'for-approval' | 'approved'
   | 'declined' | 'cancelled' | 'rescheduled';
 
-/** Kinakalkula, hindi ini-input. */
-type Fulfilment = 'full' | 'partial' | 'none' | 'declined' | 'pending';
+/**
+ * Kinakalkula, hindi ini-input.
+ *
+ * MAHALAGA ANG PAGKAKAIBA NG TATLONG HULING ESTADO. Dati, iisang
+ * "DECLINED" lang ang lumalabas sa lahat ng hindi naipagpatuloy — kaya
+ * ang isang event na inilipat ng kliyente dahil sa bagyo ay mukhang
+ * tinanggihan ng AV team. Mali 'yon, at 'yon mismo ang ikakalito ng COA:
+ *
+ *   declined    → ang DOST ang tumanggi (Division Chief). Sa atin ito.
+ *   cancelled   → ang KLIYENTE ang bumawi. Hindi sa atin.
+ *   rescheduled → inilipat sa ibang petsa. Hindi sa atin.
+ */
+type Fulfilment =
+  | 'full' | 'partial' | 'none'
+  | 'declined' | 'cancelled' | 'rescheduled' | 'pending';
 
-type PipelineKey = 'coordination' | 'documents' | 'deliverables' | 'archiving';
+/**
+ * ANG EXECUTION PIPELINE, HAKBANG-HAKBANG AYON SA PM.
+ *   3A AV Production — pre-production meeting, script (SVSRS approves, client
+ *      signs off), pre-inspection, shoot, post-inspection, edit, SVSRS
+ *      approves final cut, submit sa kliyente + Acknowledgement Receipt
+ *   3B AV Coverage   — coordinate, pre-inspection, cover, post-inspection,
+ *      edit, ihatid sa kliyente
+ *   4  Post          — handover sa Digital Media Archive Unit, tapos CSM
+ */
+type PipelineKey =
+  | 'coordination' | 'documents' | 'script' | 'preInspection' | 'execution'
+  | 'postInspection' | 'editing' | 'finalCut' | 'delivery' | 'archiving' | 'csm';
 type PipelineState = 'not-started' | 'in-progress' | 'done' | 'na';
 
 interface AVEvent {
@@ -616,6 +679,8 @@ interface AVEvent {
   endDate: Date | null;
   venue: string;
   requested: string[];
+  /** Ang pinangako ng AV team matapos suriin ang kakayahan. */
+  agreed: string[];
   delivered: string[];
   reason: string;
   approval: ApprovalKey;
@@ -627,6 +692,11 @@ interface AVEvent {
   approvalRemarks: string;
   lead: string;
   team: string;
+  priority: string;
+  /** PM prioritisation — Office of the Secretary pababa sa Regional Offices. */
+  clientTier: string;
+  /** "Urgent requests may override with notice." Ang paunawa mismo. */
+  urgentNote: string;
   pipeline: Record<PipelineKey, PipelineState>;
   targetDate: Date | null;
   dateDelivered: Date | null;
@@ -679,59 +749,141 @@ function splitList(v: unknown): string[] {
     .filter(Boolean);
 }
 
-const SERVICE_CATALOG = [
-  'Photo coverage',
-  'Video coverage',
-  'Photo shoot',
-  'Video shoot',
-  'AVP production',
-  'Hybrid livestream',
-  'Livestream (multi-cam)',
-  'Audio technical set-up',
-  'Same-Day-Edit (SDE)',
-  'Video editing (clean-cut)',
-  'Motion graphics',
-  'Script writing',
-  'Social media posting',
+/**
+ * KATALOGO NG SERBISYO — eksakto ang nasa AV Services PM. Dalawang stream,
+ * apat na serbisyo bawat isa. Walang idinagdag, walang binawas.
+ */
+const PRODUCTION_SERVICES = [
+  'Full Video Production',
+  'Video Production',
+  'Video Shoot',
+  'Photo Shoot',
 ];
+const COVERAGE_SERVICES = [
+  'Photo Coverage',
+  'Video Coverage',
+  'Livestreaming with multi-camera setup',
+  'SDE',
+];
+const SERVICE_CATALOG = [...PRODUCTION_SERVICES, ...COVERAGE_SERVICES];
 
-/** Mabibigat na serbisyo → 13 WD SLA. Iba → 3 WD. Per PM section 6. */
-const HEAVY_SERVICES = [
-  'AVP production', 'Video editing (clean-cut)', 'Script writing', 'Motion graphics',
-];
+/**
+ * Aling stream ang isang listahan ng serbisyo. Kapag may kahit isang
+ * Production service, Production ito — doon nakasalalay ang 13 WD na SLA.
+ * May keyword fallback para sa mga lumang pangalan ng serbisyo, kaya
+ * hindi biglang nagiging 3 WD ang isang lumang AVP production.
+ */
+function streamOfServices(list: string[]): Stream {
+  const prod = new Set(PRODUCTION_SERVICES.map((x) => x.toLowerCase()));
+  return list.some((raw) => {
+    const x = raw.trim().toLowerCase();
+    return (
+      prod.has(x) ||
+      x.includes('production') || x.includes('shoot') ||
+      x.includes('editing') || x.includes('script') || x.includes('motion')
+    );
+  })
+    ? 'production'
+    : 'coverage';
+}
+
+/**
+ * PRIORITISATION — eksaktong pagkakasunod-sunod na nakasaad sa PM, at ang
+ * sagot sa puna ng COA na magdagdag ng prioritization category.
+ * Ang urgent na kahilingan ay maaaring lumampas dito, PERO kailangan ng
+ * nakasulat na paunawa — 'yon ang "with notice" sa PM.
+ */
+const CLIENT_TIERS = [
+  'Office of the Secretary',
+  'Office of the Undersecretary / Assistant Secretary',
+  'DOST Flagship Programs',
+  'DOST Attached Agencies',
+  'Regional Offices',
+  'Other / External',
+] as const;
+
+function tierRank(tier: string): number {
+  const i = (CLIENT_TIERS as readonly string[]).indexOf(String(tier || '').trim());
+  return i === -1 ? CLIENT_TIERS.length : i;
+}
+
+/** Urgent muna, tapos ang opisyal na ranggo ng kliyente. */
+function queueRank(ev: AVEvent): number {
+  return (ev.urgentNote.trim() ? 0 : 1) * 100 + tierRank(ev.clientTier);
+}
+
+/* ------------------------------------------------------------- PRIORITY -- */
+
+type PriorityKey = 'High' | 'Normal' | 'Low';
+
+const PRIORITY_ORDER: PriorityKey[] = ['High', 'Normal', 'Low'];
+
+const PRIORITY_META: Record<PriorityKey, { label: string; chip: string; hex: string }> = {
+  High:   { label: 'High priority', chip: 'bg-red-100 text-red-700 border-red-200', hex: '#dc2626' },
+  Normal: { label: 'Normal',        chip: 'bg-slate-100 text-slate-600 border-slate-200', hex: '#64748b' },
+  Low:    { label: 'Low',           chip: 'bg-slate-100 text-slate-500 border-slate-200', hex: '#94a3b8' },
+};
+
+/** Iisang anyo lang: High / Normal / Low. Ang default ay Normal. */
+function classifyPriority(raw: unknown): PriorityKey {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (s.includes('high') || s.includes('urgent') || s.includes('rush')) return 'High';
+  if (s.includes('low')) return 'Low';
+  return 'Normal';
+}
 
 const APPROVAL_ORDER: ApprovalKey[] = [
-  'for-approval', 'approved', 'endorsed', 'declined', 'rescheduled', 'cancelled',
+  'for-evaluation', 'for-endorsement', 'for-approval', 'approved',
+  'declined', 'rescheduled', 'cancelled',
 ];
 
 const APPROVAL_META: Record<
   ApprovalKey,
   { label: string; short: string; hex: string; chip: string; live: boolean }
 > = {
+  'for-evaluation': {
+    label: 'For evaluation', short: 'TRIAGE', hex: '#8b5cf6',
+    chip: 'bg-purple-100 text-purple-800 border-purple-200', live: true,
+  },
+  'for-endorsement': {
+    label: 'For endorsement', short: 'FOR SRS', hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200', live: true,
+  },
   'for-approval': {
-    label: 'For approval', short: 'For DC', hex: '#a1a1aa',
-    chip: 'bg-[#272831] text-[#aab8c5] border-[#363c44]', live: true,
+    label: 'For approval', short: 'FOR DC', hex: '#94a3b8',
+    chip: 'bg-slate-100 text-slate-700 border-slate-200', live: true,
   },
   approved: {
-    label: 'Approved', short: 'For SRS', hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30', live: true,
-  },
-  endorsed: {
-    label: 'Endorsed', short: 'Cleared', hex: '#00aeef',
-    chip: 'bg-[#00aeef]/10 text-[#00aeef] border-[#00aeef]/30', live: true,
+    label: 'Approved', short: 'CLEARED', hex: '#2563eb',
+    chip: 'bg-blue-100 text-blue-800 border-blue-200', live: true,
   },
   declined: {
-    label: 'Declined', short: 'Declined', hex: '#ee4444',
-    chip: 'bg-red-500/10 text-[#f07070] border-red-500/30', live: false,
+    label: 'Declined', short: 'DECLINED', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200', live: false,
   },
   rescheduled: {
-    label: 'Rescheduled', short: 'Moved', hex: '#eab308',
-    chip: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30', live: false,
+    label: 'Rescheduled', short: 'MOVED', hex: '#ca8a04',
+    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', live: false,
   },
   cancelled: {
-    label: 'Cancelled', short: 'Cancelled', hex: '#71717a',
-    chip: 'bg-[#1a1b22] text-[#8391a2] border-[#293036]', live: false,
+    label: 'Cancelled', short: 'CANCELLED', hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200', live: false,
   },
+};
+
+/**
+ * Ang eksaktong anyong tinatanggap ng sheet. Hindi sapat ang `.replace()`
+ * sa isang label — dalawa na ang status na nagsisimula sa "For ", at ang
+ * isang maling titik ay sapat para hindi na maipadala ang email.
+ */
+const SERVER_STATUS: Record<ApprovalKey, string> = {
+  'for-evaluation': 'For Evaluation',
+  'for-endorsement': 'For Endorsement',
+  'for-approval': 'For Approval',
+  approved: 'Approved',
+  declined: 'Declined',
+  rescheduled: 'Rescheduled',
+  cancelled: 'Cancelled',
 };
 
 const FULFIL_META: Record<
@@ -739,51 +891,114 @@ const FULFIL_META: Record<
   { label: string; hex: string; chip: string }
 > = {
   full: {
-    label: 'Fully served', hex: '#44a887',
-    chip: 'bg-green-500/10 text-[#5cbf9c] border-green-500/30',
+    label: 'FULLY SERVED', hex: '#16a34a',
+    chip: 'bg-green-100 text-green-800 border-green-200',
   },
   partial: {
-    label: 'Limited service', hex: '#f59e0b',
-    chip: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    label: 'LIMITED SERVICE', hex: '#d97706',
+    chip: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   none: {
-    label: 'Not served', hex: '#ee4444',
-    chip: 'bg-red-500/10 text-[#f07070] border-red-500/30',
+    label: 'NOT SERVED', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200',
   },
   declined: {
-    label: 'Declined', hex: '#ee4444',
-    chip: 'bg-red-500/10 text-[#f07070] border-red-500/30',
+    label: 'DECLINED BY DC', hex: '#dc2626',
+    chip: 'bg-red-100 text-red-800 border-red-200',
+  },
+  cancelled: {
+    label: 'CANCELLED BY CLIENT', hex: '#64748b',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
+  },
+  rescheduled: {
+    label: 'MOVED BY CLIENT', hex: '#ca8a04',
+    chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   },
   pending: {
-    label: 'Awaiting approval', hex: '#a1a1aa',
-    chip: 'bg-[#272831] text-[#8391a2] border-[#363c44]',
+    label: 'AWAITING APPROVAL', hex: '#94a3b8',
+    chip: 'bg-slate-100 text-slate-600 border-slate-200',
   },
 };
 
-const PIPELINE_STEPS: { key: PipelineKey; label: string; short: string; detail: string }[] = [
+/**
+ * `only` = applicable sa isang stream lamang. Ang script at ang final cut
+ * ay Production lamang — awtomatikong N/A sa Coverage, kaya hindi
+ * nagmumukhang kulang ang isang coverage na tapos na.
+ *
+ * Ang "Office documents" ay wala sa PM pero totoong trabaho (gate pass,
+ * travel order) at may sariling sistema na. Iniwan bilang hakbang.
+ */
+const PIPELINE_STEPS: {
+  key: PipelineKey; label: string; short: string; detail: string; only?: Stream;
+}[] = [
   {
-    key: 'coordination', label: 'Coordination', short: 'Coord',
-    detail: 'Pre-production and client coordination meeting',
+    key: 'coordination', label: 'Coordination', short: 'COORD',
+    detail: 'PM 3A.1 / 3B.1 — pre-production meeting or event coordination with the client',
   },
   {
-    key: 'documents', label: 'Office documents', short: 'Docs',
+    key: 'documents', label: 'Office documents', short: 'DOCS',
     detail: 'Gate pass, travel order, pass slip, special order',
   },
   {
-    key: 'deliverables', label: 'Deliverables', short: 'Deliv',
-    detail: 'Shoot, edit and delivery to the client',
+    key: 'script', label: 'Script approval', short: 'SCRIPT', only: 'production',
+    detail: 'PM 3A.2 — SRS II drafts the editing script, SVSRS approves, client signs off',
+  },
+  {
+    key: 'preInspection', label: 'Pre-inspection', short: 'PRE-INSP',
+    detail: 'PM 3A.3 / 3B.2 — equipment pre-inspection before deployment',
+  },
+  {
+    key: 'execution', label: 'Shoot / coverage', short: 'SHOOT',
+    detail: 'PM 3A.3 / 3B.2 — production shoot per approved script, or event coverage',
+  },
+  {
+    key: 'postInspection', label: 'Post-inspection', short: 'POST-INSP',
+    detail: 'PM 3A.3 / 3B.2 — equipment post-inspection after deployment',
+  },
+  {
+    key: 'editing', label: 'Editing', short: 'EDIT',
+    detail: 'PM 3A.4 / 3B.3 — edit and produce the output',
+  },
+  {
+    key: 'finalCut', label: 'Final cut approval', short: 'FINAL', only: 'production',
+    detail: 'PM 3A.5 — SVSRS previews and approves the final cut; revisions loop back',
+  },
+  {
+    key: 'delivery', label: 'Client delivery', short: 'DELIVER',
+    detail: 'PM 3A.6 / 3B.3 — submit to the client; Acknowledgement Receipt. SDE is submitted during the event.',
   },
   {
     key: 'archiving', label: 'Archiving', short: 'DMC',
-    detail: 'Transfer to DMC NAS and pre-archival record',
+    detail: 'PM 4 — handover to the BDMS Digital Media Archive Unit for renaming',
+  },
+  {
+    key: 'csm', label: 'CSM form', short: 'CSM',
+    detail: 'PM 4 — administer the Client Satisfaction Measurement form',
   },
 ];
 
+/** Aling hakbang ang totoong applicable sa event na ito. */
+function stepsFor(stream: Stream) {
+  return PIPELINE_STEPS.filter((s) => !s.only || s.only === stream);
+}
+
+/**
+ * Ang pangalan ng field na ipinapadala sa server para sa isang hakbang.
+ *
+ * MAHALAGA: ang hakbang na `csm` (naibigay na ba ang CSM form?) ay IBA sa
+ * `csm` na CSM RATING (1–5). Iisa ang pangalan nila, magkaiba ang hanay.
+ * Kapag hindi ito pinaghiwalay, nasusulatan ng "Done" ang rating column at
+ * nasisira ang buong KPI ng PM 2.2.
+ */
+function stepField(key: PipelineKey): string {
+  return key === 'csm' ? 'csmStep' : key;
+}
+
 const PIPELINE_META: Record<PipelineState, { label: string; hex: string }> = {
-  'not-started': { label: 'Not started', hex: '#3f3f46' },
-  'in-progress': { label: 'In progress', hex: '#f59e0b' },
-  done: { label: 'Done', hex: '#44a887' },
-  na: { label: 'N/A', hex: '#27272a' },
+  'not-started': { label: 'Not started', hex: '#cbd5e1' },
+  'in-progress': { label: 'In progress', hex: '#d97706' },
+  done: { label: 'Done', hex: '#16a34a' },
+  na: { label: 'N/A', hex: '#e2e8f0' },
 };
 
 /**
@@ -800,10 +1015,7 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
   else if (ev.dateDelivered) status = 'completed';
   else status = 'ongoing';
 
-  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
-  const stream: Stream = ev.requested.some((x) => heavy.has(x.toLowerCase()))
-    ? 'production'
-    : 'coverage';
+  const stream: Stream = streamOfServices(ev.requested);
 
   return {
     id: ev.id,
@@ -836,12 +1048,20 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
  * so both states must count here.
  */
 function isAuthorised(ev: AVEvent): boolean {
-  return ev.approval === 'approved' || ev.approval === 'endorsed';
+  return ev.approval === 'approved';
 }
 
 /** Still needs a signature from either the Division Chief or the SRS. */
 function awaitingAction(ev: AVEvent): boolean {
-  return APPROVAL_META[ev.approval].live && ev.approval !== 'endorsed';
+  return APPROVAL_META[ev.approval].live && ev.approval !== 'approved';
+}
+
+/** Sinong bahay ang may hawak ngayon. Ito ang lumalabas sa card at sa queue. */
+function awaitingWho(ev: AVEvent): string {
+  if (ev.approval === 'for-evaluation') return 'SRS II assessment';
+  if (ev.approval === 'for-endorsement') return 'Supervising SRS';
+  if (ev.approval === 'for-approval') return 'Division Chief';
+  return '';
 }
 
 function classifyApproval(raw: string): ApprovalKey {
@@ -849,11 +1069,16 @@ function classifyApproval(raw: string): ApprovalKey {
   if (s.includes('declin') || s.includes('disapprove') || s.includes('reject')) return 'declined';
   if (s.includes('cancel')) return 'cancelled';
   if (s.includes('resched') || s.includes('moved')) return 'rescheduled';
+  // Bago ang "for approval" — ang "For evaluation" ay nagsisimula rin sa "for".
+  if (s.includes('eval') || s.includes('triage')) return 'for-evaluation';
+  if (s.includes('for endors')) return 'for-endorsement';
+  // LEGACY: sa lumang modelo ang "Endorsed" ay huling yugto — matapos nang
+  // maaprubahan. Sa PM, katumbas na ito ng "Approved".
+  if (s.trim() === 'endorsed') return 'approved';
   // "For approval" must be tested before "approved" — it contains the word.
-  if (s.includes('for approval') || s.includes('for endorsement')) return 'for-approval';
-  if (s.includes('endorsed')) return 'endorsed';
+  if (s.includes('for approval')) return 'for-approval';
   if (s.includes('approved')) return 'approved';
-  return 'for-approval';
+  return 'for-evaluation';
 }
 
 function classifyPipeline(raw: string): PipelineState {
@@ -878,6 +1103,62 @@ function serviceGap(ev: AVEvent): string[] {
   return ev.requested.filter((x) => !got.has(x.toLowerCase()));
 }
 
+/**
+ * HINDI SA ATIN ANG DESISYON.
+ *
+ * Ang kinansela at inilipat na event ay hindi pagkukulang ng AV team —
+ * bumawi ang kliyente, o pinigil ng bagyo. Hindi tayo nabigyan ng
+ * pagkakataong mag-cover, kaya walang serbisyong dapat sukatin.
+ *
+ * Ito ang batayan ng EXCLUSION: hindi kasama sa KPI denominator, pero
+ * BINIBILANG NANG HIWALAY at may nakatalang dahilan. Hindi ito pagtatago —
+ * ang standard na paraan ito ng paghawak sa non-attributable na pagkabigo
+ * sa service delivery: ibukod sa performance, pero ipakita nang buo.
+ *
+ * Ang DECLINED ay HINDI kasama dito. Desisyon 'yon ng Division Chief —
+ * atin 'yon, at dapat bilangin bilang hindi naibigay na demand.
+ */
+function isExcluded(ev: AVEvent): boolean {
+  return ev.approval === 'cancelled' || ev.approval === 'rescheduled';
+}
+
+/** May kinalaman pa ba ang AV team sa hindi pagkakabigay nito? */
+function isProviderAttributable(ev: AVEvent): boolean {
+  return !isExcluded(ev);
+}
+
+/**
+ * Ang epektibong AGREED VOLUME.
+ * Blangko sa mga lumang record → ang hiniling ang ituturing na pinangako,
+ * kaya hindi nagbabago ang dating bilang. Walang agreed sa mga tinanggihan.
+ */
+function agreedVolume(ev: AVEvent): string[] {
+  if (!APPROVAL_META[ev.approval].live) return [];
+  return ev.agreed.length ? ev.agreed : ev.requested;
+}
+
+/**
+ * HINILING PERO HINDI PINANGAKO — kulang ang tao o kagamitan sa mismong
+ * araw. Ito ang pinakamalinis na ebidensiya para sa Audit Item 44:
+ * hindi tinanggihan ang buong request, pero hindi rin naibigay nang buo.
+ */
+function capacityGap(ev: AVEvent): string[] {
+  // Kinansela o inilipat → hindi natin naabot ang capacity decision.
+  // Walang capacity gap dito; hindi tayo tinanong.
+  if (isExcluded(ev)) return [];
+  // Tinanggihan ng DC → hindi rin ito capacity issue. Nabibilang ito
+  // bilang hindi naibigay na demand, pero sa ibang kategorya.
+  if (ev.approval === 'declined') return [];
+  const promised = new Set(agreedVolume(ev).map((x) => x.toLowerCase()));
+  return ev.requested.filter((x) => !promised.has(x.toLowerCase()));
+}
+
+/** PINANGAKO PERO HINDI NATUPAD. Ibang usapan ito sa capacity gap. */
+function deliveryGap(ev: AVEvent): string[] {
+  const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
+  return agreedVolume(ev).filter((x) => !got.has(x.toLowerCase()));
+}
+
 /** Naibigay pero hindi orihinal na hiniling — dagdag na serbisyo. */
 function serviceExtra(ev: AVEvent): string[] {
   const asked = new Set(ev.requested.map((x) => x.toLowerCase()));
@@ -885,47 +1166,72 @@ function serviceExtra(ev: AVEvent): string[] {
 }
 
 function fulfilment(ev: AVEvent): Fulfilment {
-  if (ev.approval === 'declined' || ev.approval === 'cancelled' || ev.approval === 'rescheduled')
-    return 'declined';
+  if (ev.approval === 'declined') return 'declined';
+  if (ev.approval === 'cancelled') return 'cancelled';
+  if (ev.approval === 'rescheduled') return 'rescheduled';
   if (!isAuthorised(ev)) return 'pending';
-  if (ev.requested.length === 0) return 'pending';
-  const gap = serviceGap(ev);
+  // Sinusukat laban sa PINANGAKO, hindi sa hiniling. Kung tatlo ang hiniling,
+  // dalawa ang kayang ibigay at dalawa ang naibigay — natupad ang pangako.
+  // Ang kulang na isa ay hindi pagkukulang sa paghahatid; kakulangan 'yon
+  // sa tao, at hiwalay itong iniuulat sa capacity gap.
+  const promised = agreedVolume(ev);
+  if (promised.length === 0) return 'pending';
+  const gap = deliveryGap(ev);
   if (gap.length === 0) return 'full';
   if (ev.delivered.length === 0) return 'none';
   return 'partial';
 }
 
 function slaForEvent(ev: AVEvent): number {
-  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
-  return ev.requested.some((x) => heavy.has(x.toLowerCase()))
-    ? SLA_WD.production
-    : SLA_WD.coverage;
+  return SLA_WD[streamOfServices(ev.requested)];
 }
 
 /**
- * Kailan nagsisimula ang orasan ng SLA.
- *
- * Hindi sa pag-apruba. Ang ihahatid ay ang natapos nang photo at video, at
- * hindi 'yon magagawa hangga't hindi tapos ang shoot. Kaya kung alin ang
- * mas huli: ang pag-apruba, o ang huling araw ng event.
- *
- * Sa multi-day: ang End Date ang gamit. Kung walang End Date, ang Event Date.
+ * COA: ang target ay sinusukat mula sa araw na NATANGGAP ang kahilingan,
+ * hindi mula sa araw na naaprubahan ito.
  */
-function slaStart(ev: AVEvent): Date | null {
-  const ends = ev.endDate || ev.eventDate;
-  const approved = ev.dateApproved;
-  if (ends && approved) return ends.getTime() > approved.getTime() ? ends : approved;
-  return ends || approved || ev.dateRequested;
-}
-
 function eventTarget(ev: AVEvent): Date | null {
   if (ev.targetDate) return ev.targetDate;
-  const start = slaStart(ev);
+  const start = slaBaseDate(ev);
   return start ? addWorkingDays(start, slaForEvent(ev)) : null;
 }
 
+/**
+ * Kailan dapat magsimula ang orasan ng TARGET DATE.
+ *
+ * Dati, ang petsa ng pagtanggap lang. Kapag maaga kang nag-book — natanggap
+ * Agosto 1, event Agosto 12–16 — Agosto 6 ang target: bago pa mangyari ang
+ * event. OVERDUE agad ang bawat advance booking, at sira ang buong KPI.
+ *
+ * Hindi mo maie-edit ang footage ng event na hindi pa natatapos. Kaya ang
+ * orasan ay nagsisimula sa mas HULI sa dalawa: pagtanggap, o huling araw
+ * ng event. Sa multi-day, ang End Date ang sinusunod.
+ *
+ * Ang TAT na iniuulat sa COA ay hiwalay: pagtanggap → paghahatid pa rin,
+ * dahil 'yon ang buong hinintay ng kliyente. Hindi 'yon ginagalaw.
+ */
+function slaBaseDate(ev: AVEvent): Date | null {
+  const ends = ev.endDate || ev.eventDate;
+  if (!ev.dateRequested) return ends;
+  if (!ends) return ev.dateRequested;
+  return ends.getTime() > ev.dateRequested.getTime() ? ends : ev.dateRequested;
+}
+
+/**
+ * Ilang araw tumatakbo ang event. Ito ay PANG-IPAKITA lamang.
+ * Ang isang limang araw na coverage ay ISANG serbisyo pa rin sa KPI —
+ * isang request, isang target date, isang bilang. Hindi lima.
+ */
+function eventSpanDays(ev: AVEvent): number {
+  if (!ev.eventDate) return 0;
+  const end = ev.endDate || ev.eventDate;
+  return Math.max(1, Math.round(
+    (end.getTime() - ev.eventDate.getTime()) / 86400000) + 1);
+}
+
+/** Aktwal na turnaround: Date Requested → Date Served, sa working days. */
 function eventTAT(ev: AVEvent): number | null {
-  const start = slaStart(ev);
+  const start = ev.dateRequested;
   if (!start || !ev.dateDelivered) return null;
   return workingDaysBetween(start, ev.dateDelivered);
 }
@@ -947,19 +1253,22 @@ function eventSLA(ev: AVEvent): SLAState {
 
 /** 0–100, batay sa apat na hakbang ng pipeline. N/A ay binibilang na tapos. */
 function pipelineProgress(ev: AVEvent): number {
-  const states = PIPELINE_STEPS.map((s) => ev.pipeline[s.key]);
-  const score = states.reduce((a, st) => {
+  // Ang hindi applicable na hakbang ay hindi binibilang, hindi ibinibilang
+  // na tapos — kung hindi, laging mas mataas ang coverage kaysa production.
+  const steps = stepsFor(streamOfServices(ev.requested));
+  const score = steps.reduce((a, s) => {
+    const st = ev.pipeline[s.key];
     if (st === 'done' || st === 'na') return a + 1;
     if (st === 'in-progress') return a + 0.5;
     return a;
   }, 0);
-  return Math.round((score / PIPELINE_STEPS.length) * 100);
+  return Math.round((score / Math.max(1, steps.length)) * 100);
 }
 
 /** Ang susunod na hakbang na dapat asikasuhin. */
 function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | null {
   if (!isAuthorised(ev)) return null;
-  for (const step of PIPELINE_STEPS) {
+  for (const step of stepsFor(streamOfServices(ev.requested))) {
     const st = ev.pipeline[step.key];
     if (st === 'not-started' || st === 'in-progress') return { key: step.key, label: step.label };
   }
@@ -974,18 +1283,21 @@ function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | nu
 const STEP_ROLES: Record<PipelineKey, string[]> = {
   coordination: ['Coordinator'],
   documents: ['Documents / Admin'],
-  deliverables: [
-    'Editor',
-    'Colorist',
-    'Motion / Graphics Artist',
+  script: ['Scriptwriter', 'Director / DP'],
+  preInspection: ['Documents / Admin', 'Camera Operator', 'Audio Technician'],
+  execution: [
     'Camera Operator',
     'Photographer',
     'Director / DP',
     'Audio Technician',
     'Livestream Technician',
-    'Scriptwriter',
   ],
+  postInspection: ['Documents / Admin', 'Camera Operator', 'Audio Technician'],
+  editing: ['Editor', 'Colorist', 'Motion / Graphics Artist'],
+  finalCut: ['Editor', 'Director / DP'],
+  delivery: ['Coordinator', 'Documents / Admin'],
   archiving: ['Archiving / DMC'],
+  csm: ['Coordinator', 'Documents / Admin'],
 };
 
 /**
@@ -1160,7 +1472,7 @@ function StatusBadge({ status, dense = false }: { status: string; dense?: boolea
   const meta = STATUS_META[classifyStatus(status)];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-[#8391a2] ${
+      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-slate-500 ${
         dense ? 'text-[10px]' : 'text-[11px]'
       }`}
     >
@@ -1170,6 +1482,23 @@ function StatusBadge({ status, dense = false }: { status: string; dense?: boolea
         aria-hidden
       />
       {meta.label}
+    </span>
+  );
+}
+
+/** Pulsing red chip. Ito lang ang gumagalaw sa buong dashboard — sadya. */
+function PriorityBadge({ priority, dense = false }: { priority: string; dense?: boolean }) {
+  const key = classifyPriority(priority);
+  if (key !== 'High') return null;
+  return (
+    <span
+      className={`inline-flex animate-pulse items-center gap-1.5 rounded-full border border-red-200 bg-red-100 font-semibold tracking-wide text-red-700 ${
+        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
+      }`}
+      title="Marked high priority by the requesting section"
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-hidden />
+      HIGH PRIORITY
     </span>
   );
 }
@@ -1204,13 +1533,13 @@ function SystemFrame({ app }: { app: SystemApp }) {
     <section>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-medium text-[#dfe5eb]">{app.name}</h2>
-          <p className="truncate text-[11px] text-[#5f6b7a]">{app.role}</p>
+          <h2 className="text-[13px] font-medium text-slate-800">{app.name}</h2>
+          <p className="truncate text-[11px] text-slate-400">{app.role}</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setReloadKey((k) => k + 1)}
-            className="rounded border border-[#293036] px-2.5 py-1.5 text-[12px] text-[#8391a2] transition-colors hover:border-[#363c44] hover:text-[#dfe5eb]"
+            className="rounded border border-slate-200 px-2.5 py-1.5 text-[12px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
           >
             Reload
           </button>
@@ -1218,14 +1547,14 @@ function SystemFrame({ app }: { app: SystemApp }) {
             href={app.url}
             target="_blank"
             rel="noreferrer"
-            className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+            className="rounded bg-blue-600 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
           >
             Open site
           </a>
         </div>
       </div>
 
-      <div className="relative h-[78vh] min-h-[520px] overflow-hidden rounded-md border border-[#293036] bg-white">
+      <div className="relative h-[78vh] min-h-[520px] overflow-hidden rounded-md border border-slate-200 bg-white">
         {!showFallback && (
           <>
             <iframe
@@ -1239,23 +1568,23 @@ function SystemFrame({ app }: { app: SystemApp }) {
               }}
             />
             {loading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#1e1f27]">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white">
                 <div
-                  className="h-6 w-6 animate-spin rounded-full border-2 border-[#293036]"
+                  className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200"
                   style={{ borderTopColor: app.accent }}
                 />
-                <p className="font-mono text-[11px] text-[#76828f]">Loading {app.name}</p>
+                <p className="font-mono text-[11px] text-slate-9000">Loading {app.name}</p>
               </div>
             )}
           </>
         )}
 
         {showFallback && (
-          <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#1e1f27] px-6 text-center">
-            <h3 className="text-[15px] font-medium text-[#dfe5eb]">
+          <div className="flex h-full flex-col items-center justify-center gap-4 bg-white px-6 text-center">
+            <h3 className="text-[15px] font-medium text-slate-800">
               {app.name} cannot be displayed here
             </h3>
-            <p className="max-w-lg text-[13px] leading-relaxed text-[#76828f]">
+            <p className="max-w-lg text-[13px] leading-relaxed text-slate-9000">
               The site sends a header that prevents it from being embedded in another
               page. Open it in a new tab instead — or, if you own the site, allow this
               dashboard to frame it (see the note below).
@@ -1264,13 +1593,13 @@ function SystemFrame({ app }: { app: SystemApp }) {
               href={app.url}
               target="_blank"
               rel="noreferrer"
-              className="mt-1 rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+              className="mt-1 rounded bg-blue-600 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-blue-700"
             >
               Open {app.name}
             </a>
             <button
               onClick={() => setReloadKey((k) => k + 1)}
-              className="text-[12px] text-[#5f6b7a] transition-colors hover:text-[#aab8c5]"
+              className="text-[12px] text-slate-400 transition-colors hover:text-slate-600"
             >
               Try embedding again
             </button>
@@ -1279,11 +1608,11 @@ function SystemFrame({ app }: { app: SystemApp }) {
       </div>
 
       {showFallback && app.embeddable && (
-        <p className="mt-3 text-[11px] leading-relaxed text-[#5f6b7a]">
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
           To allow embedding, add a{' '}
-          <span className="font-mono text-[#8391a2]">vercel.json</span> to that site with a{' '}
-          <span className="font-mono text-[#8391a2]">Content-Security-Policy</span> header
-          whose <span className="font-mono text-[#8391a2]">frame-ancestors</span> lists this
+          <span className="font-mono text-slate-500">vercel.json</span> to that site with a{' '}
+          <span className="font-mono text-slate-500">Content-Security-Policy</span> header
+          whose <span className="font-mono text-slate-500">frame-ancestors</span> lists this
           dashboard&rsquo;s domain, then redeploy.
         </p>
       )}
@@ -1308,16 +1637,40 @@ function roleOf(user: SignedInUser | null, actor: string): string {
   return 'staff';
 }
 
+/**
+ * COA: ang aprubasyon ay para lamang sa Division Chief at Supervising SRS.
+ * Ang admin ay nakakapag-edit ng kahit anong record, PERO hindi na
+ * nakakapagpalit ng approval status — kapareho ito ng ipinapatupad ng
+ * server sa authorise_(). Kapag magkaiba ang dalawa, magmumukhang sira
+ * ang dashboard: may button na hindi naman tinatanggap ng backend.
+ */
 function can(cap: Capability, role: string, createdBy?: string, me?: string): boolean {
-  if (role === 'admin') return cap === 'edit' || cap === 'approve' || cap === 'endorse';
+  if (cap === 'approve') return role === 'dc';
+  if (cap === 'endorse') return role === 'srs';
   if (cap === 'edit') {
+    if (role === 'admin') return true;
     if (role !== 'staff') return false;
     if (!createdBy) return true;
     return createdBy.toLowerCase() === String(me || '').toLowerCase();
   }
-  if (cap === 'approve') return role === 'dc';
-  if (cap === 'endorse') return role === 'srs';
   return false;
+}
+
+/** Sinong papel ang pinapayagang bumago ng approval status. */
+function canDecide(role: string): boolean {
+  return role === 'dc' || role === 'srs';
+}
+
+/**
+ * AV TRIAGE — habang "For evaluation" pa ang record (o bago pa ito
+ * naitala), ang AV team mismo ang may hawak ng status dropdown. Sila ang
+ * nagsusuri ng kakayahan at sila ang nagtutulak nito sa Division Chief.
+ * Kapareho ito ng ipinapatupad ng server sa authorise_().
+ */
+function canTriage(role: string, existing: AVEvent | null): boolean {
+  if (role !== 'admin' && role !== 'staff') return false;
+  if (!existing) return true;
+  return existing.approval === 'for-evaluation';
 }
 
 /**
@@ -1396,7 +1749,7 @@ function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
     if (!el || !w.google?.accounts?.id) return;
     el.innerHTML = '';
     w.google.accounts.id.renderButton(el, {
-      theme: 'filled_black',
+      theme: 'outline',
       size: 'large',
       shape: 'rectangular',
       text: 'signin_with',
@@ -1515,13 +1868,13 @@ function ConnectionPanel({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-4">
+    <div className="av-card p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-[11px] font-medium text-[#8391a2]">Connections</p>
+        <p className="text-[11px] font-medium text-slate-500">Connections</p>
         <button
           onClick={onRetry}
           disabled={busy}
-          className="text-[11px] text-[#76828f] underline transition-colors hover:text-[#aab8c5] disabled:opacity-50"
+          className="text-[11px] text-slate-9000 underline transition-colors hover:text-slate-600 disabled:opacity-50"
         >
           {busy ? 'Testing…' : 'Test again'}
         </button>
@@ -1532,23 +1885,23 @@ function ConnectionPanel({
           <div key={pr.name} className="flex gap-3">
             <span
               className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: pr.ok ? '#44a887' : '#ee4444' }}
+              style={{ background: pr.ok ? '#16a34a' : '#dc2626' }}
             />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="text-[12px] font-medium text-[#c3ccd5]">{pr.name}</span>
+                <span className="text-[12px] font-medium text-slate-700">{pr.name}</span>
                 <span
                   className="text-[11px]"
-                  style={{ color: pr.ok ? '#44a887' : '#ee4444' }}
+                  style={{ color: pr.ok ? '#16a34a' : '#dc2626' }}
                 >
                   {pr.detail}
                 </span>
               </div>
-              <p className="truncate font-mono text-[10px] text-[#5f6b7a]">
+              <p className="truncate font-mono text-[10px] text-slate-400">
                 {shortUrl(pr.url)}
               </p>
               {pr.hint && (
-                <p className="mt-1 text-[11px] leading-relaxed text-[#76828f]">{pr.hint}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-9000">{pr.hint}</p>
               )}
             </div>
           </div>
@@ -1574,17 +1927,17 @@ function SignInGate({
   const wide = !!error || (health && health.problems.length > 0);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#17181e] px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <div
-        className={`w-full rounded-lg border border-[#293036] bg-[#1e1f27] p-8 ${
+        className={`w-full rounded-xl border border-slate-200 bg-white p-8 shadow-sm ${
           wide ? 'max-w-xl' : 'max-w-sm'
         }`}
       >
         <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
-        <h1 className="text-[17px] font-semibold tracking-tight text-[#dfe5eb]">AV Nexus</h1>
-        <p className="mt-1 text-[12px] text-[#76828f]">Broadcast &amp; Digital Media Section</p>
+        <h1 className="text-[17px] font-semibold tracking-tight text-slate-800">AV Nexus</h1>
+        <p className="mt-1 text-[12px] text-slate-9000">Broadcast &amp; Digital Media Section</p>
 
-        <p className="mt-6 text-[13px] leading-relaxed text-[#8391a2]">
+        <p className="mt-6 text-[13px] leading-relaxed text-slate-500">
           Sign in with your DOST-STII Google account to continue. Records can only be
           edited by the person who created them.
         </p>
@@ -1592,23 +1945,23 @@ function SignInGate({
         <div ref={onMount} className="mt-6 flex justify-center" />
 
         {!ready && (
-          <p className="mt-4 text-center text-[12px] text-[#5f6b7a]">Loading sign-in…</p>
+          <p className="mt-4 text-center text-[12px] text-slate-400">Loading sign-in…</p>
         )}
 
         {error && (
-          <div className="mt-5 rounded border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+          <div className="mt-5 rounded-[12px] border border-red-200 bg-red-50 px-4 py-3 text-[12px] leading-relaxed text-red-800">
             <p>{error}</p>
             {health && health.registeredAccounts.length > 0 && (
               <>
-                <p className="mt-3 text-red-300/70">Registered accounts:</p>
-                <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-red-300/60">
+                <p className="mt-3 text-red-600">Registered accounts:</p>
+                <ul className="mt-1 space-y-0.5 font-mono text-[11px] text-red-600">
                   {health.registeredAccounts.map((a) => (
                     <li key={a}>{a}</li>
                   ))}
                 </ul>
               </>
             )}
-            <p className="mt-3 text-red-300/70">
+            <p className="mt-3 text-red-600">
               To use a different Google account, sign out of Google in this browser or
               open the dashboard in a private window.
             </p>
@@ -1616,21 +1969,21 @@ function SignInGate({
         )}
 
         {health && health.problems.length > 0 && (
-          <div className="mt-5 rounded border border-amber-900/60 bg-amber-950/20 px-4 py-3 text-[12px] leading-relaxed text-amber-200">
+          <div className="mt-5 rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-800">
             <p className="mb-2 font-medium">
               Backend setup needs attention ({health.problems.length})
             </p>
             <ul className="space-y-2">
               {health.problems.map((prob, i) => (
                 <li key={i} className="flex gap-2">
-                  <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
+                  <span className="shrink-0 text-amber-500">{i + 1}.</span>
                   <span className="whitespace-pre-line">{prob}</span>
                 </li>
               ))}
             </ul>
             <button
               onClick={onRetry}
-              className="mt-3 text-[11px] text-amber-300/70 underline transition-colors hover:text-amber-200"
+              className="mt-3 text-[11px] text-amber-700 underline transition-colors hover:text-amber-800"
             >
               Check again
             </button>
@@ -1653,8 +2006,8 @@ function SectionHead({
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
       <div>
-        <h2 className="text-[15px] font-medium tracking-[-0.01em] text-[#dfe5eb]">{title}</h2>
-        {hint && <p className="mt-1 text-[12.5px] text-[#76828f]">{hint}</p>}
+        <h2 className="av-sec-h">{title}</h2>
+        {hint && <p className="av-sec-p mt-1">{hint}</p>}
       </div>
       {right}
     </div>
@@ -1676,27 +2029,15 @@ function StatTile({
 }) {
   const shown = useCountUp(value);
   return (
-    /*
-     * Ang anyo ng Vona: label sa itaas, malaking numero na MANIPIS ang timbang
-     * (hindi bold — 'yan ang nagbibigay ng kalmadong dating), at isang footer
-     * strip na may linya sa itaas at maikling buod sa gitna.
-     */
-    <div className="flex flex-col rounded-[5px] border border-[#293036] bg-[#1e1f27]">
-      <div className="flex-1 px-4 pb-3.5 pt-3.5">
-        <p className="truncate text-[12px] text-[#8391a2]">{label}</p>
-        <p className="mt-2.5 text-[30px] font-light leading-none tracking-[-0.02em] text-[#dfe5eb] tabular-nums">
-          {shown}
-        </p>
-        <div className="mt-4 h-[3px] w-full overflow-hidden rounded-full bg-[#272831]">
-          <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${Math.max(2, Math.min(100, bar))}%`, background: accent }}
-          />
-        </div>
+    <div className="av-card" style={{ padding: '16px 18px' }}>
+      <div className="font-mono" style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.1, color: accent }}>
+        {shown}
       </div>
-      <p className="truncate border-t border-[#293036] px-4 py-2.5 text-center text-[11.5px] text-[#76828f]">
-        {sub}
-      </p>
+      <p className="av-label mt-1 truncate">{label}</p>
+      <p className="av-note av-dim mt-0.5 truncate">{sub}</p>
+      <div className="av-track mt-3">
+        <div className="av-fill" style={{ width: `${Math.max(2, Math.min(100, bar))}%`, background: accent }} />
+      </div>
     </div>
   );
 }
@@ -1713,7 +2054,7 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
     <div className="flex items-center gap-6">
       <div className="relative h-[132px] w-[132px] shrink-0">
         <svg viewBox="0 0 132 132" className="h-full w-full -rotate-90">
-          <circle cx="66" cy="66" r={R} fill="none" stroke="#18181b" strokeWidth="13" />
+          <circle cx="66" cy="66" r={R} fill="none" stroke="#e2e8f0" strokeWidth="13" />
           {STATUS_ORDER.map((key) => {
             const n = counts[key];
             if (!n || !total) return null;
@@ -1737,8 +2078,8 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
           })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-2xl font-black text-[#e6ebf0] tabular-nums">{shown}%</span>
-          <span className="text-[11px] font-medium tracking-[0.1em] text-[#76828f]">
+          <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">{shown}%</span>
+          <span className="av-note av-dim">
             cleared
           </span>
         </div>
@@ -1750,8 +2091,8 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
               className="h-2 w-2 shrink-0 rounded-sm"
               style={{ background: STATUS_META[key].hex }}
             />
-            <span className="flex-1 truncate text-[#8391a2]">{STATUS_META[key].label}</span>
-            <span className="font-mono font-bold text-[#c3ccd5] tabular-nums">{counts[key]}</span>
+            <span className="flex-1 truncate text-slate-500">{STATUS_META[key].label}</span>
+            <span className="font-mono font-bold text-slate-700 tabular-nums">{counts[key]}</span>
           </div>
         ))}
       </div>
@@ -1770,17 +2111,17 @@ function WorkloadBars({
       {data.map((d) => (
         <div key={d.name}>
           <div className="mb-1 flex items-baseline justify-between">
-            <span className="text-xs font-medium text-[#aab8c5]">
+            <span className="text-xs font-semibold tracking-wide text-slate-600">
               {d.name}
             </span>
-            <span className="font-mono text-xs text-[#8391a2] tabular-nums">
+            <span className="font-mono text-xs text-slate-500 tabular-nums">
               {d.count}
-              <span className="text-[#5f6b7a]"> · {d.cov}c / {d.out}v</span>
+              <span className="text-slate-400"> · {d.cov}c / {d.out}v</span>
             </span>
           </div>
-          <div className="flex h-2 overflow-hidden rounded-full bg-[#1a1b22]">
+          <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full bg-[#00aeef] transition-all duration-1000"
+              className="h-full bg-blue-600 transition-all duration-1000"
               style={{ width: `${(d.cov / max) * 100}%` }}
             />
             <div
@@ -1790,7 +2131,7 @@ function WorkloadBars({
           </div>
         </div>
       ))}
-      {data.length === 0 && <p className="text-xs italic text-[#5f6b7a]">No data yet.</p>}
+      {data.length === 0 && <p className="text-xs italic text-slate-400">No data yet.</p>}
     </div>
   );
 }
@@ -1835,9 +2176,9 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
   const width = weeks.length * (CELL + GAP);
 
   const shade = (n: number) => {
-    if (!n) return '#111113';
+    if (!n) return '#f1f5f9';
     const t = Math.min(1, n / maxCount);
-    return `rgba(0,174,239,${0.22 + t * 0.78})`;
+    return `rgba(37,99,235,${0.22 + t * 0.78})`;
   };
 
   return (
@@ -1848,12 +2189,12 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
             key={`${m.index}-${m.label}`}
             x={m.index * (CELL + GAP)}
             y={10}
-            fill="#52525b"
+            fill="#94a3b8"
             fontSize="9"
             fontFamily="ui-monospace, monospace"
             letterSpacing="1"
           >
-            {m.label}
+            {m.label.toUpperCase()}
           </text>
         ))}
         {weeks.map((col, x) =>
@@ -1866,7 +2207,7 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
               height={CELL}
               rx={3}
               fill={shade(cell.count)}
-              stroke={cell.count ? 'rgba(0,174,239,0.35)' : '#18181b'}
+              stroke={cell.count ? 'rgba(37,99,235,0.35)' : '#e2e8f0'}
               strokeWidth="0.6"
             >
               <title>{`${fmtDate(cell.date)} — ${cell.count} coverage${
@@ -1885,7 +2226,7 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
 function StageBadge({ stage }: { stage: StageKey }) {
   const m = STAGE_META[stage];
   return (
-    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-[#8391a2]">
+    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-slate-500">
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
       {m.label}
     </span>
@@ -1905,33 +2246,33 @@ function OutputCard({
   const atEnd = o.stage === 'published';
   return (
     <div
-      className="group rounded-md border border-[#293036] bg-[#17181e] p-3 transition-colors hover:border-[#363c44]"
-      style={overdue ? { borderColor: 'rgba(239,68,68,0.45)' } : undefined}
+      className="group rounded-[12px] border border-[var(--rule)] bg-[var(--rule-soft)] p-3 transition-colors hover:border-slate-300"
+      style={overdue ? { borderColor: 'rgba(220,38,38,0.45)' } : undefined}
     >
-      <p className="mb-1.5 line-clamp-2 text-xs font-semibold leading-snug text-[#dfe5eb]">
+      <p className="mb-1.5 line-clamp-2 text-xs font-semibold leading-snug text-slate-800">
         {o.title || 'Untitled output'}
       </p>
-      {o.event && <p className="mb-2 truncate text-[10px] text-[#5f6b7a]">{o.event}</p>}
+      {o.event && <p className="mb-2 truncate text-[10px] text-slate-400">{o.event}</p>}
 
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        <span className="rounded bg-[#272831] px-1.5 py-0.5 text-[11px] font-medium text-[#aab8c5]">
+        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600">
           {o.personnel || '—'}
         </span>
-        {o.type && <span className="text-[9px] text-[#76828f]">{o.type}</span>}
+        {o.type && <span className="text-[9px] text-slate-9000">{o.type}</span>}
         {o.seconds > 0 && (
-          <span className="font-mono text-[9px] text-[#76828f]">{fmtRuntime(o.seconds)}</span>
+          <span className="font-mono text-[9px] text-slate-9000">{fmtRuntime(o.seconds)}</span>
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-[#23272e] pt-2">
+      <div className="flex items-center justify-between gap-2 border-t border-slate-200 pt-2">
         <span
-          className={`font-mono text-[9px] ${overdue ? 'font-bold text-[#f07070]' : 'text-[#5f6b7a]'}`}
+          className={`font-mono text-[9px] ${overdue ? 'font-bold text-red-600' : 'text-slate-400'}`}
         >
           {o.target ? `${overdue ? 'OVERDUE ' : 'due '}${fmtDate(o.target)}` : o.id}
         </span>
         <div className="flex items-center gap-1.5">
           {o.revisions > 0 && (
-            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] text-amber-400">
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[9px] text-amber-600">
               R{o.revisions}
             </span>
           )}
@@ -1940,7 +2281,7 @@ function OutputCard({
               href={o.link}
               target="_blank"
               rel="noreferrer"
-              className="text-[10px] text-[#00aeef] hover:text-[#e6ebf0]"
+              className="text-[10px] text-blue-600 hover:text-slate-900"
               title="Open output"
             >
               ↗
@@ -1951,7 +2292,7 @@ function OutputCard({
               onClick={() => onAdvance(o)}
               disabled={busy}
               title={`Move to ${STAGE_META[STAGE_ORDER[STAGE_ORDER.indexOf(o.stage) + 1]].label}`}
-              className="rounded border border-[#293036] px-1.5 py-0.5 text-[10px] text-[#76828f] opacity-0 transition-all hover:border-[#00aeef]/50 hover:text-[#00aeef] group-hover:opacity-100 disabled:opacity-40"
+              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-9000 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
             >
               {busy ? '…' : '→'}
             </button>
@@ -1978,22 +2319,22 @@ function ProductionBoard({
           const lane = outputs.filter((o) => o.stage === stage);
           const meta = STAGE_META[stage];
           return (
-            <div key={stage} className="flex-1 rounded-md border border-[#293036] bg-[#1e1f27] p-3">
-              <div className="mb-3 flex items-center justify-between border-b border-[#293036] pb-2">
+            <div key={stage} className="av-card flex-1 p-3">
+              <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2">
                 <div className="flex items-center gap-2">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.hex }} />
-                  <span className="text-[11px] font-medium tracking-[0.1em] text-[#8391a2]">
+                  <span className="av-label">
                     {meta.label}
                   </span>
                 </div>
-                <span className="font-mono text-[10px] text-[#5f6b7a]">{lane.length}</span>
+                <span className="font-mono text-[10px] text-slate-400">{lane.length}</span>
               </div>
               <div className="space-y-2">
                 {lane.map((o) => (
                   <OutputCard key={o.id} o={o} onAdvance={onAdvance} busy={busyId === o.id} />
                 ))}
                 {lane.length === 0 && (
-                  <p className="py-6 text-center text-[10px] italic text-[#4a5360]">empty</p>
+                  <p className="py-6 text-center text-[10px] italic text-slate-400">empty</p>
                 )}
               </div>
             </div>
@@ -2028,10 +2369,10 @@ function ProductionScoreboard({ outputs, people }: { outputs: Output[]; people: 
     <div className="overflow-x-auto custom-scrollbar">
       <table className="w-full min-w-[560px] text-left text-xs">
         <thead>
-          <tr className="border-b border-[#293036] text-[11px] tracking-[0.1em] text-[#5f6b7a]">
+          <tr className="border-b border-slate-200 text-[9px] uppercase tracking-[0.1em] text-slate-400">
             <th className="pb-2 pr-3 font-bold">Personnel</th>
             <th className="pb-2 pr-3 text-right font-bold">Outputs</th>
-            <th className="pb-2 pr-3 text-right font-bold">Delivered</th>
+            <th className="pb-2 pr-3 text-right font-bold">Served</th>
             <th className="pb-2 pr-3 text-right font-bold">In progress</th>
             <th className="pb-2 pr-3 text-right font-bold">Runtime</th>
             <th className="pb-2 pr-3 text-right font-bold">On time</th>
@@ -2040,24 +2381,24 @@ function ProductionScoreboard({ outputs, people }: { outputs: Output[]; people: 
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.name} className="border-b border-[#23272e] last:border-0">
-              <td className="py-2.5 pr-3 font-medium text-[#c3ccd5]">{r.name}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-[#e6ebf0] tabular-nums">{r.total}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-[#5cbf9c] tabular-nums">{r.done}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-amber-400 tabular-nums">{r.wip}</td>
-              <td className="py-2.5 pr-3 text-right font-mono text-[#8391a2] tabular-nums">
+            <tr key={r.name} className="border-b border-slate-200 last:border-0">
+              <td className="py-2.5 pr-3 font-semibold tracking-wide text-slate-700">{r.name}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-slate-900 tabular-nums">{r.total}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-green-600 tabular-nums">{r.done}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-amber-600 tabular-nums">{r.wip}</td>
+              <td className="py-2.5 pr-3 text-right font-mono text-slate-500 tabular-nums">
                 {fmtRuntime(r.seconds)}
               </td>
               <td className="py-2.5 pr-3 text-right font-mono tabular-nums">
                 {r.onTime === null ? (
-                  <span className="text-[#4a5360]">—</span>
+                  <span className="text-slate-400">—</span>
                 ) : (
-                  <span className={r.onTime >= 90 ? 'text-[#5cbf9c]' : r.onTime >= 70 ? 'text-amber-400' : 'text-[#f07070]'}>
+                  <span className={r.onTime >= 90 ? 'text-green-600' : r.onTime >= 70 ? 'text-amber-600' : 'text-red-600'}>
                     {r.onTime}%
                   </span>
                 )}
               </td>
-              <td className="py-2.5 text-right font-mono text-[#8391a2] tabular-nums">{r.revs}</td>
+              <td className="py-2.5 text-right font-mono text-slate-500 tabular-nums">{r.revs}</td>
             </tr>
           ))}
         </tbody>
@@ -2075,7 +2416,8 @@ function QuickLogModal({
   onSubmit: (payload: Record<string, string | number>) => void;
   submitting: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  // dayKey, hindi toISOString — sa Manila (UTC+8) umaatras ng isang araw.
+  const today = dayKey(new Date());
   const [f, setF] = useState({
     title: '',
     event: '',
@@ -2100,21 +2442,21 @@ function QuickLogModal({
   }, [onClose]);
 
   const field =
-    'w-full rounded-md border border-[#293036] bg-[#17181e] px-3 py-2 text-sm text-[#e6ebf0] placeholder:text-[#4a5360] focus:border-[#00aeef] focus:outline-none';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-[#76828f]';
+    'w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
-      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-lg border border-[#293036] bg-[#1e1f27] animate-riseup">
-        <div className="flex items-center justify-between border-b border-[#293036] px-6 py-4">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div className="av-float animate-riseup relative w-full max-w-2xl bg-white" style={{ border: '1px solid var(--rule)' }}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
-            <h3 className="text-base font-medium text-[#e6ebf0]">Log a video output</h3>
-            <p className="text-[11px] text-[#76828f]">
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">Log a video output</h3>
+            <p className="text-[11px] text-slate-9000">
               For work that does not pass through DMC — shoot, edit, reel, livestream.
             </p>
           </div>
-          <button onClick={onClose} className="text-[#76828f] hover:text-[#e6ebf0]">
+          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -2243,19 +2585,19 @@ function QuickLogModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#293036] px-6 py-4">
-          <p className="text-[10px] text-[#5f6b7a]">Saved directly to the Production Log.</p>
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <p className="text-[10px] text-slate-400">Saved directly to the Production Log.</p>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded border border-[#293036] px-4 py-2 text-[13px] text-[#8391a2] transition-colors hover:text-[#dfe5eb]"
+              className="av-btn-ghost"
             >
               Cancel
             </button>
             <button
               disabled={!f.title.trim() || submitting}
               onClick={() => onSubmit(f)}
-              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="av-btn disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? 'Saving…' : 'Save output'}
             </button>
@@ -2272,7 +2614,7 @@ function ReqBadge({ status, dense = false }: { status: ReqStatus; dense?: boolea
   const m = REQ_META[status];
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-[#8391a2] ${
+      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-slate-500 ${
         dense ? 'text-[10px]' : 'text-[11px]'
       }`}
     >
@@ -2290,7 +2632,7 @@ function SLABadge({ state }: { state: SLAState }) {
       style={{ color: state === 'overdue' ? m.hex : undefined }}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
-      <span className={state === 'overdue' ? '' : 'text-[#8391a2]'}>{m.label}</span>
+      <span className={state === 'overdue' ? '' : 'text-slate-500'}>{m.label}</span>
     </span>
   );
 }
@@ -2313,14 +2655,14 @@ function KPIRing({
   const r = size / 2 - 10;
   const C = 2 * Math.PI * r;
   const pass = value !== null && value >= target;
-  const hex = value === null ? '#3f3f46' : pass ? '#44a887' : '#ee4444';
+  const hex = value === null ? '#cbd5e1' : pass ? '#16a34a' : '#dc2626';
   const pct = Math.max(0, Math.min(100, value ?? 0));
 
   return (
     <div className="flex items-center gap-5">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#18181b" strokeWidth="11" />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="11" />
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -2338,28 +2680,25 @@ function KPIRing({
             cy={size / 2}
             r={r}
             fill="none"
-            stroke="#71717a"
+            stroke="#64748b"
             strokeWidth="11"
             strokeDasharray={`1.5 ${C}`}
             strokeDashoffset={-((target / 100) * C)}
           />
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-2xl font-black text-[#e6ebf0] tabular-nums">
+          <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">
             {value === null ? '—' : `${shown}%`}
           </span>
-          <span className="text-[11px] font-medium tracking-[0.1em] text-[#5f6b7a]">
+          <span className="av-note av-dim">
             target {target}%
           </span>
         </div>
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-medium text-[#e6ebf0]">{label}</p>
-        <p className="mt-1 text-xs leading-relaxed text-[#76828f]">{sub}</p>
-        <p
-          className="mt-2 text-[11px] font-medium tracking-[0.1em]"
-          style={{ color: hex }}
-        >
+        <p className="av-sec-h">{label}</p>
+        <p className="av-note av-dim mt-1">{sub}</p>
+        <p className="av-note mt-2" style={{ color: hex, fontWeight: 550 }}>
           {value === null ? 'No data yet' : pass ? 'On target' : 'Below target'}
         </p>
       </div>
@@ -2374,15 +2713,21 @@ function KPIRing({
  */
 function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
   const { months, maxV, totals } = useMemo(() => {
-    const map = new Map<string, { demand: number; served: number; unmet: number }>();
+    const map = new Map<
+      string,
+      { demand: number; served: number; unmet: number; excluded: number }
+    >();
     requests.forEach((r) => {
       const d = r.dateRequested || r.eventDate;
       if (!d) return;
       const k = monthKey(d);
-      const cur = map.get(k) || { demand: 0, served: 0, unmet: 0 };
+      const cur = map.get(k) || { demand: 0, served: 0, unmet: 0, excluded: 0 };
       cur.demand += 1;
       if (REQ_META[r.status].served) cur.served += 1;
-      if (REQ_META[r.status].unmet) cur.unmet += 1;
+      // Ang unmet ay ang HINDI NAIBIGAY NA ATIN. Ang kinansela at inilipat
+      // ay hiwalay — hindi tayo nabigyan ng pagkakataon.
+      if (REQ_META[r.status].excluded) cur.excluded += 1;
+      else if (REQ_META[r.status].unmet) cur.unmet += 1;
       map.set(k, cur);
     });
 
@@ -2392,12 +2737,13 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
       (a, r) => {
         a.demand += 1;
         if (REQ_META[r.status].served) a.served += 1;
-        if (REQ_META[r.status].unmet) a.unmet += 1;
+        if (REQ_META[r.status].excluded) a.excluded += 1;
+        else if (REQ_META[r.status].unmet) a.unmet += 1;
         if (r.status === 'pending' || r.status === 'approved' || r.status === 'ongoing')
           a.inflight += 1;
         return a;
       },
-      { demand: 0, served: 0, unmet: 0, inflight: 0 }
+      { demand: 0, served: 0, unmet: 0, excluded: 0, inflight: 0 }
     );
     return { months: rows, maxV: Math.max(1, ...rows.map((x) => x.demand)), totals: t };
   }, [requests]);
@@ -2408,27 +2754,34 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
   const slot = months.length ? (W - PAD * 2) / months.length : 0;
   const barW = Math.min(26, slot * 0.34);
 
-  const capacityPct = totals.demand ? Math.round((totals.served / totals.demand) * 100) : null;
+  /**
+   * Ang denominator ay ang demand na TALAGANG NAABOT NATIN. Ang kinansela
+   * at inilipat ay inaalis — kung hindi, bumababa ang fulfilment tuwing
+   * may bagyo, na wala namang kinalaman sa kakayahan ng seksyon.
+   */
+  const inScope = totals.demand - totals.excluded;
+  const capacityPct = inScope > 0 ? Math.round((totals.served / inScope) * 100) : null;
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {[
-          { k: 'Service demand', v: totals.demand, c: '#00aeef', s: 'Total requests received' },
-          { k: 'Services rendered', v: totals.served, c: '#44a887', s: 'Completed / delivered' },
-          { k: 'In progress', v: totals.inflight, c: '#f59e0b', s: 'Pending, approved, ongoing' },
-          { k: 'Unmet requests', v: totals.unmet, c: '#ee4444', s: 'Declined, cancelled, moved' },
+          { k: 'Service demand', v: totals.demand, c: '#2563eb', s: 'Total requests received' },
+          { k: 'Services rendered', v: totals.served, c: '#16a34a', s: 'Completed / served' },
+          { k: 'In progress', v: totals.inflight, c: '#d97706', s: 'Pending, approved, ongoing' },
+          { k: 'Unmet requests', v: totals.unmet, c: '#dc2626', s: 'Declined — counts against us' },
+          { k: 'Client-side', v: totals.excluded, c: '#64748b', s: 'Cancelled or moved · KPI-excluded' },
         ].map((x) => (
           <div
             key={x.k}
-            className="rounded-md border border-[#293036] bg-[#17181e] p-4"
+            className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4"
             style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
           >
-            <p className="font-mono text-3xl font-black text-[#e6ebf0] tabular-nums">{x.v}</p>
-            <p className="mt-1 text-[11px] font-medium tracking-[0.1em] text-[#8391a2]">
+            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">{x.v}</p>
+            <p className="mt-1 av-label">
               {x.k}
             </p>
-            <p className="mt-0.5 text-[10px] text-[#5f6b7a]">{x.s}</p>
+            <p className="mt-0.5 text-[10px] text-slate-400">{x.s}</p>
           </div>
         ))}
       </div>
@@ -2443,7 +2796,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                 x2={W - PAD}
                 y1={H - 34 - f * (H - 60)}
                 y2={H - 34 - f * (H - 60)}
-                stroke="#18181b"
+                stroke="#e2e8f0"
                 strokeWidth="1"
               />
             ))}
@@ -2460,7 +2813,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     width={barW}
                     height={dh}
                     rx={3}
-                    fill="#00aeef"
+                    fill="#2563eb"
                     opacity={0.35}
                   >
                     <title>{`${monthLabel(m.key)} — demand ${m.demand}`}</title>
@@ -2471,7 +2824,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     width={barW}
                     height={sh}
                     rx={3}
-                    fill="#44a887"
+                    fill="#16a34a"
                   >
                     <title>{`${monthLabel(m.key)} — served ${m.served}`}</title>
                   </rect>
@@ -2479,7 +2832,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     <text
                       x={x}
                       y={H - 40 - dh}
-                      fill="#ee4444"
+                      fill="#dc2626"
                       fontSize="10"
                       fontFamily="ui-monospace, monospace"
                       fontWeight="bold"
@@ -2491,12 +2844,12 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                   <text
                     x={x}
                     y={H - 16}
-                    fill="#52525b"
+                    fill="#94a3b8"
                     fontSize="10"
                     fontFamily="ui-monospace, monospace"
                     textAnchor="middle"
                   >
-                    {monthLabel(m.key)}
+                    {monthLabel(m.key).toUpperCase()}
                   </text>
                 </g>
               );
@@ -2504,24 +2857,29 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
           </svg>
         </div>
       ) : (
-        <p className="py-8 text-center text-xs italic text-[#5f6b7a]">
+        <p className="py-8 text-center text-xs italic text-slate-400">
           No dated requests yet. Log a request to build this chart.
         </p>
       )}
 
-      <div className="flex flex-wrap items-center gap-5 border-t border-[#23272e] pt-3">
-        <span className="flex items-center gap-2 text-[10px] text-[#76828f]">
-          <span className="h-2 w-4 rounded-sm bg-[#00aeef]/40" /> Demand (received)
+      <div className="flex flex-wrap items-center gap-5 border-t border-slate-200 pt-3">
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+          <span className="h-2 w-4 rounded-sm bg-blue-300" /> Demand (received)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-[#76828f]">
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
           <span className="h-2 w-4 rounded-sm bg-green-500" /> Capacity (rendered)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-[#76828f]">
-          <span className="font-mono font-bold text-[#f07070]">−n</span> Unserved gap
+        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+          <span className="font-mono font-bold text-red-600">−n</span> Unserved gap
         </span>
         {capacityPct !== null && (
-          <span className="ml-auto font-mono text-[11px] tracking-[0.1em] text-[#76828f]">
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-9000">
             Service fulfilment {capacityPct}%
+            {totals.excluded > 0 && (
+              <span className="text-slate-400">
+                {' '}· {totals.excluded} client-side excluded
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -2531,12 +2889,17 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
 
 /**
  * ITEM 41 — Turnaround time monitor.
- * Aktwal na processing time laban sa SLA ng Procedures Manual.
+ * Aktwal na processing time laban sa SLA ng Procedures Manual, bilang mula
+ * sa araw na natanggap ang kahilingan.
  */
 function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
   const stats = useMemo(() => {
     const byStream = (['coverage', 'production'] as Stream[]).map((st) => {
-      const mine = requests.filter((r) => r.stream === st);
+      // Ang kinansela at inilipat ay walang turnaround na masusukat —
+      // hindi sila dapat magpalaki ng n= at magpalabnaw ng on-time rate.
+      const mine = requests.filter(
+        (r) => r.stream === st && !REQ_META[r.status].excluded
+      );
       const tats = mine.map(actualTAT).filter((v): v is number => v !== null);
       const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'overdue');
       return {
@@ -2551,61 +2914,79 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
       };
     });
 
-    const live = requests.filter((r) => !r.dateDelivered);
+    const inScope = requests.filter((r) => !REQ_META[r.status].excluded);
+    const live = inScope.filter((r) => !r.dateDelivered);
     return {
       byStream,
-      overdue: requests.filter((r) => slaState(r) === 'overdue'),
+      overdue: inScope.filter((r) => slaState(r) === 'overdue'),
       atRisk: live.filter((r) => slaState(r) === 'atrisk'),
+      undated: inScope.filter((r) => !r.dateRequested).length,
+      excluded: requests.length - inScope.length,
     };
   }, [requests]);
 
   return (
     <div className="space-y-5">
+      {stats.excluded > 0 && (
+        <div className="rounded-[12px] border border-[var(--rule)] bg-[var(--rule-soft)] px-4 py-2.5 text-xs text-slate-600">
+          {stats.excluded} cancelled or rescheduled request(s) are not measured here. There
+          is no turnaround to measure when the event did not take place — including them
+          would dilute the on-time rate with something outside the section&rsquo;s control.
+        </div>
+      )}
+      {stats.undated > 0 && (
+        <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
+          {stats.undated} request(s) have no date of receipt, so their turnaround cannot be
+          measured. Turnaround is counted from the day the request was received — fill in
+          that date to bring them into the figures.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {stats.byStream.map((x) => {
           const ratio = x.avg !== null ? Math.min(160, (x.avg / x.sla) * 100) : 0;
           const over = x.avg !== null && x.avg > x.sla;
           return (
-            <div key={x.stream} className="rounded-md border border-[#293036] bg-[#17181e] p-5">
+            <div key={x.stream} className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-5">
               <div className="mb-3 flex items-baseline justify-between">
                 <span
-                  className="text-[11px] font-medium tracking-[0.12em]"
+                  className="av-label"
                   style={{ color: STREAM_META[x.stream].hex }}
                 >
                   {STREAM_META[x.stream].label}
                 </span>
-                <span className="font-mono text-[10px] text-[#5f6b7a]">
+                <span className="font-mono text-[10px] text-slate-400">
                   SLA {x.sla} WD · n={x.total}
                 </span>
               </div>
 
               <div className="flex items-end gap-3">
-                <p className="font-mono text-4xl font-black leading-none text-[#e6ebf0] tabular-nums">
+                <p className="font-mono text-4xl font-black leading-none text-slate-900 tabular-nums">
                   {x.avg === null ? '—' : x.avg.toFixed(1)}
                 </p>
-                <p className="pb-1 text-xs text-[#76828f]">avg working days</p>
+                <p className="pb-1 text-xs text-slate-9000">avg working days from receipt</p>
               </div>
 
               {/* SLA bar: 100% = SLA limit */}
-              <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-[#1a1b22]">
+              <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className="h-full rounded-full transition-all duration-1000"
                   style={{
                     width: `${Math.min(100, ratio)}%`,
-                    background: over ? '#ee4444' : '#44a887',
+                    background: over ? '#dc2626' : '#16a34a',
                   }}
                 />
-                <div className="absolute inset-y-0 right-0 w-px bg-[#40424f]" />
+                <div className="absolute inset-y-0 right-0 w-px bg-slate-400" />
               </div>
               <div className="mt-2 flex items-center justify-between text-[10px]">
-                <span className={over ? 'font-bold text-[#f07070]' : 'text-[#76828f]'}>
+                <span className={over ? 'font-bold text-red-600' : 'text-slate-9000'}>
                   {x.avg === null
-                    ? 'Nothing delivered yet'
+                    ? 'Nothing served yet'
                     : over
                     ? `${(x.avg - x.sla).toFixed(1)} WD over standard`
                     : `${(x.sla - x.avg).toFixed(1)} WD within standard`}
                 </span>
-                <span className="font-mono text-[#76828f]">
+                <span className="font-mono text-slate-9000">
                   {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
                 </span>
               </div>
@@ -2615,8 +2996,8 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
       </div>
 
       {(stats.overdue.length > 0 || stats.atRisk.length > 0) && (
-        <div className="rounded-md border border-[#293036] bg-[#17181e] p-4">
-          <p className="mb-3 text-[11px] font-medium tracking-[0.12em] text-[#76828f]">
+        <div className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
+          <p className="mb-3 av-label">
             Needs attention · {stats.overdue.length} overdue · {stats.atRisk.length} at risk
           </p>
           <div className="space-y-2">
@@ -2625,17 +3006,17 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
               return (
                 <div
                   key={r.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-[#23272e] bg-[#1e1f27] px-3 py-2"
+                  className="av-card flex items-center justify-between gap-3 px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-[#c3ccd5]">{r.title}</p>
-                    <p className="font-mono text-[10px] text-[#5f6b7a]">
+                    <p className="truncate text-xs font-semibold text-slate-700">{r.title}</p>
+                    <p className="font-mono text-[10px] text-slate-400">
                       {r.id} · {r.personnel || 'Unassigned'} ·{' '}
                       {STREAM_META[r.stream].short}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-[10px] text-[#76828f]">
+                    <span className="font-mono text-[10px] text-slate-9000">
                       {left === null ? '—' : left < 0 ? `${Math.abs(left)} WD over` : `${left} WD left`}
                     </span>
                     <SLABadge state={slaState(r)} />
@@ -2668,9 +3049,9 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
 
   if (unmet.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-[#293036] p-8 text-center">
-        <p className="text-sm text-[#aab8c5]">No unserved requests for this period.</p>
-        <p className="mt-1 text-xs text-[#5f6b7a]">
+      <div className="rounded-[16px] border border-dashed border-[var(--rule)] p-8 text-center">
+        <p className="text-sm text-slate-600">No unserved requests for this period.</p>
+        <p className="mt-1 text-xs text-slate-400">
           All requests received were served or are still in progress.
         </p>
       </div>
@@ -2680,7 +3061,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
   return (
     <div className="space-y-3">
       {missingReason > 0 && (
-        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
+        <div className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
           {missingReason} unserved request(s) have no recorded reason. Audit Item 40 requires
           this — fill it in before the audit.
         </div>
@@ -2688,33 +3069,49 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
       <div className="overflow-x-auto custom-scrollbar">
         <table className="w-full min-w-[720px] text-left text-xs">
           <thead>
-            <tr className="border-b border-[#293036] text-[11px] tracking-[0.1em] text-[#5f6b7a]">
+            <tr className="border-b border-slate-200 text-[9px] uppercase tracking-[0.1em] text-slate-400">
               <th className="pb-2 pr-3 font-bold">Request</th>
               <th className="pb-2 pr-3 font-bold">Client</th>
               <th className="pb-2 pr-3 font-bold">Date</th>
               <th className="pb-2 pr-3 font-bold">Outcome</th>
+              <th className="pb-2 pr-3 font-bold">Attributable to</th>
               <th className="pb-2 font-bold">Reason for non-service</th>
             </tr>
           </thead>
           <tbody>
             {unmet.slice(0, 12).map((r) => (
-              <tr key={r.id} className="border-b border-[#23272e] align-top last:border-0">
+              <tr key={r.id} className="border-b border-slate-200 align-top last:border-0">
                 <td className="py-3 pr-3">
-                  <p className="font-semibold text-[#c3ccd5]">{r.title}</p>
-                  <p className="font-mono text-[10px] text-[#5f6b7a]">{r.id}</p>
+                  <p className="font-semibold text-slate-700">{r.title}</p>
+                  <p className="font-mono text-[10px] text-slate-400">{r.id}</p>
                 </td>
-                <td className="py-3 pr-3 text-[#8391a2]">{r.client || '—'}</td>
-                <td className="py-3 pr-3 font-mono text-[10px] text-[#76828f]">
+                <td className="py-3 pr-3 text-slate-500">{r.client || '—'}</td>
+                <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(r.dateRequested)}
                 </td>
                 <td className="py-3 pr-3">
                   <ReqBadge status={r.status} dense />
                 </td>
+                <td className="py-3 pr-3">
+                  {REQ_META[r.status].excluded ? (
+                    <span className="text-slate-500">
+                      Client
+                      <span className="block text-[9px] text-slate-400">KPI-excluded</span>
+                    </span>
+                  ) : (
+                    <span className="font-medium text-red-700">
+                      DOST
+                      <span className="block text-[9px] font-normal text-slate-400">
+                        counts as unmet
+                      </span>
+                    </span>
+                  )}
+                </td>
                 <td className="py-3">
                   {r.reason.trim() ? (
-                    <span className="text-[#aab8c5]">{r.reason}</span>
+                    <span className="text-slate-600">{r.reason}</span>
                   ) : (
-                    <span className="font-bold text-[#f07070]">No reason on record</span>
+                    <span className="font-bold text-red-600">No reason on record</span>
                   )}
                 </td>
               </tr>
@@ -2740,7 +3137,11 @@ function ComplianceScorecard({
   events?: AVEvent[];
 }) {
   const rows = useMemo(() => {
+    // Kailangan ng dahilan ang LAHAT ng hindi naibigay — pati ang
+    // kinansela at inilipat. Ang exclusion ay sa KPI, hindi sa Item 40.
     const unmet = requests.filter((r) => REQ_META[r.status].unmet);
+    const ours = unmet.filter((r) => !REQ_META[r.status].excluded).length;
+    const clientSide = unmet.length - ours;
     const withReason = unmet.filter((r) => r.reason.trim()).length;
     const tracked = requests.length;
     const withTat = requests.filter((r) => actualTAT(r) !== null).length;
@@ -2755,17 +3156,17 @@ function ComplianceScorecard({
         evidence:
           tracked === 0
             ? 'No requests on record yet.'
-            : `${tracked} requests tracked across 7 statuses. ${withReason} of ${unmet.length} unserved requests have a recorded reason.`,
+            : `${tracked} requests tracked across 7 statuses. ${withReason} of ${unmet.length} unserved requests have a recorded reason — ${ours} attributable to DOST (declined), ${clientSide} client-side (cancelled or moved) and excluded from the service KPI but still reasoned here.`,
       },
       {
         item: 'Item 41',
         title: 'Turnaround time & workload monitoring',
-        ask: 'Measure actual processing time against the standard, and the workload of each staff member.',
+        ask: 'Measure actual processing time from receipt of the request until the service is done, and the workload of each staff member.',
         met: withTat > 0,
         evidence:
           withTat === 0
-            ? 'No delivered requests yet to measure.'
-            : `${withTat} completed request${withTat === 1 ? '' : 's'} measured against the standard (AV Coverage 3 WD, AVP Production 13 WD).`,
+            ? 'No served requests yet to measure.'
+            : `${withTat} completed request ang may aktwal na TAT, bilang mula sa petsa ng pagtanggap hanggang sa petsa ng paghatid, laban sa SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
       },
       {
         item: 'Item 44',
@@ -2775,25 +3176,28 @@ function ComplianceScorecard({
         evidence: (() => {
           if (tracked === 0) return 'No demand data yet.';
           const decided = events.filter(
-            (ev) => isAuthorised(ev) || !APPROVAL_META[ev.approval].live
+            (ev) =>
+              !isExcluded(ev) &&
+              (isAuthorised(ev) || !APPROVAL_META[ev.approval].live)
           );
           const asked = decided.reduce((a, ev) => a + ev.requested.length, 0);
-          const missed = decided.reduce((a, ev) => a + serviceGap(ev).length, 0);
+          const noCap = decided.reduce((a, ev) => a + capacityGap(ev).length, 0);
+          const undelivered = decided.reduce((a, ev) => a + deliveryGap(ev).length, 0);
           const base = `Demand ${tracked} · rendered ${served} · unmet ${unmet.length}.`;
           return asked > 0
-            ? `${base} At service level: ${asked} requested, ${missed} not delivered — the basis for personnel augmentation.`
+            ? `${base} At service level: ${asked} requested, ${noCap} could not be agreed for lack of capacity, ${undelivered} agreed but not delivered. The capacity figure is the direct basis for personnel augmentation.`
             : `${base} The monthly comparison is in the Demand vs Capacity panel.`;
         })(),
       },
       {
         item: 'PM 2.1',
         title: '100% of approved requests executed',
-        ask: 'All approved requests are executed and delivered.',
+        ask: 'All approved requests are executed and served.',
         met: kpi.execution !== null && kpi.execution >= KPI_EXECUTION_TARGET,
         evidence:
           kpi.execution === null
             ? 'No approved requests yet.'
-            : `${kpi.execution}% of approved requests are completed.`,
+            : `${kpi.execution}% ng approved requests ay completed.`,
       },
       {
         item: 'PM 2.2',
@@ -2803,7 +3207,7 @@ function ComplianceScorecard({
         evidence:
           kpi.csm === null
             ? 'No CSM ratings recorded yet.'
-            : `${kpi.csm}% of ${kpi.rated} rated requests were Very Satisfactory or higher.`,
+            : `${kpi.csm}% ng ${kpi.rated} rated request ay Very Satisfactory pataas.`,
       },
     ];
   }, [requests, kpi, events]);
@@ -2812,21 +3216,21 @@ function ComplianceScorecard({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-md border border-[#293036] bg-[#17181e] px-5 py-4">
+      <div className="flex items-center justify-between rounded-[12px] border border-[var(--rule)] bg-[var(--rule-soft)] px-5 py-4">
         <div>
-          <p className="text-sm font-medium text-[#e6ebf0]">
+          <p className="text-sm font-semibold tracking-tight text-slate-900">
             Audit readiness
           </p>
-          <p className="text-[11px] text-[#76828f]">
+          <p className="text-[11px] text-slate-9000">
             PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025
           </p>
         </div>
         <div className="text-right">
-          <p className="font-mono text-3xl font-black text-[#e6ebf0] tabular-nums">
+          <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">
             {metCount}
-            <span className="text-lg text-[#5f6b7a]">/{rows.length}</span>
+            <span className="text-lg text-slate-400">/{rows.length}</span>
           </p>
-          <p className="text-[11px] tracking-[0.1em] text-[#76828f]">criteria met</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">criteria met</p>
         </div>
       </div>
 
@@ -2834,27 +3238,27 @@ function ComplianceScorecard({
         {rows.map((r) => (
           <div
             key={r.item}
-            className="flex gap-4 rounded-md border border-[#293036] bg-[#1e1f27] p-4"
+            className="flex gap-4 av-card p-4"
             style={{
-              borderLeftColor: r.met ? '#44a887' : '#f59e0b',
+              borderLeftColor: r.met ? '#16a34a' : '#d97706',
               borderLeftWidth: 3,
             }}
           >
             <div className="w-20 shrink-0">
-              <p className="font-mono text-[11px] font-medium tracking-[0.1em] text-[#76828f]">
+              <p className="font-mono av-note av-dim">
                 {r.item}
               </p>
               <p
-                className="mt-1 text-[11px] font-medium"
-                style={{ color: r.met ? '#44a887' : '#f59e0b' }}
+                className="mt-1 text-[10px] font-bold uppercase"
+                style={{ color: r.met ? '#16a34a' : '#d97706' }}
               >
                 {r.met ? 'Met' : 'Partial'}
               </p>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold text-[#dfe5eb]">{r.title}</p>
-              <p className="mt-0.5 text-[11px] italic text-[#5f6b7a]">{r.ask}</p>
-              <p className="mt-2 text-xs leading-relaxed text-[#8391a2]">{r.evidence}</p>
+              <p className="text-sm font-semibold text-slate-800">{r.title}</p>
+              <p className="mt-0.5 text-[11px] italic text-slate-400">{r.ask}</p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">{r.evidence}</p>
             </div>
           </div>
         ))}
@@ -2873,17 +3277,17 @@ function RequestTable({
 }) {
   if (requests.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-[#293036] p-10 text-center">
-        <p className="text-sm text-[#aab8c5]">No matching requests.</p>
+      <div className="rounded-[16px] border border-dashed border-[var(--rule)] p-10 text-center">
+        <p className="text-sm text-slate-600">No matching requests.</p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto custom-scrollbar rounded-md border border-[#293036] bg-[#1e1f27]">
+    <div className="overflow-x-auto custom-scrollbar av-card">
       <table className="w-full min-w-[900px] text-left text-xs">
         <thead>
-          <tr className="border-b border-[#293036] bg-black/40 text-[11px] tracking-[0.1em] text-[#5f6b7a]">
+          <tr className="border-b border-slate-200 bg-slate-50 text-[9px] uppercase tracking-[0.1em] text-slate-400">
             <th className="p-3 font-bold">Request</th>
             <th className="p-3 font-bold">Client</th>
             <th className="p-3 font-bold">Stream</th>
@@ -2903,19 +3307,19 @@ function RequestTable({
             return (
               <tr
                 key={r.id}
-                className="border-b border-[#23272e] transition-colors last:border-0 hover:bg-black/40"
+                className="border-b border-slate-200 transition-colors last:border-0 hover:bg-slate-50"
               >
                 <td className="p-3">
-                  <p className="max-w-[260px] truncate font-semibold text-[#dfe5eb]">{r.title}</p>
-                  <p className="font-mono text-[10px] text-[#5f6b7a]">
+                  <p className="max-w-[260px] truncate font-semibold text-slate-800">{r.title}</p>
+                  <p className="font-mono text-[10px] text-slate-400">
                     {r.id}
                     {r.serviceType ? ` · ${r.serviceType}` : ''}
                   </p>
                 </td>
-                <td className="p-3 text-[#8391a2]">
+                <td className="p-3 text-slate-500">
                   {r.client || '—'}
                   {r.clientType && (
-                    <span className="block text-[10px] text-[#5f6b7a]">{r.clientType}</span>
+                    <span className="block text-[10px] text-slate-400">{r.clientType}</span>
                   )}
                 </td>
                 <td className="p-3">
@@ -2926,20 +3330,20 @@ function RequestTable({
                     {STREAM_META[r.stream].short}
                   </span>
                 </td>
-                <td className="p-3 font-mono text-[11px] text-[#aab8c5]">
+                <td className="p-3 font-mono text-[10px] uppercase text-slate-600">
                   {r.personnel || '—'}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-[#76828f]">
+                <td className="p-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(r.dateRequested)}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-[#76828f]">
+                <td className="p-3 font-mono text-[10px] text-slate-9000">
                   {fmtDate(effectiveTarget(r))}
                 </td>
                 <td className="p-3 font-mono text-[10px] tabular-nums">
                   {tat === null ? (
-                    <span className="text-[#4a5360]">—</span>
+                    <span className="text-slate-400">—</span>
                   ) : (
-                    <span style={{ color: tat > SLA_WD[r.stream] ? '#ee4444' : '#44a887' }}>
+                    <span style={{ color: tat > SLA_WD[r.stream] ? '#dc2626' : '#16a34a' }}>
                       {tat} WD
                     </span>
                   )}
@@ -2947,7 +3351,7 @@ function RequestTable({
                 <td className="p-3">
                   <ReqBadge status={r.status} dense />
                   {REQ_META[r.status].unmet && !r.reason.trim() && (
-                    <span className="mt-1 block text-[9px] font-bold text-[#f07070]">
+                    <span className="mt-1 block text-[9px] font-bold text-red-600">
                       no reason
                     </span>
                   )}
@@ -2958,7 +3362,7 @@ function RequestTable({
                 <td className="p-3 text-right">
                   <button
                     onClick={() => onEdit(r)}
-                    className="rounded border border-[#293036] px-2 py-1 text-[10px] font-bold text-[#76828f] transition-colors hover:border-[#00aeef]/50 hover:text-[#00aeef]"
+                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
                   >
                     Update
                   </button>
@@ -2988,8 +3392,11 @@ function RequestModal({
   onSubmit: (payload: Record<string, string>, id: string | null) => void;
   submitting: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
+  const today = dayKey(new Date());
+  // dayKey, hindi toISOString. Ang toISOString ay nagko-convert sa UTC —
+  // sa Manila (UTC+8) ang hatinggabi ay nagiging KAHAPON. Kaya tuwing
+  // bubuksan mo ang lumang record, umaatras ng isang araw ang mga petsa.
+  const iso = (d: Date | null) => (d ? dayKey(d) : '');
 
   const [f, setF] = useState({
     title: existing?.title ?? '',
@@ -3024,35 +3431,36 @@ function RequestModal({
   const needsReason = NEEDS_REASON.includes(statusKey);
   const reasonMissing = needsReason && !f.reason.trim();
 
-  // Live preview ng SLA target habang nagbabago ang stream / petsa
+  // Live preview ng SLA target habang nagbabago ang stream / petsa.
+  // COA: mula sa petsa ng pagtanggap, hindi sa petsa ng pag-aprub.
   const previewTarget = useMemo(() => {
     if (f.targetDate) return f.targetDate;
-    const base = f.dateApproved || f.dateRequested;
+    const base = f.dateRequested;
     if (!base) return '';
     const d = parseDate(base);
     return d ? dayKey(addWorkingDays(d, SLA_WD[streamKey])) : '';
-  }, [f.targetDate, f.dateApproved, f.dateRequested, streamKey]);
+  }, [f.targetDate, f.dateRequested, streamKey]);
 
   const canSave = !!f.title.trim() && !reasonMissing && !submitting;
 
   const field =
-    'w-full rounded-md border border-[#293036] bg-[#17181e] px-3 py-2 text-sm text-[#e6ebf0] placeholder:text-[#4a5360] focus:border-[#00aeef] focus:outline-none';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-[#76828f]';
+    'w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[6vh]">
-      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
-      <div className="relative w-full max-w-3xl rounded-lg border border-[#293036] bg-[#1e1f27] animate-riseup">
-        <div className="flex items-center justify-between border-b border-[#293036] px-6 py-4">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div className="av-float animate-riseup relative w-full max-w-3xl bg-white" style={{ border: '1px solid var(--rule)' }}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
-            <h3 className="text-base font-medium text-[#e6ebf0]">
+            <h3 className="text-base font-semibold tracking-tight text-slate-900">
               {existing ? `Update request · ${existing.id}` : 'Log a service request'}
             </h3>
-            <p className="text-[11px] text-[#76828f]">
+            <p className="text-[11px] text-slate-9000">
               Request Register — PM-CRPD-AV-08-04 Rev 7 · Form FR-CRPD-AV No. 001
             </p>
           </div>
-          <button onClick={onClose} className="text-[#76828f] hover:text-[#e6ebf0]">
+          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -3096,7 +3504,7 @@ function RequestModal({
               <option>{STREAM_META.coverage.label}</option>
               <option>{STREAM_META.production.label}</option>
             </select>
-            <p className="mt-1 font-mono text-[10px] text-[#5f6b7a]">
+            <p className="mt-1 font-mono text-[10px] text-slate-400">
               SLA {SLA_WD[streamKey]} working days
             </p>
           </div>
@@ -3143,6 +3551,9 @@ function RequestModal({
               value={f.dateRequested}
               onChange={(e) => set('dateRequested', e.target.value)}
             />
+            <p className="mt-1 text-[10px] text-slate-400">
+              Turnaround is counted from this date.
+            </p>
           </div>
           <div>
             <label className={lab}>Event date</label>
@@ -3155,7 +3566,7 @@ function RequestModal({
           </div>
 
           {/* ---------------- status block ---------------- */}
-          <div className="md:col-span-2 rounded-xl border border-[#293036] bg-black/30 p-4">
+          <div className="md:col-span-2 rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label className={lab}>Status</label>
@@ -3179,7 +3590,7 @@ function RequestModal({
                 />
               </div>
               <div>
-                <label className={lab}>Date delivered</label>
+                <label className={lab}>Date served</label>
                 <input
                   type="date"
                   className={field}
@@ -3192,19 +3603,19 @@ function RequestModal({
             {needsReason && (
               <div className="mt-4 animate-fadein">
                 <label className={lab}>
-                  <span className="text-[#f07070]">
+                  <span className="text-red-600">
                     Reason for non-service / delay * — required for {REQ_META[statusKey].label}
                   </span>
                 </label>
                 <textarea
                   className={`${field} min-h-[76px] resize-y ${
-                    reasonMissing ? 'border-red-500/60' : ''
+                    reasonMissing ? 'border-red-400' : ''
                   }`}
                   value={f.reason}
                   onChange={(e) => set('reason', e.target.value)}
                   placeholder="For example: Schedule conflict — all AV personnel deployed to another event."
                 />
-                <p className="mt-1 text-[10px] text-[#5f6b7a]">
+                <p className="mt-1 text-[10px] text-slate-400">
                   Audit Item 40 requires a recorded reason for every unserved request.
                 </p>
               </div>
@@ -3220,8 +3631,8 @@ function RequestModal({
                   onChange={(e) => set('targetDate', e.target.value)}
                 />
                 {!f.targetDate && previewTarget && (
-                  <p className="mt-1 font-mono text-[10px] text-[#00aeef]">
-                    Auto: {previewTarget} ({SLA_WD[streamKey]} WD)
+                  <p className="mt-1 font-mono text-[10px] text-blue-600">
+                    Auto: {previewTarget} ({SLA_WD[streamKey]} WD from receipt)
                   </p>
                 )}
               </div>
@@ -3259,8 +3670,8 @@ function RequestModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#293036] px-6 py-4">
-          <p className="text-[10px] text-[#5f6b7a]">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <p className="text-[10px] text-slate-400">
             {reasonMissing
               ? 'A reason is required before saving.'
               : 'Saved directly to the Request Register.'}
@@ -3268,14 +3679,14 @@ function RequestModal({
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded border border-[#293036] px-4 py-2 text-[13px] text-[#8391a2] transition-colors hover:text-[#dfe5eb]"
+              className="av-btn-ghost"
             >
               Cancel
             </button>
             <button
               disabled={!canSave}
               onClick={() => onSubmit(f, existing?.id ?? null)}
-              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="av-btn disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? 'Saving…' : existing ? 'Save changes' : 'Log request'}
             </button>
@@ -3292,8 +3703,8 @@ function ApprovalChip({ k, dense = false }: { k: ApprovalKey; dense?: boolean })
   const m = APPROVAL_META[k];
   return (
     <span
-      className={`inline-flex items-center rounded-full border font-medium ${
-        dense ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-[11.5px]'
+      className={`inline-flex items-center rounded-full border font-bold tracking-wider ${
+        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
       } ${m.chip}`}
     >
       {m.short}
@@ -3305,8 +3716,8 @@ function FulfilChip({ f, dense = false }: { f: Fulfilment; dense?: boolean }) {
   const m = FULFIL_META[f];
   return (
     <span
-      className={`inline-flex items-center rounded-full border font-medium ${
-        dense ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-[11.5px]'
+      className={`inline-flex items-center rounded-full border font-bold tracking-wider ${
+        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
       } ${m.chip}`}
     >
       {m.label}
@@ -3317,77 +3728,119 @@ function FulfilChip({ f, dense = false }: { f: Fulfilment; dense?: boolean }) {
 /**
  * Ang service ledger — ito ang gitna ng buong ideya.
  * Berde = hiniling at naibigay. Pula = hiniling pero hindi naibigay.
- * Cyan = naibigay kahit hindi hiniling.
+ * Asul = naibigay kahit hindi hiniling.
  */
 function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean }) {
-  const gap = serviceGap(ev);
+  const capGap = capacityGap(ev);
+  const delGap = deliveryGap(ev);
   const extra = serviceExtra(ev);
-  const gapSet = new Set(gap.map((x) => x.toLowerCase()));
+  const capSet = new Set(capGap.map((x) => x.toLowerCase()));
+  const gapSet = new Set(delGap.map((x) => x.toLowerCase()));
 
-  // Hindi pa naaaprubahan — wala pang dapat ihambing, kaya neutral ang lahat.
-  const pending = fulfilment(ev) === 'pending';
+  /**
+   * HINDI NAIPAGPATULOY — i-lock ang serbisyo. Walang nangyari, kaya
+   * walang dapat markahan: hindi berde (na para bang naibigay) at hindi
+   * dilaw (na para bang tayo ang tumanggi).
+   */
+  const notLive = !APPROVAL_META[ev.approval].live;
+  if (notLive) {
+    const head =
+      ev.approval === 'declined'
+        ? 'Declined by the Division Chief'
+        : ev.approval === 'cancelled'
+        ? 'Cancelled by the client'
+        : 'Moved by the client to another date';
+    return (
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-1.5">
+          {ev.requested.map((svc) => (
+            <span key={svc} className="av-chip lock" title="Not evaluated — the event did not proceed">
+              {svc}
+            </span>
+          ))}
+          {ev.requested.length === 0 && (
+            <span className="av-note av-dim italic">No services listed</span>
+          )}
+        </div>
+        <p className="av-note">
+          <b style={{ color: FULFIL_META[fulfilment(ev)].hex }}>{head}.</b>{' '}
+          {ev.reason ? (
+            <span className="av-dim">{ev.reason}</span>
+          ) : (
+            <span style={{ color: 'var(--refused)', fontWeight: 550 }}>No reason on record</span>
+          )}
+          {isExcluded(ev) && (
+            <span className="av-dim"> Tracked under schedule volatility, not against KPI.</span>
+          )}
+        </p>
+      </div>
+    );
+  }
 
-  if (pending) {
+  // Hindi pa naaaprubahan — wala pang dapat ihambing.
+  if (fulfilment(ev) === 'pending') {
     return (
       <div className="flex flex-wrap gap-1.5">
         {ev.requested.map((svc) => (
-          <span
-            key={svc}
-            title="Requested — awaiting approval"
-            className="inline-flex items-center gap-1 rounded border border-[#363c44] bg-[#272831] px-2 py-0.5 text-[10px] font-medium text-[#aab8c5]"
-          >
+          <span key={svc} className="av-chip" title="Requested — not yet decided">
             {svc}
           </span>
         ))}
         {ev.requested.length === 0 && (
-          <span className="text-[10px] italic text-[#5f6b7a]">No services listed</span>
+          <span className="av-note av-dim italic">No services listed</span>
         )}
       </div>
     );
   }
 
   return (
-    <div className={compact ? 'space-y-1.5' : 'space-y-2'}>
+    <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
         {ev.requested.map((svc) => {
+          const notAgreed = capSet.has(svc.toLowerCase());
           const missing = gapSet.has(svc.toLowerCase());
           return (
             <span
               key={svc}
-              title={missing ? 'Requested but not delivered' : 'Requested and delivered'}
-              className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ${
-                missing
-                  ? 'border-red-500/40 bg-red-500/10 text-red-300 line-through decoration-red-500/60'
-                  : 'border-green-500/30 bg-green-500/10 text-green-300'
-              }`}
+              className={`av-chip ${notAgreed ? 'nocap' : missing ? 'gap' : 'ok'}`}
+              title={
+                notAgreed
+                  ? 'Requested but not agreed — no capacity'
+                  : missing
+                  ? 'Agreed but not delivered'
+                  : 'Agreed and delivered'
+              }
             >
-              {missing ? '✕' : '✓'} {svc}
+              {svc}
             </span>
           );
         })}
         {extra.map((svc) => (
-          <span
-            key={svc}
-            title="Delivered though not originally requested"
-            className="inline-flex items-center gap-1 rounded border border-[#00aeef]/40 bg-[#00aeef]/10 px-2 py-0.5 text-[10px] font-medium text-[#00aeef]"
-          >
+          <span key={svc} className="av-chip add" title="Delivered though not originally requested">
             + {svc}
           </span>
         ))}
         {ev.requested.length === 0 && (
-          <span className="text-[10px] italic text-[#5f6b7a]">No services listed</span>
+          <span className="av-note av-dim italic">No services listed</span>
         )}
       </div>
 
-      {gap.length > 0 && (
-        <p className="text-[11px] leading-relaxed">
-          <span className="font-bold text-[#f07070]">
-            {gap.length} service{gap.length === 1 ? '' : 's'} not delivered:
-          </span>{' '}
+      {(capGap.length > 0 || delGap.length > 0) && (
+        <p className="av-note">
+          {capGap.length > 0 && (
+            <b style={{ color: 'var(--waiting)' }}>
+              {capGap.length} requested but not agreed.{' '}
+            </b>
+          )}
+          {delGap.length > 0 && (
+            <b style={{ color: 'var(--refused)' }}>
+              {delGap.length} agreed but not delivered.{' '}
+            </b>
+          )}
           {ev.reason ? (
-            <span className="text-[#8391a2]">{ev.reason}</span>
+            <span className="av-dim">{ev.reason}</span>
           ) : (
-            <span className="font-medium text-[#f07070]">No reason on record</span>
+            <span style={{ color: 'var(--refused)', fontWeight: 550 }}>No reason on record</span>
           )}
         </p>
       )}
@@ -3411,15 +3864,56 @@ function PipelineTrack({
   const locked = !isAuthorised(ev) || readOnly;
   const cycle: PipelineState[] = ['not-started', 'in-progress', 'done', 'na'];
 
+  const steps = stepsFor(streamOfServices(ev.requested));
+
+  /**
+   * Labing-isang hakbang ang PM pipeline. Hindi kasya ang labing-isang chip
+   * sa isang card, kaya sa compact ay progress bar + susunod na hakbang —
+   * 'yon naman ang aktwal na binabasa ng tao. Buong chips sa modal.
+   */
+  if (compact) {
+    // Ang hindi naipagpatuloy ay walang progreso — hindi 0%, wala talaga.
+    if (!APPROVAL_META[ev.approval].live) {
+      return (
+        <span className="text-[10px] text-slate-400">
+          {ev.approval === 'declined'
+            ? 'Declined — pipeline closed'
+            : ev.approval === 'cancelled'
+            ? 'Cancelled — pipeline closed'
+            : 'Moved — pipeline closed'}
+        </span>
+      );
+    }
+    const pct = pipelineProgress(ev);
+    const nxt = nextPipelineStep(ev);
+    return (
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{
+              width: `${locked ? 0 : pct}%`,
+              background: pct === 100 ? '#16a34a' : '#2563eb',
+            }}
+          />
+        </div>
+        <span className="shrink-0 font-mono text-[10px] text-slate-400">{pct}%</span>
+        <span className="truncate text-[10px] text-slate-9000">
+          {locked ? 'awaiting approval' : nxt ? nxt.label : 'complete'}
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex items-center ${compact ? 'gap-1' : 'gap-1.5'}`}>
-      {PIPELINE_STEPS.map((step, i) => {
+    <div className="flex flex-wrap items-center gap-1.5">
+      {steps.map((step, i) => {
         const st = ev.pipeline[step.key];
         const meta = PIPELINE_META[st];
         const clickable = !!onStep && !locked;
         return (
           <React.Fragment key={step.key}>
-            {i > 0 && <span className="h-px w-2 shrink-0 bg-[#272831]" />}
+            {i > 0 && <span className="h-px w-2 shrink-0 bg-slate-100" />}
             <button
               disabled={!clickable}
               onClick={() => {
@@ -3429,9 +3923,9 @@ function PipelineTrack({
               }}
               title={`${step.label} — ${meta.label}${locked ? ' (awaiting approval)' : ''}\n${step.detail}`}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${
-                clickable ? 'cursor-pointer hover:border-[#434a53]' : 'cursor-default'
+                clickable ? 'cursor-pointer hover:border-slate-400' : 'cursor-default'
               } ${locked ? 'opacity-40' : ''}`}
-              style={{ borderColor: st === 'not-started' ? '#27272a' : `${meta.hex}55` }}
+              style={{ borderColor: st === 'not-started' ? '#e2e8f0' : `${meta.hex}55` }}
             >
               <span
                 className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -3439,7 +3933,7 @@ function PipelineTrack({
               />
               <span
                 className="text-[9px] font-bold tracking-wider"
-                style={{ color: st === 'not-started' ? '#52525b' : meta.hex }}
+                style={{ color: st === 'not-started' ? '#94a3b8' : meta.hex }}
               >
                 {step.short}
               </span>
@@ -3447,11 +3941,9 @@ function PipelineTrack({
           </React.Fragment>
         );
       })}
-      {!compact && (
-        <span className="ml-2 font-mono text-[10px] text-[#5f6b7a]">
-          {pipelineProgress(ev)}%
-        </span>
-      )}
+      <span className="ml-2 font-mono text-[10px] text-slate-400">
+        {pipelineProgress(ev)}%
+      </span>
     </div>
   );
 }
@@ -3473,152 +3965,308 @@ function EventCard({
   const sla = eventSLA(ev);
   const next = nextPipelineStep(ev);
   const nextOwners = next ? ownersOfStep(next.key, crew) : [];
-  const accent = FULFIL_META[f].hex;
+  const urgent = ev.urgentNote.trim();
+  const notLive = !APPROVAL_META[ev.approval].live;
+
+  /**
+   * Ang RAIL ang may dala ng estado — parang channel strip sa mixer.
+   * Kulay sa gilid, pangalan ng estado sa kanan, nakasulat. Walang
+   * abbreviation na kailangang i-decode.
+   */
+  const rail = notLive
+    ? FULFIL_META[f].hex
+    : isAuthorised(ev)
+    ? FULFIL_META[f].hex
+    : APPROVAL_META[ev.approval].hex;
+
+  const stateLabel = notLive
+    ? FULFIL_META[f].label
+    : isAuthorised(ev)
+    ? FULFIL_META[f].label
+    : APPROVAL_META[ev.approval].label;
+
+  const stateSub = notLive
+    ? isExcluded(ev)
+      ? 'Not counted against KPI'
+      : 'Reason on record'
+    : isAuthorised(ev)
+    ? `${agreedVolume(ev).length} agreed · ${ev.delivered.length} delivered`
+    : `With ${awaitingWho(ev)}`;
 
   return (
-    <div
-      className="group relative overflow-hidden rounded-md border border-[#293036] bg-[#1e1f27] transition-all duration-300 hover:border-[#363c44]"
-      style={{ borderLeftColor: accent, borderLeftWidth: 3 }}
-    >
-      <div className="p-5">
-        <div className="mb-3 flex items-start justify-between gap-4">
-          <button
-            onClick={onOpen}
-            title={canEdit ? 'Open this event' : 'View only — created by someone else'}
-            className="min-w-0 flex-1 text-left"
-          >
-            <h3 className="truncate text-base font-bold leading-snug text-[#dfe5eb] transition-colors group-hover:text-[#e6ebf0]">
-              {ev.title || 'Untitled event'}
-            </h3>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-[#5f6b7a]">
-              {ev.id} · {ev.client || 'no client'}
-            {ev.createdBy && (
-              <span className={canEdit ? 'text-[#5f6b7a]' : 'text-amber-600/80'}>
-                {' '}· {canEdit ? 'yours' : ev.createdBy}
-              </span>
-            )}
-              {ev.venue ? ` · ${ev.venue}` : ''}
-            </p>
+    <article className="av-strip group">
+      <div style={{ background: rail }} />
+      <div className="p-[16px_18px]" style={{ padding: '16px 18px' }}>
+        <div className="mb-2.5 flex items-start gap-4">
+          <button onClick={onOpen} className="min-w-0 flex-1 text-left">
+            <h3 className="av-title truncate">{ev.title || 'Untitled event'}</h3>
           </button>
-          <div className="flex shrink-0 flex-col items-end gap-1.5">
-            <ApprovalChip k={ev.approval} dense />
-            {FULFIL_META[f].label.toLowerCase() !==
-              APPROVAL_META[ev.approval].label.toLowerCase() && <FulfilChip f={f} dense />}
+          <div className="shrink-0 text-right">
+            <div className="av-state-k" style={{ color: rail }}>
+              {stateLabel}
+            </div>
+            <div className="av-state-s">{stateSub}</div>
           </div>
         </div>
+
+        {/* Labelled values. Alam mo agad kung alin ang Priority nang
+            hindi binabasa ang buong linya. */}
+        <div className="av-idl mb-3">
+          <span>
+            <i>Ref</i> <b className="font-mono">{ev.id}</b>
+          </span>
+          <span>
+            <i>Client</i> <b>{ev.client || '—'}</b>
+          </span>
+          {ev.clientTier && (
+            <span>
+              <i>Priority</i>{' '}
+              <b>
+                {tierRank(ev.clientTier) + 1} of {CLIENT_TIERS.length} — {ev.clientTier}
+              </b>
+            </span>
+          )}
+          {ev.venue && (
+            <span>
+              <i>Venue</i> <b>{ev.venue}</b>
+            </span>
+          )}
+          <span>
+            <i>Event</i>{' '}
+            <b className="font-mono">{fmtDate(ev.eventDate, fmtDate(ev.dateRequested))}</b>
+          </span>
+          {ev.createdBy && !canEdit && (
+            <span>
+              <i>Owner</i> <b>{ev.createdBy}</b>
+            </span>
+          )}
+        </div>
+
+        {urgent && (
+          <p className="av-note mb-3" style={{ color: 'var(--refused)' }}>
+            <b>Urgent — overrides the standard client order.</b> {urgent}
+          </p>
+        )}
 
         <div className="mb-3">
           <ServiceLedger ev={ev} compact />
         </div>
 
+        {ev.approval === 'for-evaluation' && ev.approvalRemarks && (
+          <p className="av-note mb-3" style={{ color: 'var(--triage)' }}>
+            <b>AV recommendation.</b>{' '}
+            <span className="av-dim line-clamp-2">{ev.approvalRemarks}</span>
+          </p>
+        )}
+
         {crew.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-[#23272e] pt-3">
-            {crew.map((a) => (
-              <span key={a.id} className="text-[11px] text-[#76828f]">
-                <span className="font-medium text-[#aab8c5]">{a.personnel}</span>
-                {a.roles.length > 0 && (
-                  <span className="text-[#5f6b7a]"> — {a.roles.join(', ')}</span>
-                )}
-              </span>
-            ))}
-          </div>
+          <p className="av-note av-dim mb-3">
+            <b style={{ color: 'var(--ink-2)' }}>Crew</b> —{' '}
+            {crew.map((a) => a.personnel).join(', ')} ·{' '}
+            {crew.reduce((n, a) => n + a.roles.length, 0)} roles assigned
+          </p>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#23272e] pt-3">
+        <div className="av-hair flex flex-wrap items-center gap-x-4 gap-y-2 pt-2.5">
           <PipelineTrack ev={ev} onStep={onStep} compact readOnly={!canEdit} />
-          <div className="flex items-center gap-2">
-            {sla !== 'na' && <SLABadge state={sla} />}
-            <span className="font-mono text-[10px] text-[#5f6b7a]">
-              {ev.eventDate ? fmtDate(ev.eventDate) : fmtDate(ev.dateRequested)}
+          {next && (
+            <span className="av-note av-dim">
+              Next: {next.label}
+              {nextOwners.length > 0 ? ` · ${nextOwners.join(', ')}` : ' · unassigned'}
             </span>
-          </div>
-        </div>
-
-        {next && (
-          <p className="mt-2 text-[11px] text-[#76828f]">
-            Next: <span className="font-medium text-[#00aeef]">{next.label}</span>
-            {nextOwners.length > 0 ? (
-              <span className="text-[#76828f]"> · {nextOwners.join(', ')}</span>
-            ) : (
-              <span className="text-amber-400"> · no one assigned to this role</span>
+          )}
+          <span className="av-note av-dim ml-auto">
+            {sla !== 'na' && (
+              <span style={{ color: SLA_META[sla].hex }}>{SLA_META[sla].label.toLowerCase()}</span>
             )}
-          </p>
-        )}
-        {awaitingAction(ev) && (
-          <p className="mt-2 text-[10px] text-amber-400/80">
-            Awaiting {ev.approval === 'for-approval' ? 'Division Chief' : 'Supervising SRS'}
-          </p>
-        )}
+            {sla !== 'na' && eventTarget(ev) && ' · '}
+            {eventTarget(ev) && (
+              <>
+                due <span className="font-mono">{fmtDate(eventTarget(ev))}</span>
+              </>
+            )}
+          </span>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
 
-/** Buod sa itaas ng Events tab — approved / declined / limited. */
+
+/**
+ * Buod sa itaas ng Events tab.
+ *
+ * COA: bawat outcome ay may sariling tile. Dati, pinagsama ang Declined,
+ * Cancelled at Rescheduled sa iisang bilang — kaya hindi masagot ang
+ * "ilan ang kinansela?" nang hindi bumubukas ng sheet. Walo ngayon:
+ * Total, For evaluation, Approved, Limited service, Cancelled,
+ * Rescheduled, Declined, Awaiting action.
+ */
 function EventSummary({ events }: { events: AVEvent[] }) {
   const t = useMemo(() => {
-    const base = { total: events.length, approved: 0, declined: 0, waiting: 0, full: 0, partial: 0, none: 0, gapCount: 0, noReason: 0 };
+    const base = {
+      total: events.length,
+      forEval: 0, forEndorse: 0, forApproval: 0, approved: 0,
+      declined: 0, cancelled: 0, rescheduled: 0,
+      waiting: 0, full: 0, partial: 0, none: 0,
+      gapCount: 0, capShort: 0, excluded: 0, noReason: 0, noAdvice: 0, urgent: 0,
+    };
     events.forEach((ev) => {
+      if (ev.approval === 'for-evaluation') {
+        base.forEval += 1;
+        if (!ev.approvalRemarks.trim()) base.noAdvice += 1;
+      }
+      if (ev.approval === 'for-endorsement') base.forEndorse += 1;
+      if (ev.approval === 'for-approval') base.forApproval += 1;
       if (isAuthorised(ev)) base.approved += 1;
-      if (!APPROVAL_META[ev.approval].live) base.declined += 1;
+      if (ev.approval === 'declined') base.declined += 1;
+      if (ev.approval === 'cancelled') base.cancelled += 1;
+      if (ev.approval === 'rescheduled') base.rescheduled += 1;
       if (awaitingAction(ev)) base.waiting += 1;
+      if (ev.urgentNote.trim()) base.urgent += 1;
+      if (isExcluded(ev)) base.excluded += 1;
       const f = fulfilment(ev);
       if (f === 'full') base.full += 1;
       if (f === 'partial') base.partial += 1;
       if (f === 'none') base.none += 1;
-      const gap = serviceGap(ev);
-      // Parehong 'approved' at 'endorsed' ay awtorisado. Dati 'approved' lang ang
-      // binibilang, kaya ang mga cleared na event ay nawawala sa bilang ng kulang.
+      const capGap = capacityGap(ev);
+      const delGap = deliveryGap(ev);
       const decided = isAuthorised(ev) || !APPROVAL_META[ev.approval].live;
-      if (gap.length && decided) {
-        if (isAuthorised(ev)) base.gapCount += gap.length;
-        if (!ev.reason.trim()) base.noReason += 1;
-      }
+      base.capShort += capGap.length;
+      if (isAuthorised(ev)) base.gapCount += delGap.length;
+      const needsWhy =
+        !APPROVAL_META[ev.approval].live ||
+        capGap.length > 0 ||
+        (delGap.length > 0 && decided);
+      if (needsWhy && !ev.reason.trim()) base.noReason += 1;
     });
     return base;
   }, [events]);
 
-  const tiles = [
-    { k: 'Total events', v: t.total, c: '#00aeef', s: 'Requests on record' },
-    { k: 'Approved', v: t.approved, c: '#44a887', s: `${t.full} fully served` },
-    { k: 'Limited service', v: t.partial, c: '#f59e0b', s: `${t.gapCount} service${t.gapCount === 1 ? '' : 's'} short` },
-    { k: 'Declined', v: t.declined, c: '#ee4444', s: 'Not served' },
-    { k: 'Awaiting action', v: t.waiting, c: '#a1a1aa', s: 'With the approver' },
+  const servedPct = t.approved ? Math.round((t.full / t.approved) * 100) : null;
+  const didNotProceed = t.declined + t.cancelled + t.rescheduled;
+
+  /**
+   * Ang daloy ay sunod-sunod, kaya iginuguhit bilang sunod-sunod. Ang
+   * walong pantay na tile ay nagbigay ng parehong bigat sa bawat kalabasan
+   * at walang sinabi tungkol sa pagkakasunod.
+   */
+  const chain: { n: number; l: string; w: string; c: string; tint: string }[] = [
+    { n: t.forEval, l: 'For evaluation', w: 'SRS II', c: APPROVAL_META['for-evaluation'].hex, tint: 'var(--tint-violet)' },
+    { n: t.forEndorse, l: 'For endorsement', w: 'Supervising SRS', c: APPROVAL_META['for-endorsement'].hex, tint: 'var(--tint-amber)' },
+    { n: t.forApproval, l: 'For approval', w: 'Division Chief', c: 'var(--signal)', tint: 'var(--tint-blue)' },
+    { n: t.approved, l: 'Approved', w: 'In production', c: 'var(--cleared)', tint: 'var(--tint-green)' },
+    { n: didNotProceed, l: 'Did not proceed', w: 'Declined, cancelled or moved', c: 'var(--standby)', tint: 'var(--tint-slate)' },
   ];
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {tiles.map((x) => (
-          /*
-           * Vona: label, manipis na numero, footer strip. Walang kulay na linya
-           * sa itaas — dekorasyon 'yon. Ang maliit na tuldok ay may kahulugan:
-           * tumutugma ito sa kulay ng badge ng parehong kategorya sa ibaba.
-           */
-          <div
-            key={x.k}
-            className="flex flex-col rounded-[5px] border border-[#293036] bg-[#1e1f27]"
-          >
-            <div className="flex-1 px-4 pb-3 pt-3.5">
-              <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: x.c }} />
-                <p className="truncate text-[12px] text-[#8391a2]">{x.k}</p>
-              </div>
-              <p className="mt-2.5 text-[30px] font-light leading-none tracking-[-0.02em] text-[#dfe5eb] tabular-nums">
-                {x.v}
+    <div className="space-y-4">
+      {/* BENTO — hindi pantay-pantay ang card. Ang kinikilos mo ngayon
+          ang pinakamalaki; ang natitira ay sumusuporta. */}
+      <div className="av-bento">
+        <div className="av-head wide" style={{ background: 'var(--tint-amber)', borderColor: '#F0E0C2' }}>
+          <div className="flex items-start gap-3">
+            <div className="av-dot" style={{ background: 'var(--waiting)', color: '#fff' }}>
+              {t.waiting}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="av-label" style={{ color: '#7C4409' }}>
+                Waiting on someone
+              </p>
+              <p className="av-note" style={{ color: '#8A5410' }}>
+                {t.forEval} with the AV team · {t.forEndorse} with the SRS · {t.forApproval} with
+                the Division Chief
               </p>
             </div>
-            <p className="truncate border-t border-[#293036] px-4 py-2 text-center text-[11.5px] text-[#76828f]">
-              {x.s}
+          </div>
+          <div className="mt-3 flex gap-1.5">
+            {[
+              { n: t.forEval, c: APPROVAL_META['for-evaluation'].hex },
+              { n: t.forEndorse, c: APPROVAL_META['for-endorsement'].hex },
+              { n: t.forApproval, c: 'var(--signal)' },
+            ].map((x, k) => (
+              <div
+                key={k}
+                className="av-track"
+                style={{ flex: Math.max(1, x.n), background: 'rgba(124,68,9,.14)' }}
+              >
+                <div className="av-fill" style={{ width: '100%', background: x.c, opacity: x.n ? 1 : 0 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="av-head">
+          <div className="av-fig font-mono" style={{ color: 'var(--served)' }}>
+            {t.full}
+            {servedPct !== null && <span className="av-unit">/{t.approved}</span>}
+          </div>
+          <p className="l">Served in full</p>
+          <p className="s">
+            {servedPct === null ? 'Nothing approved yet' : `${servedPct}% of approved`}
+          </p>
+        </div>
+
+        <div className="av-head">
+          <div className="av-fig font-mono">{t.total}</div>
+          <p className="l">On record</p>
+          <p className="s">
+            {t.urgent > 0 ? `${t.urgent} marked urgent` : 'None marked urgent'}
+          </p>
+        </div>
+
+        <div className="av-head full">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+            <p className="av-sec-h">Where the {t.total} request{t.total === 1 ? '' : 's'} sit</p>
+            <p className="av-sec-p">
+              SRS II assesses · Supervising SRS endorses · Division Chief approves
             </p>
           </div>
-        ))}
-      </div>
-      {t.noReason > 0 && (
-        <div className="rounded-lg border border-red-900/60 bg-red-950/30 px-4 py-2.5 text-xs text-red-300">
-          {t.noReason} event(s) have undelivered services with no recorded reason. Audit
-          Item 40 requires this — open the event and add the reason.
+          <div className="flex flex-wrap gap-2">
+            {chain.map((c) => (
+              <div
+                key={c.l}
+                className="av-tintbox av-step"
+                style={{ background: c.tint }}
+              >
+                <div className="flex items-baseline gap-2">
+                  <span className="av-fig-sm font-mono" style={{ color: c.c }}>
+                    {c.n}
+                  </span>
+                </div>
+                <div className="l">{c.l}</div>
+                <div className="w">{c.w}</div>
+              </div>
+            ))}
+          </div>
         </div>
+      </div>
+
+      {t.noAdvice > 0 && (
+        <p className="av-note" style={{ color: 'var(--triage)' }}>
+          {t.noAdvice} request{t.noAdvice === 1 ? ' is' : 's are'} in AV evaluation with no team
+          recommendation yet. That note is what the Division Chief reads in the approval email.
+        </p>
+      )}
+      {t.excluded > 0 && (
+        <p className="av-note av-dim">
+          {t.excluded} request{t.excluded === 1 ? ' was' : 's were'} cancelled or moved by the
+          client. Excluded from the service KPI — the team was never given the chance to deliver —
+          and counted with reasons under Schedule volatility.
+        </p>
+      )}
+      {t.capShort > 0 && (
+        <p className="av-note" style={{ color: 'var(--waiting)' }}>
+          {t.capShort} requested service{t.capShort === 1 ? ' was' : 's were'} never agreed for
+          lack of capacity. This is the service-level evidence for personnel augmentation under
+          Audit Item 44.
+        </p>
+      )}
+      {t.noReason > 0 && (
+        <p className="av-note" style={{ color: 'var(--refused)' }}>
+          {t.noReason} event{t.noReason === 1 ? ' has' : 's have'} a service shortfall with no
+          recorded reason. Audit Item 40 requires one — open the event and add it.
+        </p>
       )}
     </div>
   );
@@ -3628,6 +4276,9 @@ function EventSummary({ events }: { events: AVEvent[] }) {
  * Buong detalye at pag-edit ng isang event.
  * Dalawang hanay ng checkbox: HINILING at NAIBIGAY. Awtomatikong lumalabas
  * ang agwat, at hindi makaka-save nang no reason kapag may kulang.
+ *
+ * TRIAGE: dito na rin isinusulat ang rekomendasyon ng AV team, at dito
+ * itinutulak ang request mula "For evaluation" tungo sa "For approval".
  */
 function EventModal({
   existing,
@@ -3652,8 +4303,9 @@ function EventModal({
   role: string;
   canEdit: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
-  const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
+  const today = dayKey(new Date());
+  // Tingnan ang paliwanag sa RequestModal — parehong off-by-one bug.
+  const iso = (d: Date | null) => (d ? dayKey(d) : '');
 
   const [f, setF] = useState({
     title: existing?.title ?? '',
@@ -3663,7 +4315,14 @@ function EventModal({
     dateRequested: existing ? iso(existing.dateRequested) : today,
     eventDate: existing ? iso(existing.eventDate) : '',
     endDate: existing ? iso(existing.endDate) : '',
-    approvalStatus: existing ? APPROVAL_META[existing.approval].label : 'For endorsement',
+    // Bagong record → dumadaan muna sa AV triage, kapareho ng galing sa Form.
+    approvalStatus: existing
+      ? APPROVAL_META[existing.approval].label
+      : APPROVAL_META['for-evaluation'].label,
+    approvalRemarks: existing?.approvalRemarks ?? '',
+    clientTier: existing?.clientTier || CLIENT_TIERS[CLIENT_TIERS.length - 1],
+    urgentNote: existing?.urgentNote ?? '',
+    priority: existing ? classifyPriority(existing.priority) : 'Normal',
     reason: existing?.reason ?? '',
     lead: existing?.lead || 'Xyrus',
     team: existing?.team ?? '',
@@ -3675,13 +4334,23 @@ function EventModal({
   });
 
   const [requested, setRequested] = useState<string[]>(existing?.requested ?? []);
+  const [agreed, setAgreed] = useState<string[]>(
+    existing ? (existing.agreed.length ? existing.agreed : existing.requested) : []
+  );
   const [delivered, setDelivered] = useState<string[]>(existing?.delivered ?? []);
   const [pipeline, setPipeline] = useState<Record<PipelineKey, PipelineState>>(
-    existing?.pipeline ?? {
+existing?.pipeline ?? {
       coordination: 'not-started',
       documents: 'not-started',
-      deliverables: 'not-started',
+      script: 'not-started',
+      preInspection: 'not-started',
+      execution: 'not-started',
+      postInspection: 'not-started',
+      editing: 'not-started',
+      finalCut: 'not-started',
+      delivery: 'not-started',
       archiving: 'not-started',
+      csm: 'not-started',
     }
   );
 
@@ -3716,54 +4385,107 @@ function EventModal({
     setList(list.includes(svc) ? list.filter((x) => x !== svc) : [...list, svc]);
 
   const approvalKey = classifyApproval(f.approvalStatus);
-  const gap = requested.filter((x) => !delivered.includes(x));
-  const extra = delivered.filter((x) => !requested.includes(x));
-
-  const notApproved = !APPROVAL_META[approvalKey].live;
-  const hasGap = approvalKey === 'approved' && gap.length > 0 && delivered.length >= 0;
-  const reasonRequired = notApproved || (hasGap && requested.length > 0);
-  const reasonMissing = reasonRequired && !f.reason.trim();
-
-  const heavy = new Set(HEAVY_SERVICES.map((x) => x.toLowerCase()));
-  const sla = requested.some((x) => heavy.has(x.toLowerCase()))
-    ? SLA_WD.production
-    : SLA_WD.coverage;
 
   /**
-   * Kailan nagsisimula ang orasan: kung alin ang mas huli sa pag-apruba at
-   * sa huling araw ng event. Hindi maaaring simulan ang bilang bago pa
-   * matapos ang shoot — walang maihahatid kung ganoon.
+   * Tinanggihan / kinansela / inilipat → WALANG agreed volume. Walang
+   * ipinangako, kaya walang dapat sukatin. Hindi ito nakadepende sa
+   * naka-tsek sa screen — pinipilit ito ng status mismo.
    */
-  // Ang petsa ng pag-apruba ay nasa record, hindi sa form — hindi ito
-  // ini-e-edit ng gumagamit.
-  const approvedOn = existing?.dateApproved ? dayKey(existing.dateApproved) : '';
+  const notApproved = !APPROVAL_META[approvalKey].live;
+  const agreedEff = notApproved ? [] : agreed;
 
-  const clockStart = useMemo(() => {
-    const cands = [approvedOn, f.endDate || f.eventDate].filter(Boolean) as string[];
-    if (!cands.length && f.dateRequested) cands.push(f.dateRequested);
-    if (!cands.length) return '';
-    return cands.sort()[cands.length - 1];
-  }, [approvedOn, f.endDate, f.eventDate, f.dateRequested]);
+  /** Hiniling pero hindi pinangako — kulang sa tao. Ebidensiya ng Item 44. */
+  const capGap = requested.filter((x) => !agreedEff.includes(x));
+  /** Pinangako pero hindi natupad — ebidensiya ng PM 2.1. */
+  const delGap = agreedEff.filter((x) => !delivered.includes(x));
+  const extra = delivered.filter((x) => !requested.includes(x));
 
-  const clockReason = useMemo(() => {
-    if (!clockStart) return '';
-    if (clockStart === f.endDate) return 'last day of the event';
-    if (clockStart === f.eventDate) return 'event date';
-    if (clockStart === approvedOn) return 'date approved';
-    return 'date requested';
-  }, [clockStart, approvedOn, f.endDate, f.eventDate]);
+  /**
+   * ANG DATING BUG: `approvalKey === 'approved'` lang ang tinitingnan.
+   * Pero ang paghahatid ay nangyayari kapag ENDORSED na — kaya sa mismong
+   * yugtong may kulang na serbisyo, NAWAWALA ang reason box. Wala tuloy
+   * naitatalang dahilan, at 'yon mismo ang hinahanap ng auditor.
+   *
+   * Ngayon: hinihingi ang dahilan sa TATLONG pagkakataon —
+   *   1. hindi naipagpatuloy ang request (declined / cancelled / moved)
+   *   2. may hiniling na hindi napangako (kulang sa tao)  ← Item 44
+   *   3. may pinangako na hindi naihatid (approved o endorsed) ← PM 2.1
+   */
+  const authorisedNow = approvalKey === 'approved';
+  const reasonRequired =
+    notApproved || capGap.length > 0 || (authorisedNow && delGap.length > 0);
+  const reasonMissing = reasonRequired && !f.reason.trim();
 
+  /** Ilang araw tumatakbo ang event — pang-ipakita lang, isa pa rin ang bilang. */
+  const spanDays = useMemo(() => {
+    const a = parseDate(f.eventDate);
+    const b = parseDate(f.endDate) || a;
+    if (!a || !b) return 0;
+    return Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000) + 1);
+  }, [f.eventDate, f.endDate]);
+
+  const streamKey = streamOfServices(requested);
+  const sla = SLA_WD[streamKey];
+  const applicableSteps = useMemo(() => stepsFor(streamKey), [streamKey]);
+
+  /**
+   * Pinalitan ng PM catalogue ang lumang listahan ng serbisyo. Ang mga
+   * lumang record ay may pangalan na wala na sa katalogo — kung hindi
+   * ipapakita, mawawala sila sa screen at tahimik na mabubura sa pag-save.
+   * Kaya isinasama sila sa listahan, may babala.
+   */
+  const legacyServices = useMemo(() => {
+    const known = new Set(SERVICE_CATALOG.map((x) => x.toLowerCase()));
+    return Array.from(new Set([...requested, ...agreed, ...delivered])).filter(
+      (x) => !known.has(x.toLowerCase())
+    );
+  }, [requested, agreed, delivered]);
+
+  const catalogue = useMemo(
+    () => [...SERVICE_CATALOG, ...legacyServices],
+    [legacyServices]
+  );
+
+  // Mas huli sa dalawa: pagtanggap, o huling araw ng event. Kung hindi,
+  // OVERDUE agad ang bawat advance booking bago pa mangyari ang event.
   const previewTarget = useMemo(() => {
     if (f.targetDate) return f.targetDate;
-    if (!clockStart) return '';
-    const d = parseDate(clockStart);
-    return d ? dayKey(addWorkingDays(d, sla)) : '';
-  }, [f.targetDate, clockStart, sla]);
+    const got = parseDate(f.dateRequested);
+    const ends = parseDate(f.endDate) || parseDate(f.eventDate);
+    const base = !got ? ends : !ends ? got : (ends.getTime() > got.getTime() ? ends : got);
+    return base ? dayKey(addWorkingDays(base, sla)) : '';
+  }, [f.targetDate, f.dateRequested, f.eventDate, f.endDate, sla]);
 
   // Ang mga approver ay maaaring mag-aprub, pero hindi mag-edit ng nilalaman.
   const isApprover = role === 'dc' || role === 'srs';
   const approvalOnly = isApprover && !!existing;
   const readOnly = !!existing && !canEdit && !isApprover;
+
+  /**
+   * AV TRIAGE — habang "For evaluation" pa (o bago pa maitala), ang AV team
+   * ang may hawak ng dropdown. Pagsapit sa "For approval", kandado na:
+   * DC at SRS na lang ang makakagalaw. Kapareho ito ng ipinapatupad ng
+   * server, kaya walang button na tatanggihan pagkatapos pindutin.
+   */
+  const inTriage = canTriage(role, existing);
+  const canChangeApproval = canDecide(role) || inTriage;
+
+  /** Hindi maaaring lagdaan ng AV team ang sarili nilang request. */
+  const approvalOptions = useMemo<ApprovalKey[]>(
+    () =>
+      canDecide(role)
+        ? APPROVAL_ORDER
+        // Ayon sa PM, ang AV team ay NAGRERECOMMEND lamang. Hindi sila
+        // makakapagpadala nang diretso sa DC at hindi sila makaka-approve.
+        : APPROVAL_ORDER.filter((k) => k !== 'approved' && k !== 'for-approval'),
+    [role]
+  );
+
+  /** Itinutulak na ba ito ngayon palabas ng triage papuntang DC? */
+  const pushingUp =
+    inTriage &&
+    (!existing || existing.approval === 'for-evaluation') &&
+    approvalKey === 'for-endorsement';
 
   /**
    * Ang parehong panuntunan ng server, ipinapakita bago pa mag-save.
@@ -3775,14 +4497,15 @@ function EventModal({
     if (!f.title.trim()) out.push('Event title');
     if (!f.client.trim()) out.push('Client');
     if (!f.eventDate) out.push('Event date');
+    if (!f.dateRequested) out.push('Date requested');
     if (requested.length === 0) out.push('At least one requested service');
     return out;
-  }, [f.title, f.client, f.eventDate, requested]);
+  }, [f.title, f.client, f.eventDate, f.dateRequested, requested]);
 
-  // Hindi maaaring maibigay ang hindi naman hiniling.
+  // Hindi maaaring maihatid ang hindi naman ipinangako.
   const strayDelivered = useMemo(
-    () => delivered.filter((d) => !requested.includes(d)),
-    [delivered, requested]
+    () => delivered.filter((d) => !agreedEff.includes(d)),
+    [delivered, agreedEff]
   );
 
   const canSave =
@@ -3792,10 +4515,10 @@ function EventModal({
     (approvalOnly || (canEdit && missingFields.length === 0));
 
   const field =
-    `w-full rounded-md border border-[#293036] bg-[#17181e] px-3 py-2 text-sm text-[#e6ebf0] placeholder:text-[#4a5360] focus:border-[#00aeef] focus:outline-none${
+    `w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15${
       readOnly || approvalOnly ? ' pointer-events-none opacity-50' : ''
     }`;
-  const lab = 'mb-1.5 block text-[11px] font-medium text-[#76828f]';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
   const submit = () =>
     onSubmit(
@@ -3804,31 +4527,42 @@ function EventModal({
         lead: crew.find((c) => c.roles.length)?.personnel || f.lead,
         team: crew.map((c) => c.personnel).filter(Boolean).join(', '),
         requestedServices: requested.join(', '),
+        agreedServices: agreedEff.join(', '),
         deliveredServices: delivered.join(', '),
-        coordination: PIPELINE_META[pipeline.coordination].label,
-        documents: PIPELINE_META[pipeline.documents].label,
-        deliverables: PIPELINE_META[pipeline.deliverables].label,
-        archiving: PIPELINE_META[pipeline.archiving].label,
+        ...Object.fromEntries(
+          PIPELINE_STEPS.map((st) => [
+            stepField(st.key),
+            // Ang hindi applicable sa stream na ito ay N/A, hindi "not started" —
+            // kung hindi, hindi kailanman aabot sa 100% ang isang coverage.
+            applicableSteps.some((a) => a.key === st.key)
+              ? PIPELINE_META[pipeline[st.key]].label
+              : PIPELINE_META.na.label,
+          ])
+        ),
       },
       existing?.id ?? null,
       crew.filter((c) => c.personnel && c.roles.length)
     );
 
   return (
-    <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[5vh]">
-      <div className="fixed inset-0 bg-black/85 animate-fadein" onClick={onClose} />
-      <div className="relative w-full max-w-4xl rounded-lg border border-[#293036] bg-[#1e1f27] animate-riseup">
-        <div className="flex items-center justify-between border-b border-[#293036] px-6 py-4">
+    <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-3 py-[3vh] md:px-4 md:py-[5vh]">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div className="av-float animate-riseup relative w-full max-w-4xl bg-white" style={{ border: '1px solid var(--rule)' }}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div className="min-w-0">
-            <h3 className="truncate text-base font-medium text-[#e6ebf0]">
-              {existing ? existing.title || existing.id : 'New event request'}
-            </h3>
-            <p className="text-[11px] text-[#76828f]">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-base font-semibold tracking-tight text-slate-900">
+                {existing ? existing.title || existing.id : 'New event request'}
+              </h3>
+              {f.urgentNote.trim() && <PriorityBadge priority="High" dense />}
+              {approvalKey === 'for-evaluation' && <ApprovalChip k="for-evaluation" dense />}
+            </div>
+            <p className="text-[11px] text-slate-9000">
               {existing ? `${existing.id} · ` : ''}Request Form FR-CRPD-AV No. 001 ·
               PM-CRPD-AV-08-04 Rev 7
             </p>
           </div>
-          <button onClick={onClose} className="shrink-0 text-[#76828f] hover:text-[#e6ebf0]">
+          <button onClick={onClose} className="shrink-0 text-slate-9000 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -3896,38 +4630,109 @@ function EventModal({
               />
             </div>
             <div>
-              <label className={lab}>Date requested</label>
+              <label className={lab}>Date requested *</label>
               <input
                 type="date"
                 className={field}
                 value={f.dateRequested}
                 onChange={(e) => set('dateRequested', e.target.value)}
               />
+              <p className="mt-1 text-[10px] text-slate-400">
+                Turnaround is counted from this date, not from the approval date.
+              </p>
+            </div>
+
+            {/*
+                PRIORITISATION — eksakto ang pagkakasunod-sunod sa PM, at ito
+                ang sagot sa puna ng COA na magdagdag ng prioritization
+                category. Hindi na ito basta High/Normal/Low na hulaan.
+            */}
+            <div>
+              <label className={lab}>Client priority (PM order)</label>
+              <select
+                className={field}
+                value={f.clientTier || CLIENT_TIERS[CLIENT_TIERS.length - 1]}
+                onChange={(e) => set('clientTier', e.target.value)}
+              >
+                {CLIENT_TIERS.map((t, i) => (
+                  <option key={t} value={t}>
+                    {i + 1}. {t}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                Office of the Secretary ranks first, Regional Offices last. This drives
+                the order of the evaluation and approval queues.
+              </p>
+            </div>
+            <div>
+              <label className={lab}>
+                Urgent override <span className="text-slate-400">— notice required</span>
+              </label>
+              <textarea
+                className={`${field} min-h-[74px] resize-y`}
+                value={f.urgentNote}
+                onChange={(e) => set('urgentNote', e.target.value)}
+                placeholder="Leave blank unless this genuinely jumps the queue. State why, e.g. Secretary's directive issued 3 days before the event."
+              />
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                The PM allows an urgent request to override the client order{' '}
+                <b>with notice</b>. Writing here is that notice — and it is what marks
+                the request High priority. Blank means normal.
+              </p>
             </div>
 
             {/* ----------- ang service ledger ----------- */}
-            <div className="md:col-span-2 rounded-xl border border-[#293036] bg-black/30 p-4">
-              <div className="mb-3 flex items-baseline justify-between">
-                <p className="text-[11px] font-medium tracking-[0.1em] text-[#8391a2]">
-                  Serbisyo — hiniling laban sa naibigay
+            {/*
+                TATLONG HANAY, HINDI DALAWA.
+                  Hiniling   = demand ng kliyente
+                  Pinangako  = kayang ibigay ng AV team (AGREED VOLUME)
+                  Naibigay   = aktwal na naihatid
+                Dalawang magkaibang kulang ang lumalabas dito, at magkaiba
+                rin ang ibig sabihin nila sa auditor: ang una ay kulang na
+                TAO, ang pangalawa ay hindi natupad na PANGAKO.
+            */}
+            <div className="md:col-span-2 rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <p className="av-label">
+                  Serbisyo — hiniling, pinangako, naibigay
                 </p>
-                <span className="font-mono text-[10px] text-[#5f6b7a]">SLA {sla} WD</span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  SLA {sla} WD
+                  {spanDays > 1 && ` · ${spanDays}-day event, counted as 1 service`}
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
-                  <p className={lab}>Requested by the client</p>
+                  <p className={lab}>Hiniling ng kliyente</p>
+                  {legacyServices.length > 0 && (
+                    <p className="mb-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-relaxed text-amber-800">
+                      Naka-tala sa record ang mga lumang pangalan ng serbisyo:{' '}
+                      <b>{legacyServices.join(', ')}</b>. Wala na ang mga ito sa PM
+                      catalogue pero ipinapakita pa rin para hindi mawala ang datos.
+                    </p>
+                  )}
                   <div className="space-y-1">
-                    {SERVICE_CATALOG.map((svc) => (
+                    {catalogue.map((svc) => (
                       <label
                         key={svc}
-                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-[#aab8c5] hover:bg-[#1a1b22]"
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-slate-600 hover:bg-white"
                       >
                         <input
                           type="checkbox"
-                          className="accent-[#00aeef]"
+                          className="accent-blue-600"
                           checked={requested.includes(svc)}
-                          onChange={() => toggle(requested, setRequested, svc)}
+                          onChange={() => {
+                            const on = requested.includes(svc);
+                            toggle(requested, setRequested, svc);
+                            // Kapag tinanggal sa hiniling, hindi na ito
+                            // pwedeng manatiling pinangako o naibigay.
+                            if (on) {
+                              setAgreed((p) => p.filter((x) => x !== svc));
+                              setDelivered((p) => p.filter((x) => x !== svc));
+                            }
+                          }}
                         />
                         {svc}
                       </label>
@@ -3936,43 +4741,121 @@ function EventModal({
                 </div>
 
                 <div>
-                  <p className={lab}>Aktwal na naibigay</p>
-                  <div className="space-y-1">
-                    {SERVICE_CATALOG.map((svc) => {
-                      const asked = requested.includes(svc);
-                      const got = delivered.includes(svc);
-                      const missing = asked && !got;
-                      return (
-                        <label
-                          key={svc}
-                          className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-[#1a1b22] ${
-                            missing ? 'text-[#f07070]' : got ? 'text-[#5cbf9c]' : 'text-[#5f6b7a]'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="accent-green-500"
-                            checked={got}
-                            onChange={() => toggle(delivered, setDelivered, svc)}
-                          />
-                          {svc}
-                          {missing && <span className="ml-auto text-[9px] font-bold">KULANG</span>}
-                        </label>
-                      );
-                    })}
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                    <p className="text-[11px] font-medium text-slate-9000">
+                      Pinangako <span className="text-purple-600">(agreed volume)</span>
+                    </p>
+                    {!notApproved && requested.length > 0 && (
+                      <button
+                        onClick={() => setAgreed(requested)}
+                        className="text-[10px] text-purple-600 underline transition-colors hover:text-purple-800"
+                      >
+                        Lahat
+                      </button>
+                    )}
                   </div>
+                  {notApproved ? (
+                    <p className="rounded border border-dashed border-slate-300 px-3 py-6 text-center text-[11px] leading-relaxed text-slate-400">
+                      Walang agreed volume.<br />
+                      {APPROVAL_META[approvalKey].label} ang request — walang ipinangako.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {catalogue.map((svc) => {
+                        const asked = requested.includes(svc);
+                        const promised = agreed.includes(svc);
+                        return (
+                          <label
+                            key={svc}
+                            className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
+                              asked ? 'cursor-pointer hover:bg-white' : 'opacity-30'
+                            } ${
+                              asked && !promised
+                                ? 'font-medium text-amber-700'
+                                : promised
+                                ? 'text-purple-700'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-purple-600"
+                              disabled={!asked}
+                              checked={promised}
+                              onChange={() => {
+                                const on = agreed.includes(svc);
+                                toggle(agreed, setAgreed, svc);
+                                if (on) setDelivered((p) => p.filter((x) => x !== svc));
+                              }}
+                            />
+                            {svc}
+                            {asked && !promised && (
+                              <span className="ml-auto text-[9px] font-bold">HINDI KAYA</span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p className={lab}>Aktwal na naibigay</p>
+                  {notApproved ? (
+                    <p className="rounded border border-dashed border-slate-300 px-3 py-6 text-center text-[11px] text-slate-400">
+                      Walang naihatid.
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {catalogue.map((svc) => {
+                        const promised = agreed.includes(svc);
+                        const got = delivered.includes(svc);
+                        const missing = promised && !got;
+                        return (
+                          <label
+                            key={svc}
+                            className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
+                              promised ? 'cursor-pointer hover:bg-white' : 'opacity-30'
+                            } ${missing ? 'text-red-600' : got ? 'text-green-600' : 'text-slate-400'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="accent-green-600"
+                              disabled={!promised}
+                              checked={got}
+                              onChange={() => toggle(delivered, setDelivered, svc)}
+                            />
+                            {svc}
+                            {missing && <span className="ml-auto text-[9px] font-bold">KULANG</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {(gap.length > 0 || extra.length > 0) && (
-                <div className="mt-3 space-y-1 border-t border-[#23272e] pt-3 text-[11px]">
-                  {gap.length > 0 && (
-                    <p className="text-[#f07070]">
-                      <b>{gap.length} not delivered:</b> {gap.join(', ')}
+              {(capGap.length > 0 || delGap.length > 0 || extra.length > 0) && (
+                <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-[11px]">
+                  {capGap.length > 0 && (
+                    <p className="text-amber-700">
+                      <b>{capGap.length} hiniling na hindi napangako:</b> {capGap.join(', ')}
+                      <span className="text-slate-500">
+                        {' '}— kulang sa tao o kagamitan. Ito ang ebidensiya para sa
+                        personnel augmentation (Audit Item 44).
+                      </span>
+                    </p>
+                  )}
+                  {delGap.length > 0 && (
+                    <p className="text-red-600">
+                      <b>{delGap.length} pinangako na hindi naihatid:</b> {delGap.join(', ')}
+                      <span className="text-slate-500">
+                        {' '}— hindi natupad na pangako (PM 2.1).
+                      </span>
                     </p>
                   )}
                   {extra.length > 0 && (
-                    <p className="text-[#00aeef]">
+                    <p className="text-blue-600">
                       <b>Dagdag na naibigay:</b> {extra.join(', ')}
                     </p>
                   )}
@@ -3981,36 +4864,91 @@ function EventModal({
             </div>
 
             {/* ----------- approval ----------- */}
-            <div className="md:col-span-2 rounded-xl border border-[#293036] bg-black/30 p-4">
+            <div className="md:col-span-2 rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
+              {/* ---- AV TEAM RECOMMENDATION — binabasa ito ng DC sa email ---- */}
+              <div className="mb-5 rounded-lg border-2 border-purple-200 bg-purple-50 p-4">
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <label className="av-label" style={{ color: 'var(--triage)' }}>
+                    AV Team recommendation
+                  </label>
+                  <span className="font-mono text-[10px] text-purple-500">
+                    {f.approvalRemarks.trim().length} chars
+                  </span>
+                </div>
+                <textarea
+                  className={`w-full min-h-[92px] resize-y rounded-md border border-purple-300 bg-white px-3 py-2 text-sm leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20${
+                    readOnly || approvalOnly ? ' pointer-events-none opacity-60' : ''
+                  }`}
+                  value={f.approvalRemarks}
+                  onChange={(e) => set('approvalRemarks', e.target.value)}
+                  placeholder="For example: Two personnel available on this date — Marx and Reiner are already committed to the NSTW dry run. Recommend approving photo coverage only, or moving the livestream to the following week."
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-purple-800">
+                  This is the AV Team&rsquo;s capacity assessment. It is injected into the
+                  approval email in a blue box, so the Division Chief reads it before
+                  deciding. Write it while the request is still{' '}
+                  <b>{APPROVAL_META['for-evaluation'].label}</b>.
+                </p>
+                {pushingUp && !f.approvalRemarks.trim() && (
+                  <p className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                    You are about to send this to the Division Chief with no
+                    recommendation. It will still go through, but he will be deciding
+                    blind on AV capacity.
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                 <div>
                   <label className={lab}>Approval status</label>
                   <select
-                    className={field}
+                    className={`w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20${
+                      canChangeApproval ? '' : ' cursor-not-allowed opacity-50'
+                    }`}
+                    disabled={!canChangeApproval}
                     value={f.approvalStatus}
                     onChange={(e) => set('approvalStatus', e.target.value)}
                   >
-                    {APPROVAL_ORDER.map((k) => (
+                    {approvalOptions.map((k) => (
                       <option key={k}>{APPROVAL_META[k].label}</option>
                     ))}
                   </select>
-                  {existing && APPROVAL_META[approvalKey].live && approvalKey !== 'approved' && (
-                    <button
-                      onClick={() => onNotify(existing.id)}
-                      className="mt-2 w-full rounded-lg border border-[#00aeef]/40 px-3 py-1.5 text-[10px] font-bold text-[#00aeef] transition-colors hover:bg-[#00aeef]/10"
-                    >
-                      Send approval email
-                    </button>
+                  {!canChangeApproval && (
+                    <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                      This request has left AV evaluation, so only the Division Chief and
+                      the Supervising SRS can change it. Send them the approval email
+                      instead.
+                    </p>
                   )}
+                  {canChangeApproval && inTriage && (
+                    <p className="mt-1 text-[10px] leading-relaxed text-purple-600">
+                      SRS II assessment stage. Set the agreed volume and the
+                      recommendation, then move this to{' '}
+                      <b>{APPROVAL_META['for-endorsement'].label}</b> — that emails the
+                      Supervising SRS, who forwards it to the Division Chief. Per the PM,
+                      the AV team recommends; it does not approve.
+                    </p>
+                  )}
+                  {existing &&
+                    APPROVAL_META[approvalKey].live &&
+                    approvalKey !== 'approved' &&
+                    approvalKey !== 'for-evaluation' && (
+                      <button
+                        onClick={() => onNotify(existing.id)}
+                        className="mt-2 w-full rounded-lg border border-blue-300 px-3 py-1.5 text-[10px] font-bold text-blue-600 transition-colors hover:bg-blue-50"
+                      >
+                        Send approval email
+                      </button>
+                    )}
                 </div>
               </div>
 
               {/* ------------------------- CREW & ROLES ------------------- */}
-              <div className="mt-5 border-t border-[#293036] pt-4">
+              <div className="mt-5 border-t border-slate-200 pt-4">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
-                    <p className="text-[11px] font-medium text-[#8391a2]">Crew &amp; roles</p>
-                    <p className="text-[11px] text-[#5f6b7a]">
+                    <p className="text-[11px] font-medium text-slate-500">Crew &amp; roles</p>
+                    <p className="text-[11px] text-slate-400">
                       One person may hold several roles. Each role is counted separately in the IPCR.
                     </p>
                   </div>
@@ -4018,7 +4956,7 @@ function EventModal({
                     onClick={() =>
                       setCrew((prev) => [...prev, { personnel: 'Marx', roles: [], status: 'Assigned' }])
                     }
-                    className="rounded border border-[#293036] px-2.5 py-1 text-[11px] text-[#8391a2] transition-colors hover:border-[#363c44] hover:text-[#dfe5eb]"
+                    className="rounded border border-slate-200 px-2.5 py-1 text-[11px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                   >
                     Add person
                   </button>
@@ -4026,12 +4964,12 @@ function EventModal({
 
                 <div className="space-y-2">
                   {crew.map((c, i) => (
-                    <div key={i} className="rounded border border-[#293036] bg-[#17181e] p-3">
+                    <div key={i} className="rounded border border-slate-200 bg-slate-50 p-3">
                       <div className="mb-2.5 flex items-center gap-2">
                         <select
                           value={c.personnel}
                           onChange={(e) => setCrewAt(i, { personnel: e.target.value })}
-                          className="rounded border border-[#293036] bg-[#1e1f27] px-2 py-1 text-[12px] font-medium text-[#c3ccd5] focus:border-[#00aeef] focus:outline-none"
+                          className="rounded border border-slate-200 bg-white px-2 py-1 text-[12px] font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         >
                           {['Xyrus', 'Marx', 'Reiner', 'Pat', 'Team'].map((n) => (
                             <option key={n}>{n}</option>
@@ -4040,19 +4978,19 @@ function EventModal({
                         <select
                           value={c.status}
                           onChange={(e) => setCrewAt(i, { status: e.target.value })}
-                          className="rounded border border-[#293036] bg-[#1e1f27] px-2 py-1 text-[12px] text-[#8391a2] focus:border-[#00aeef] focus:outline-none"
+                          className="rounded border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         >
                           {ASSIGN_STATUS.map((n) => (
                             <option key={n}>{n}</option>
                           ))}
                         </select>
-                        <span className="ml-auto font-mono text-[11px] text-[#5f6b7a]">
+                        <span className="ml-auto font-mono text-[11px] text-slate-400">
                           {c.roles.length} role{c.roles.length === 1 ? '' : 's'}
                         </span>
                         {crew.length > 1 && (
                           <button
                             onClick={() => setCrew((prev) => prev.filter((_, j) => j !== i))}
-                            className="text-[12px] text-[#5f6b7a] transition-colors hover:text-[#f07070]"
+                            className="text-[12px] text-slate-400 transition-colors hover:text-red-600"
                             aria-label="Remove person"
                           >
                             Remove
@@ -4069,8 +5007,8 @@ function EventModal({
                               onClick={() => toggleRole(i, role)}
                               className={`rounded border px-2 py-1 text-[11px] transition-colors ${
                                 on
-                                  ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]'
-                                  : 'border-[#293036] text-[#76828f] hover:border-[#363c44] hover:text-[#aab8c5]'
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:border-slate-300 hover:text-slate-600'
                               }`}
                             >
                               {role}
@@ -4084,7 +5022,7 @@ function EventModal({
               </div>
 
               {existing && (
-                <p className="mt-3 font-mono text-[10px] text-[#5f6b7a]">
+                <p className="mt-3 font-mono text-[10px] text-slate-400">
                   {existing.endorsedBy
                     ? `Endorsed by ${existing.endorsedBy}${
                         existing.dateEndorsed ? ` · ${fmtDate(existing.dateEndorsed)}` : ''
@@ -4100,14 +5038,14 @@ function EventModal({
               )}
 
               {existing && existing.history.length > 0 && (
-                <div className="mt-4 border-t border-[#293036] pt-3">
-                  <p className="mb-2 text-[11px] font-medium text-[#8391a2]">Change history</p>
+                <div className="mt-4 border-t border-slate-200 pt-3">
+                  <p className="mb-2 text-[11px] font-medium text-slate-500">Change history</p>
                   <div className="max-h-32 space-y-1 overflow-y-auto custom-scrollbar">
                     {existing.history
                       .slice()
                       .reverse()
                       .map((line, i) => (
-                        <p key={i} className="font-mono text-[10px] leading-relaxed text-[#5f6b7a]">
+                        <p key={i} className="font-mono text-[10px] leading-relaxed text-slate-400">
                           {line}
                         </p>
                       ))}
@@ -4118,22 +5056,27 @@ function EventModal({
               {reasonRequired && (
                 <div className="mt-4 animate-fadein">
                   <label className={lab}>
-                    <span className="text-[#f07070]">
+                    <span className="text-red-600">
                       Reason * —{' '}
                       {notApproved
                         ? `required when ${APPROVAL_META[approvalKey].label}`
-                        : 'required when services were not delivered'}
+                        : 'required when services were not served'}
                     </span>
                   </label>
+                  {/* HINDI ginagamit ang `field` dito. Ang `field` ay
+                      pointer-events-none para sa approver — kaya dati,
+                      hindi makapag-type ng dahilan si DC kapag nagde-decline
+                      sa dashboard, samantalang kinakailangan ito bago
+                      makapag-save. Naiipit siya. */}
                   <textarea
-                    className={`${field} min-h-[76px] resize-y ${
-                      reasonMissing ? 'border-red-500/60' : ''
-                    }`}
+                    className={`w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 min-h-[76px] resize-y ${
+                      reasonMissing ? 'border-red-400' : 'border-slate-300'
+                    }${readOnly ? ' pointer-events-none opacity-50' : ''}`}
                     value={f.reason}
                     onChange={(e) => set('reason', e.target.value)}
                     placeholder="For example: Hybrid livestream not provided — no available personnel, team deployed to another DOST event."
                   />
-                  <p className="mt-1 text-[10px] text-[#5f6b7a]">
+                  <p className="mt-1 text-[10px] text-slate-400">
                     Audit Item 40 at 44: ito ang ebidensiya para sa personnel augmentation.
                   </p>
                 </div>
@@ -4141,12 +5084,25 @@ function EventModal({
             </div>
 
             {/* ----------- pipeline ----------- */}
-            <div className="md:col-span-2 rounded-xl border border-[#293036] bg-black/30 p-4">
-              <p className="mb-3 text-[11px] font-medium tracking-[0.1em] text-[#8391a2]">
-                Execution pipeline
-              </p>
+            <div className="md:col-span-2 rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                <p className="av-label">
+                  Execution pipeline — {STREAM_META[streamKey].label}
+                </p>
+                <span className="font-mono text-[10px] text-slate-400">
+                  PM {streamKey === 'production' ? '3A' : '3B'} + 4 ·{' '}
+                  {applicableSteps.length} steps
+                </span>
+              </div>
+              {streamKey === 'coverage' && (
+                <p className="mb-3 text-[10px] leading-relaxed text-slate-400">
+                  Script approval and final-cut approval are Production-only steps under
+                  PM 3A, so they are not shown for a Coverage request and are recorded
+                  as N/A.
+                </p>
+              )}
               <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                {PIPELINE_STEPS.map((step) => (
+                {applicableSteps.map((step) => (
                   <div key={step.key}>
                     <label className={lab}>{step.label}</label>
                     <select
@@ -4163,7 +5119,7 @@ function EventModal({
                         <option key={st}>{PIPELINE_META[st].label}</option>
                       ))}
                     </select>
-                    <p className="mt-1 text-[9px] leading-tight text-[#5f6b7a]">{step.detail}</p>
+                    <p className="mt-1 text-[9px] leading-tight text-slate-400">{step.detail}</p>
                   </div>
                 ))}
               </div>
@@ -4178,23 +5134,24 @@ function EventModal({
                 onChange={(e) => set('targetDate', e.target.value)}
               />
               {!f.targetDate && previewTarget && (
-                <p className="mt-1 text-[10px] leading-relaxed text-[#76828f]">
-                  <span className="font-mono text-[#00aeef]">{previewTarget}</span>
-                  {' '}— {sla} working days from {clockStart} ({clockReason}).
-                  <span className="mt-0.5 block text-[#5f6b7a]">
-                    The clock starts when the event ends, not when it is approved.
-                  </span>
+                <p className="mt-1 font-mono text-[10px] text-blue-600">
+                  Auto: {previewTarget} ({sla} WD from receipt)
                 </p>
               )}
             </div>
             <div>
-              <label className={lab}>Date delivered</label>
+              <label className={lab}>Date served</label>
               <input
                 type="date"
                 className={field}
                 value={f.dateDelivered}
                 onChange={(e) => set('dateDelivered', e.target.value)}
               />
+              {existing && eventTAT(existing) !== null && (
+                <p className="mt-1 font-mono text-[10px] text-slate-400">
+                  Turnaround {eventTAT(existing)} WD from receipt
+                </p>
+              )}
             </div>
 
             <div>
@@ -4230,36 +5187,40 @@ function EventModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#293036] px-6 py-4">
-          <p className="max-w-md text-[10px] leading-relaxed text-[#5f6b7a]">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <p className="max-w-md text-[10px] leading-relaxed text-slate-400">
             {readOnly
               ? `View only — this event belongs to ${existing?.createdBy || 'someone else'}.`
               : approvalOnly
               ? 'You may approve or decline. Editing the record is done by its owner.'
               : strayDelivered.length > 0
-              ? `Marked delivered but never requested: ${strayDelivered.join(', ')}. Add them to the requested services first.`
+              ? `Marked delivered but never agreed: ${strayDelivered.join(', ')}. Tick them under Pinangako first.`
               : missingFields.length > 0
               ? `Still required: ${missingFields.join(', ')}.`
               : reasonMissing
               ? 'A reason is required before saving.'
+              : pushingUp
+              ? 'Saving will email the Supervising SRS with your recommendation and a schedule-conflict scan.'
               : 'Saved directly to the Events sheet.'}
           </p>
           <div className="flex gap-2">
             <button
               onClick={onClose}
-              className="rounded border border-[#293036] px-4 py-2 text-[13px] text-[#8391a2] transition-colors hover:text-[#dfe5eb]"
+              className="av-btn-ghost"
             >
               Cancel
             </button>
             <button
               disabled={!canSave}
               onClick={submit}
-              className="rounded bg-[#00aeef] px-4 py-2 text-[13px] font-medium text-[#06121a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="av-btn disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting
                 ? 'Saving…'
                 : approvalOnly
                 ? 'Record decision'
+                : pushingUp
+                ? 'Send to Supervising SRS'
                 : existing
                 ? 'Save changes'
                 : 'Create event'}
@@ -4278,12 +5239,16 @@ function EventModal({
  */
 function ServiceGapPanel({ events }: { events: AVEvent[] }) {
   const rows = useMemo(() => {
-    const map = new Map<string, { asked: number; given: number; missed: number }>();
+    const map = new Map<
+      string,
+      { asked: number; given: number; missed: number; noCap?: number }
+    >();
     events.forEach((ev) => {
-      // Naghihintay pa ng aprubasyon — wala pang masasabing naibigay o hindi.
-      // Dapat isama ang 'endorsed', hindi lang 'approved'; kung hindi,
-      // mawawala sa bilang ang mga event na na-clear na.
-      if (!isAuthorised(ev) && APPROVAL_META[ev.approval].live) return;
+      // Naghihintay pa ng approval — wala pang masasabing naibigay o hindi
+      if (APPROVAL_META[ev.approval].live && !isAuthorised(ev)) return;
+      // Kinansela / inilipat ng kliyente → hindi ito unmet demand ng AV.
+      // Binibilang ito sa Schedule volatility, hindi dito.
+      if (isExcluded(ev)) return;
       if (!APPROVAL_META[ev.approval].live) {
         // Declined: bilangin pa rin ang hiniling — demand pa rin 'yon
         ev.requested.forEach((svc) => {
@@ -4295,11 +5260,15 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
         return;
       }
       const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
+      const promised = new Set(agreedVolume(ev).map((x) => x.toLowerCase()));
       ev.requested.forEach((svc) => {
         const cur = map.get(svc) || { asked: 0, given: 0, missed: 0 };
         cur.asked += 1;
         if (got.has(svc.toLowerCase())) cur.given += 1;
         else cur.missed += 1;
+        // Hindi man lang napangako — ito ang purong kakulangan sa tao,
+        // hindi pagkukulang sa paghahatid. Hiwalay ang bilang.
+        if (!promised.has(svc.toLowerCase())) cur.noCap = (cur.noCap || 0) + 1;
         map.set(svc, cur);
       });
     });
@@ -4309,8 +5278,12 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
   }, [events]);
 
   const totals = rows.reduce(
-    (a, r) => ({ asked: a.asked + r.asked, missed: a.missed + r.missed }),
-    { asked: 0, missed: 0 }
+    (a, r) => ({
+      asked: a.asked + r.asked,
+      missed: a.missed + r.missed,
+      noCap: a.noCap + (r.noCap || 0),
+    }),
+    { asked: 0, missed: 0, noCap: 0 }
   );
 
   const reasons = useMemo(() => {
@@ -4324,7 +5297,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
 
   if (rows.length === 0) {
     return (
-      <p className="py-8 text-center text-xs italic text-[#5f6b7a]">
+      <p className="py-8 text-center text-xs italic text-slate-400">
         No services recorded yet. Create an event to build the gap analysis.
       </p>
     );
@@ -4334,19 +5307,20 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { k: 'Services requested', v: totals.asked, c: '#00aeef' },
-          { k: 'Services delivered', v: totals.asked - totals.missed, c: '#44a887' },
-          { k: 'Services not delivered', v: totals.missed, c: '#ee4444' },
+          { k: 'Services requested', v: totals.asked, c: '#2563eb' },
+          { k: 'Services served', v: totals.asked - totals.missed, c: '#16a34a' },
+          { k: 'No capacity to agree', v: totals.noCap, c: '#d97706' },
+          { k: 'Services not served', v: totals.missed, c: '#dc2626' },
         ].map((x) => (
           <div
             key={x.k}
-            className="rounded-md border border-[#293036] bg-[#17181e] p-4"
+            className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4"
             style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
           >
-            <p className="font-mono text-3xl font-black text-[#e6ebf0] tabular-nums">{x.v}</p>
-            <p className="mt-1 text-[11px] font-medium tracking-[0.1em] text-[#8391a2]">
+            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">{x.v}</p>
+            <p className="mt-1 av-label">
               {x.k}
             </p>
           </div>
@@ -4357,16 +5331,16 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
         {rows.map((r) => (
           <div key={r.svc}>
             <div className="mb-1 flex items-baseline justify-between gap-3">
-              <span className="truncate text-xs font-semibold text-[#aab8c5]">{r.svc}</span>
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-[#76828f]">
-                {r.given}/{r.asked} delivered
+              <span className="truncate text-xs font-semibold text-slate-600">{r.svc}</span>
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-9000">
+                {r.given}/{r.asked} served
                 {r.missed > 0 && (
-                  <span className="ml-2 font-bold text-[#f07070]">−{r.missed}</span>
+                  <span className="ml-2 font-bold text-red-600">−{r.missed}</span>
                 )}
               </span>
             </div>
             <div
-              className="flex h-2 overflow-hidden rounded-full bg-[#1a1b22]"
+              className="flex h-2 overflow-hidden rounded-full bg-slate-100"
               style={{ width: `${Math.max(12, (r.asked / max) * 100)}%` }}
             >
               <div
@@ -4383,23 +5357,178 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
       </div>
 
       {reasons.length > 0 && (
-        <div className="rounded-md border border-[#293036] bg-[#17181e] p-4">
-          <p className="mb-3 text-[11px] font-medium tracking-[0.12em] text-[#76828f]">
+        <div className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
+          <p className="mb-3 av-label">
             Recorded reasons for non-delivery
           </p>
           <div className="space-y-2.5">
             {reasons.map(({ ev, gap }) => (
-              <div key={ev.id} className="border-l-2 border-red-500/50 pl-3">
-                <p className="text-xs font-semibold text-[#c3ccd5]">{ev.title}</p>
-                <p className="mt-0.5 text-[10px] text-[#f07070]">
-                  Not delivered: {gap.join(', ')}
+              <div key={ev.id} className="border-l-2 border-red-300 pl-3">
+                <p className="text-xs font-semibold text-slate-700">{ev.title}</p>
+                <p className="mt-0.5 text-[10px] text-red-600">
+                  Not served: {gap.join(', ')}
                 </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-[#8391a2]">{ev.reason}</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{ev.reason}</p>
               </div>
             ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * SCHEDULE VOLATILITY — ang sariling bilang ng kinansela at inilipat.
+ *
+ * BAKIT HIWALAY. Ang isang event na pinigil ng bagyo ay hindi pagkukulang
+ * sa serbisyo — hindi natin naabot ang pagkakataong mag-cover. Kapag
+ * ibinilang ito sa KPI, pinaparusahan ang AV team sa bagay na wala sa
+ * kanilang kontrol, at nagiging mali ang basa ng auditor.
+ *
+ * PERO HINDI ITO ITINATAGO. Ito ang standard na paghawak sa non-attributable
+ * na pagkabigo: ibukod sa performance ratio, ipakita nang buo, may dahilan
+ * bawat isa. Ang volatility rate mismo ay kapaki-pakinabang — kapag mataas,
+ * senyas 'yon ng problema sa pagpaplano ng kliyente o sa panahon, at
+ * basehan ng buffer sa iskedyul.
+ *
+ * Ang 10% ay INTERNAL na watch level, hindi opisyal na pamantayan.
+ */
+function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
+  const v = useMemo(() => {
+    const cancelled = events.filter((e) => e.approval === 'cancelled');
+    const moved = events.filter((e) => e.approval === 'rescheduled');
+    const excluded = [...cancelled, ...moved];
+    const lostServices = excluded.reduce((a, e) => a + e.requested.length, 0);
+    const noReason = excluded.filter((e) => !e.reason.trim()).length;
+    const rate = events.length
+      ? Math.round((excluded.length / events.length) * 1000) / 10
+      : null;
+    const byMonth = new Map<string, number>();
+    excluded.forEach((e) => {
+      const d = e.eventDate || e.dateRequested;
+      if (d) byMonth.set(monthKey(d), (byMonth.get(monthKey(d)) || 0) + 1);
+    });
+    return {
+      cancelled, moved, excluded, lostServices, noReason, rate,
+      worst: Array.from(byMonth.entries()).sort((a, b) => b[1] - a[1])[0] || null,
+    };
+  }, [events]);
+
+  if (v.excluded.length === 0) {
+    return (
+      <div className="rounded-[16px] border border-dashed border-[var(--rule)] p-8 text-center">
+        <p className="text-sm text-slate-600">No cancellations or reschedules on record.</p>
+        <p className="mt-1 text-xs text-slate-400">
+          Every request received either proceeded or was decided on its merits.
+        </p>
+      </div>
+    );
+  }
+
+  const hot = v.rate !== null && v.rate > 10;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { k: 'Cancelled by client', v: v.cancelled.length, c: '#64748b' },
+          { k: 'Moved by client', v: v.moved.length, c: '#ca8a04' },
+          { k: 'Services stood down', v: v.lostServices, c: '#2563eb' },
+          { k: 'Volatility rate', v: v.rate === null ? 0 : v.rate, c: hot ? '#dc2626' : '#16a34a', pct: true },
+        ].map((x) => (
+          <div
+            key={x.k}
+            className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4"
+            style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
+          >
+            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">
+              {x.v}
+              {x.pct && <span className="text-lg text-slate-400">%</span>}
+            </p>
+            <p className="mt-1 av-label">
+              {x.k}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="av-card px-4 py-3 av-note">
+        <b>These {v.excluded.length} request(s) are excluded from the service KPI.</b> The
+        AV team was never given the opportunity to deliver, so counting them as unmet
+        service would misstate performance. They remain on record with a reason, and are
+        reported here so the exclusion is visible rather than silent.
+        {v.rate !== null && (
+          <>
+            {' '}Volatility is <b>{v.rate}%</b> of all requests received
+            {hot ? (
+              <span className="text-red-600">
+                {' '}— above the 10% internal watch level. Worth raising with clients on
+                lead time and weather contingency.
+              </span>
+            ) : (
+              <span className="text-slate-500"> — within the 10% internal watch level.</span>
+            )}
+          </>
+        )}
+        {v.worst && (
+          <> Highest month: <b>{monthLabel(v.worst[0])}</b> with {v.worst[1]}.</>
+        )}
+      </div>
+
+      {v.noReason > 0 && (
+        <div className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
+          {v.noReason} of these have no recorded reason. Audit Item 40 requires one for
+          every request that was not served — exclusion from the KPI does not remove that
+          obligation, it depends on it.
+        </div>
+      )}
+
+      <div className="overflow-x-auto custom-scrollbar">
+        <table className="w-full min-w-[720px] text-left text-xs">
+          <thead>
+            <tr className="border-b border-slate-200 text-[9px] uppercase tracking-[0.1em] text-slate-400">
+              <th className="pb-2 pr-3 font-bold">Event</th>
+              <th className="pb-2 pr-3 font-bold">Client</th>
+              <th className="pb-2 pr-3 font-bold">Event date</th>
+              <th className="pb-2 pr-3 font-bold">Outcome</th>
+              <th className="pb-2 pr-3 font-bold">Services</th>
+              <th className="pb-2 font-bold">Reason on record</th>
+            </tr>
+          </thead>
+          <tbody>
+            {v.excluded
+              .slice()
+              .sort((a, b) => (b.eventDate?.getTime() ?? 0) - (a.eventDate?.getTime() ?? 0))
+              .map((e) => (
+                <tr key={e.id} className="border-b border-slate-200 align-top last:border-0">
+                  <td className="py-3 pr-3">
+                    <p className="font-semibold text-slate-700">{e.title}</p>
+                    <p className="font-mono text-[10px] text-slate-400">{e.id}</p>
+                  </td>
+                  <td className="py-3 pr-3 text-slate-500">{e.client || '—'}</td>
+                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                    {fmtDate(e.eventDate)}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <FulfilChip f={fulfilment(e)} dense />
+                  </td>
+                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                    {e.requested.length}
+                  </td>
+                  <td className="py-3">
+                    {e.reason.trim() ? (
+                      <span className="text-slate-600">{e.reason}</span>
+                    ) : (
+                      <span className="font-bold text-red-600">No reason on record</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -4472,9 +5601,12 @@ function KioskMode({
 
   const svc = useMemo(() => {
     const served = requests.filter((r) => REQ_META[r.status].served).length;
-    const unmet = requests.filter((r) => REQ_META[r.status].unmet).length;
+    const excluded = requests.filter((r) => REQ_META[r.status].excluded).length;
+    const unmet = requests.filter(
+      (r) => REQ_META[r.status].unmet && !REQ_META[r.status].excluded
+    ).length;
     const overdue = requests.filter((r) => slaState(r) === 'overdue').length;
-    return { demand: requests.length, served, unmet, overdue };
+    return { demand: requests.length, served, unmet, overdue, excluded };
   }, [requests]);
 
   const ticker = useMemo(() => {
@@ -4488,24 +5620,24 @@ function KioskMode({
   }, [coverages, outputs, requests]);
 
   return (
-    <div className="no-print fixed inset-0 z-[120] flex flex-col bg-black text-[#c3ccd5]">
+    <div className="no-print fixed inset-0 z-[120] flex flex-col bg-slate-50 text-slate-700">
       {/* top bar */}
-      <div className="flex items-center justify-between border-b border-[#23272e] px-6 py-4 md:px-10 md:py-6">
+      <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 md:px-10 md:py-6">
         <div className="flex items-center gap-4">
-          <span className="h-2 w-2 rounded-full bg-[#00aeef]" />
-          <span className="font-display text-2xl font-black tracking-tight text-[#e6ebf0]">
-            AV <span className="text-[#00aeef]">Nexus</span>
+          <span className="h-2 w-2 rounded-full bg-blue-600 hover:bg-blue-700" />
+          <span className="font-display text-2xl font-black uppercase tracking-tight text-slate-900">
+            AV <span className="text-blue-600">Nexus</span>
           </span>
-          <span className="ml-2 hidden font-mono text-[11px] tracking-[0.3em] text-[#5f6b7a] md:block">
+          <span className="ml-2 hidden font-mono text-[11px] uppercase tracking-[0.3em] text-slate-400 md:block">
             {titles[slide]}
           </span>
         </div>
         <div className="flex items-center gap-6">
           <div className="text-right">
-            <p className="font-mono text-2xl font-black text-[#e6ebf0] tabular-nums md:text-3xl">
+            <p className="font-mono text-2xl font-black text-slate-900 tabular-nums md:text-3xl">
               {now.toLocaleTimeString('en-PH', { hour12: false })}
             </p>
-            <p className="text-[11px] tracking-[0.14em] text-[#76828f]">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-9000">
               {now.toLocaleDateString('en-PH', {
                 weekday: 'long',
                 day: 'numeric',
@@ -4516,7 +5648,7 @@ function KioskMode({
           </div>
           <button
             onClick={onClose}
-            className="rounded-md border border-[#293036] px-3 py-2 text-xs font-bold text-[#76828f] transition-colors hover:text-[#e6ebf0]"
+            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-9000 transition-colors hover:text-slate-900"
           >
             ✕ Exit
           </button>
@@ -4533,24 +5665,24 @@ function KioskMode({
               return (
                 <div
                   key={m.name}
-                  className="flex flex-col rounded-lg border border-[#293036] bg-[#1e1f27] p-8"
+                  className="av-card flex flex-col p-8"
                 >
                   <div className="mb-6 flex items-center gap-5">
-                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-[#00aeef]/50">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-blue-300">
                       <img src={m.image} alt={m.name} className="h-full w-full object-cover" />
                     </div>
                     <div>
-                      <p className="text-3xl font-black text-[#e6ebf0]">
+                      <p className="text-3xl font-black uppercase tracking-wider text-slate-900">
                         {m.name}
                       </p>
-                      <p className="font-mono text-xs text-[#76828f]">
+                      <p className="font-mono text-xs text-slate-9000">
                         {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                       </p>
                     </div>
                   </div>
                   {act ? (
                     <>
-                      <p className="mb-4 line-clamp-3 flex-1 text-lg leading-snug text-[#aab8c5]">
+                      <p className="mb-4 line-clamp-3 flex-1 text-lg leading-snug text-slate-600">
                         {act.kind === 'coverage' ? act.cov.details : act.out.title}
                       </p>
                       <div className="flex items-center justify-between">
@@ -4559,11 +5691,11 @@ function KioskMode({
                         ) : (
                           <StageBadge stage={act.out.stage} />
                         )}
-                        <span className="font-mono text-xs text-[#76828f]">{fmtDate(act.when)}</span>
+                        <span className="font-mono text-xs text-slate-9000">{fmtDate(act.when)}</span>
                       </div>
                     </>
                   ) : (
-                    <p className="flex-1 text-sm italic text-[#5f6b7a]">Standby</p>
+                    <p className="flex-1 text-sm italic text-slate-400">Standby</p>
                   )}
                 </div>
               );
@@ -4575,19 +5707,19 @@ function KioskMode({
           <div className="flex h-full flex-col justify-center gap-12">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
               {[
-                { label: 'Total coverages', v: stats.total, accent: '#00aeef' },
-                { label: 'DMC cleared', v: cleared, accent: '#44a887' },
-                { label: 'This month', v: stats.thisMonth, accent: '#ee4444' },
+                { label: 'Total coverages', v: stats.total, accent: '#2563eb' },
+                { label: 'DMC cleared', v: cleared, accent: '#16a34a' },
+                { label: 'This month', v: stats.thisMonth, accent: '#dc2626' },
               ].map((x) => (
                 <div
                   key={x.label}
-                  className="rounded-lg border border-[#293036] bg-[#1e1f27] p-10 text-center"
+                  className="av-card p-10 text-center"
                 >
-                  <p className="font-mono text-7xl font-black text-[#e6ebf0] tabular-nums md:text-8xl">
+                  <p className="font-mono text-7xl font-black text-slate-900 tabular-nums md:text-8xl">
                     {x.v}
                   </p>
                   <p
-                    className="mt-3 text-sm font-medium tracking-[0.14em]"
+                    className="mt-3 text-sm font-bold uppercase tracking-[0.14em]"
                     style={{ color: x.accent }}
                   >
                     {x.label}
@@ -4596,7 +5728,7 @@ function KioskMode({
               ))}
             </div>
             <div>
-              <div className="mb-3 flex h-5 w-full overflow-hidden rounded-full bg-[#1a1b22]">
+              <div className="mb-3 flex h-5 w-full overflow-hidden rounded-full bg-slate-100">
                 {STATUS_ORDER.map((k) =>
                   stats.counts[k] > 0 && stats.total > 0 ? (
                     <div
@@ -4611,13 +5743,13 @@ function KioskMode({
               </div>
               <div className="flex flex-wrap justify-center gap-6">
                 {STATUS_ORDER.map((k) => (
-                  <span key={k} className="flex items-center gap-2 text-sm text-[#8391a2]">
+                  <span key={k} className="flex items-center gap-2 text-sm text-slate-500">
                     <span
                       className="h-2.5 w-2.5 rounded-sm"
                       style={{ background: STATUS_META[k].hex }}
                     />
                     {STATUS_META[k].label} ·{' '}
-                    <span className="font-mono text-[#e6ebf0]">{stats.counts[k]}</span>
+                    <span className="font-mono text-slate-900">{stats.counts[k]}</span>
                   </span>
                 ))}
               </div>
@@ -4631,13 +5763,13 @@ function KioskMode({
               {STAGE_ORDER.map((k) => (
                 <div
                   key={k}
-                  className="rounded-md border border-[#293036] bg-[#1e1f27] p-5 text-center"
+                  className="av-card p-5 text-center"
                 >
-                  <p className="font-mono text-4xl font-black text-[#e6ebf0] tabular-nums md:text-5xl">
+                  <p className="font-mono text-4xl font-black text-slate-900 tabular-nums md:text-5xl">
                     {outputs.filter((o) => o.stage === k).length}
                   </p>
                   <p
-                    className="mt-2 text-[11px] font-medium tracking-[0.12em]"
+                    className="mt-2 text-[10px] font-bold uppercase tracking-[0.12em]"
                     style={{ color: STAGE_META[k].hex }}
                   >
                     {STAGE_META[k].label}
@@ -4649,11 +5781,11 @@ function KioskMode({
               {wip.map((o) => (
                 <div
                   key={o.id}
-                  className="flex items-center justify-between gap-6 rounded-md border border-[#293036] bg-[#1e1f27] px-6 py-4"
+                  className="av-card flex items-center justify-between gap-6 px-6 py-4"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-xl font-bold text-[#dfe5eb]">{o.title}</p>
-                    <p className="font-mono text-xs text-[#76828f]">
+                    <p className="truncate text-xl font-bold text-slate-800">{o.title}</p>
+                    <p className="font-mono text-xs text-slate-9000">
                       {o.personnel} · {o.role || o.type}
                       {o.target ? ` · due ${fmtDate(o.target)}` : ''}
                     </p>
@@ -4662,7 +5794,7 @@ function KioskMode({
                 </div>
               ))}
               {wip.length === 0 && (
-                <p className="pt-16 text-center text-lg italic text-[#5f6b7a]">
+                <p className="pt-16 text-center text-lg italic text-slate-400">
                   No outputs in progress.
                 </p>
               )}
@@ -4674,20 +5806,20 @@ function KioskMode({
           <div className="flex h-full flex-col justify-center gap-10">
             <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
               {[
-                { k: 'Service demand', v: svc.demand, c: '#00aeef' },
-                { k: 'Services rendered', v: svc.served, c: '#44a887' },
-                { k: 'Unmet requests', v: svc.unmet, c: '#ee4444' },
-                { k: 'Past due', v: svc.overdue, c: '#f59e0b' },
+                { k: 'Service demand', v: svc.demand, c: '#2563eb' },
+                { k: 'Services rendered', v: svc.served, c: '#16a34a' },
+                { k: 'Unmet requests', v: svc.unmet, c: '#dc2626' },
+                { k: 'Client-side', v: svc.excluded, c: '#64748b' },
               ].map((x) => (
                 <div
                   key={x.k}
-                  className="rounded-lg border border-[#293036] bg-[#1e1f27] p-8 text-center"
+                  className="av-card p-8 text-center"
                 >
-                  <p className="font-mono text-6xl font-black text-[#e6ebf0] tabular-nums md:text-7xl">
+                  <p className="font-mono text-6xl font-black text-slate-900 tabular-nums md:text-7xl">
                     {x.v}
                   </p>
                   <p
-                    className="mt-3 text-xs font-medium tracking-[0.14em]"
+                    className="mt-3 text-xs font-bold uppercase tracking-[0.14em]"
                     style={{ color: x.c }}
                   >
                     {x.k}
@@ -4701,7 +5833,7 @@ function KioskMode({
                   label: 'Requests executed',
                   v: kpi.execution,
                   t: KPI_EXECUTION_TARGET,
-                  sub: 'PM 2.1 — 100% of approved requests delivered',
+                  sub: 'PM 2.1 — 100% of approved requests served',
                 },
                 {
                   label: 'CSM very satisfactory+',
@@ -4711,31 +5843,31 @@ function KioskMode({
                 },
               ].map((x) => {
                 const pass = x.v !== null && x.v >= x.t;
-                const hex = x.v === null ? '#3f3f46' : pass ? '#44a887' : '#ee4444';
+                const hex = x.v === null ? '#cbd5e1' : pass ? '#16a34a' : '#dc2626';
                 return (
                   <div
                     key={x.label}
-                    className="rounded-lg border border-[#293036] bg-[#1e1f27] p-8"
+                    className="av-card p-8"
                   >
                     <div className="mb-4 flex items-baseline justify-between">
-                      <span className="text-sm font-medium tracking-[0.1em] text-[#aab8c5]">
+                      <span className="text-sm font-bold uppercase tracking-[0.1em] text-slate-600">
                         {x.label}
                       </span>
                       <span className="font-mono text-4xl font-black tabular-nums" style={{ color: hex }}>
                         {x.v === null ? '—' : `${x.v}%`}
                       </span>
                     </div>
-                    <div className="relative h-3 overflow-hidden rounded-full bg-[#1a1b22]">
+                    <div className="relative h-3 overflow-hidden rounded-full bg-slate-100">
                       <div
                         className="h-full rounded-full transition-all duration-1000"
                         style={{ width: `${Math.min(100, x.v ?? 0)}%`, background: hex }}
                       />
                       <div
-                        className="absolute inset-y-0 w-0.5 bg-[#5f6b7a]"
+                        className="absolute inset-y-0 w-0.5 bg-slate-400"
                         style={{ left: `${x.t}%` }}
                       />
                     </div>
-                    <p className="mt-3 text-xs text-[#76828f]">{x.sub}</p>
+                    <p className="mt-3 text-xs text-slate-9000">{x.sub}</p>
                   </div>
                 );
               })}
@@ -4748,24 +5880,24 @@ function KioskMode({
             {upNext.map((c, i) => (
               <div
                 key={i}
-                className="flex flex-col items-start gap-3 rounded-2xl border-l-4 border-red-500 bg-[#1e1f27] px-8 py-6 md:flex-row md:items-center md:gap-8"
+                className="flex flex-col items-start gap-3 rounded-2xl border-l-4 border-red-500 bg-white px-8 py-6 md:flex-row md:items-center md:gap-8"
               >
                 <div className="w-44 shrink-0">
-                  <p className="font-mono text-2xl font-black text-[#e6ebf0]">{fmtDate(c.dateObj)}</p>
-                  <p className="text-xs tracking-[0.1em] text-[#f07070]">
+                  <p className="font-mono text-2xl font-black text-slate-900">{fmtDate(c.dateObj)}</p>
+                  <p className="text-xs uppercase tracking-[0.1em] text-red-600">
                     {relativeDay(c.dateObj) || 'Scheduled'}
                   </p>
                 </div>
-                <p className="flex-1 text-xl font-bold leading-snug text-[#c3ccd5] md:text-2xl">
+                <p className="flex-1 text-xl font-bold leading-snug text-slate-700 md:text-2xl">
                   {c.details}
                 </p>
-                <span className="rounded bg-[#272831] px-3 py-1 font-mono text-sm font-medium text-[#aab8c5]">
+                <span className="rounded bg-slate-100 px-3 py-1 font-mono text-sm font-bold uppercase tracking-wider text-slate-600">
                   {c.personnel}
                 </span>
               </div>
             ))}
             {upNext.length === 0 && (
-              <p className="text-center text-2xl italic text-[#5f6b7a]">
+              <p className="text-center text-2xl italic text-slate-400">
                 Nothing scheduled.
               </p>
             )}
@@ -4773,7 +5905,7 @@ function KioskMode({
         )}
 
         {slide === 5 && (
-          <div className="h-full overflow-hidden rounded-2xl border border-[#293036] bg-[#1e1f27]">
+          <div className="h-full overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <iframe
               src={`${CAL_EMBED}&mode=AGENDA&showTitle=0&showPrint=0&showTabs=0&showCalendars=0&showTz=0`}
               title="AV Calendar — kiosk"
@@ -4784,12 +5916,12 @@ function KioskMode({
       </div>
 
       {/* broadcast ticker */}
-      <div className="flex items-center gap-4 overflow-hidden border-t border-[#23272e] bg-[#131419] px-6 py-2.5 md:px-10">
-        <span className="shrink-0 rounded bg-red-600 px-2 py-0.5 font-mono text-[11px] font-black tracking-[0.1em] text-[#e6ebf0]">
+      <div className="flex items-center gap-4 overflow-hidden border-t border-slate-200 bg-white px-6 py-2.5 md:px-10">
+        <span className="shrink-0 rounded bg-red-600 px-2 py-0.5 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-white">
           Latest
         </span>
         <div className="relative flex-1 overflow-hidden">
-          <div className="kiosk-ticker flex w-max whitespace-nowrap font-mono text-xs text-[#8391a2]">
+          <div className="kiosk-ticker flex w-max whitespace-nowrap font-mono text-xs text-slate-500">
             <span className="pr-24">{ticker}</span>
             <span className="pr-24">{ticker}</span>
           </div>
@@ -4797,16 +5929,16 @@ function KioskMode({
       </div>
 
       {/* bottom: progress + dots */}
-      <div className="border-t border-[#23272e] px-6 py-4 md:px-10 md:py-5">
-        <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-[#1a1b22]">
+      <div className="border-t border-slate-200 px-6 py-4 md:px-10 md:py-5">
+        <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-slate-100">
           <div
             key={slide}
-            className="h-full bg-[#00aeef]"
+            className="h-full bg-blue-600"
             style={{ animation: `kioskbar ${SLIDE_MS}ms linear forwards` }}
           />
         </div>
         <div className="flex items-center justify-between">
-          <p className="font-mono text-[11px] tracking-[0.3em] text-[#4a5360]">
+          <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-slate-400">
             DOST-STII · Broadcast &amp; Digital Media Section
           </p>
           <div className="flex gap-2">
@@ -4816,7 +5948,7 @@ function KioskMode({
                 onClick={() => setSlide(i)}
                 aria-label={t}
                 className={`h-2 rounded-full transition-all ${
-                  i === slide ? 'w-8 bg-[#00aeef]' : 'w-2 bg-[#272831] hover:bg-[#34353d]'
+                  i === slide ? 'w-8 bg-blue-600' : 'w-2 bg-slate-300 hover:bg-slate-400'
                 }`}
               />
             ))}
@@ -4854,33 +5986,33 @@ function AppWindow({
 
   return (
     <div className="no-print fixed inset-0 z-[90] flex items-center justify-center p-0 md:p-6">
-      <div className="absolute inset-0 bg-black/85 animate-fadein" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
       <div
-        className={`relative flex flex-col overflow-hidden border border-[#293036] bg-[#1e1f27] animate-riseup ${
+        className={`relative flex flex-col overflow-hidden border border-slate-200 bg-white animate-riseup ${
           maximized ? 'h-full w-full rounded-none' : 'h-full w-full md:h-[88vh] md:max-w-[1400px] md:rounded-2xl'
         }`}
-        style={{ boxShadow: `0 0 0 1px ${app.accent}22, 0 40px 120px -20px rgba(0,0,0,0.9)` }}
+        style={{ boxShadow: `0 0 0 1px ${app.accent}22, 0 40px 120px -20px rgba(15,23,42,0.25)` }}
       >
         {/* title bar */}
-        <div className="flex shrink-0 items-center gap-3 border-b border-[#293036] bg-[#1e1f27] px-4 py-2.5">
+        <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
           <div className="flex items-center gap-1.5">
             <button
               onClick={onClose}
               aria-label="Close window"
-              className="h-3 w-3 rounded-full bg-red-500 transition-transform hover:scale-125"
+              className="h-3 w-3 rounded-full bg-red-400 transition-transform hover:scale-125"
             />
-            <span className="h-3 w-3 rounded-full bg-[#34353d]" />
+            <span className="h-3 w-3 rounded-full bg-slate-300" />
             <button
               onClick={() => setMaximized((m) => !m)}
               aria-label="Toggle maximise"
-              className="h-3 w-3 rounded-full bg-[#40424f] transition-transform hover:scale-125"
+              className="h-3 w-3 rounded-full bg-slate-300 transition-transform hover:scale-125"
             />
           </div>
-          <div className="mx-2 flex min-w-0 flex-1 items-center gap-2 rounded-md border border-[#293036] bg-black/60 px-3 py-1.5">
+          <div className="mx-2 flex min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-100 px-3 py-1.5">
             <span className="text-xs" style={{ color: app.accent }} aria-hidden>
               {app.glyph}
             </span>
-            <span className="truncate font-mono text-[11px] text-[#8391a2]">{app.url}</span>
+            <span className="truncate font-mono text-[11px] text-slate-500">{app.url}</span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button
@@ -4888,7 +6020,7 @@ function AppWindow({
                 setLoading(app.embeddable);
                 setReloadKey((k) => k + 1);
               }}
-              className="rounded-md border border-[#293036] px-2.5 py-1.5 text-[11px] font-bold text-[#8391a2] transition-colors hover:border-[#434a53] hover:text-[#e6ebf0]"
+              className="rounded-md border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition-colors hover:border-slate-400 hover:text-slate-900"
             >
               Reload
             </button>
@@ -4896,7 +6028,7 @@ function AppWindow({
               href={app.url}
               target="_blank"
               rel="noreferrer"
-              className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-black transition-opacity hover:opacity-85"
+              className="rounded-md px-2.5 py-1.5 text-[11px] font-bold text-white transition-colors hover:bg-blue-700"
               style={{ background: app.accent }}
             >
               Open in new tab
@@ -4916,34 +6048,34 @@ function AppWindow({
                 onLoad={() => setLoading(false)}
               />
               {loading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#1e1f27]">
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white">
                   <div
-                    className="h-8 w-8 animate-spin rounded-full border-2 border-[#293036]"
+                    className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200"
                     style={{ borderTopColor: app.accent }}
                   />
-                  <p className="font-mono text-[11px] tracking-[0.1em] text-[#76828f]">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-9000">
                     Connecting to {app.name}
                   </p>
                 </div>
               )}
             </>
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#1e1f27] px-6 text-center">
+            <div className="flex h-full flex-col items-center justify-center gap-4 bg-white px-6 text-center">
               <div
                 className="flex h-16 w-16 items-center justify-center rounded-2xl border text-2xl"
                 style={{ borderColor: `${app.accent}55`, color: app.accent }}
               >
                 {app.glyph}
               </div>
-              <h3 className="text-lg font-bold text-[#e6ebf0]">{app.name} runs in its own tab</h3>
-              <p className="max-w-md text-sm leading-relaxed text-[#8391a2]">
+              <h3 className="text-lg font-bold text-slate-900">{app.name} runs in its own tab</h3>
+              <p className="max-w-md text-sm leading-relaxed text-slate-500">
                 AppSheet blocks embedding, so it cannot be framed here. Open it in a new tab instead.
               </p>
               <a
                 href={app.url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-2 rounded-lg px-5 py-2.5 text-sm font-bold text-black transition-opacity hover:opacity-85"
+                className="mt-2 rounded-lg px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
                 style={{ background: app.accent }}
               >
                 Open Tasking System ↗
@@ -4952,11 +6084,11 @@ function AppWindow({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-between border-t border-[#293036] bg-[#1e1f27] px-4 py-2">
-          <span className="font-mono text-[11px] tracking-[0.1em] text-[#5f6b7a]">
+        <div className="flex shrink-0 items-center justify-between border-t border-slate-200 bg-white px-4 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-400">
             {app.tag} · {app.role}
           </span>
-          <span className="font-mono text-[10px] text-[#5f6b7a]">ESC to close</span>
+          <span className="font-mono text-[10px] text-slate-400">ESC to close</span>
         </div>
       </div>
     </div>
@@ -5019,21 +6151,22 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center px-4 pt-[12vh]">
-      <div className="absolute inset-0 bg-black/80 animate-fadein" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
       <div
-        className="relative w-full max-w-2xl overflow-hidden rounded-lg border border-[#293036] bg-[#1e1f27] animate-riseup"
+        className="av-float animate-riseup relative w-full max-w-2xl overflow-hidden bg-white"
+        style={{ border: '1px solid var(--rule)' }}
         onKeyDown={onKey}
       >
-        <div className="flex items-center gap-3 border-b border-[#293036] px-5 py-4">
-          <span className="text-sm text-[#00aeef]">⌘</span>
+        <div className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
+          <span className="text-sm text-blue-600">⌘</span>
           <input
             ref={inputRef}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search systems, people, records and actions…"
-            className="flex-1 bg-transparent text-sm text-[#e6ebf0] placeholder:text-[#5f6b7a] focus:outline-none"
+            className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
-          <kbd className="rounded border border-[#293036] px-1.5 py-0.5 font-mono text-[10px] text-[#76828f]">
+          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-9000">
             ESC
           </kbd>
         </div>
@@ -5044,7 +6177,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             return (
               <React.Fragment key={c.id}>
                 {showGroup && (
-                  <p className="px-5 pb-1 pt-3 text-[11px] font-medium tracking-[0.12em] text-[#5f6b7a]">
+                  <p className="av-note av-dim px-5 pb-1 pt-3">
                     {c.group}
                   </p>
                 )}
@@ -5056,17 +6189,17 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
                     onClose();
                   }}
                   className={`flex w-full items-center justify-between gap-4 px-5 py-2.5 text-left transition-colors ${
-                    i === active ? 'bg-[#00aeef]/10' : 'hover:bg-[#1a1b22]'
+                    i === active ? 'bg-blue-50' : 'hover:bg-slate-50'
                   }`}
                 >
                   <span
                     className={`truncate text-sm ${
-                      i === active ? 'font-semibold text-[#e6ebf0]' : 'text-[#aab8c5]'
+                      i === active ? 'font-semibold text-slate-900' : 'text-slate-600'
                     }`}
                   >
                     {c.label}
                   </span>
-                  <span className="shrink-0 truncate font-mono text-[11px] text-[#5f6b7a]">
+                  <span className="shrink-0 truncate font-mono text-[10px] uppercase tracking-wider text-slate-400">
                     {c.hint}
                   </span>
                 </button>
@@ -5074,7 +6207,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             );
           })}
           {results.length === 0 && (
-            <p className="px-5 py-8 text-center text-sm text-[#5f6b7a]">
+            <p className="px-5 py-8 text-center text-sm text-slate-400">
               No matches. Try an event title or a person's name.
             </p>
           )}
@@ -5119,63 +6252,63 @@ function PersonnelDrawer({
 
   return (
     <div className="no-print fixed inset-0 z-[85] flex justify-end">
-      <div className="absolute inset-0 bg-black/70 animate-fadein" onClick={onClose} />
-      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-[#293036] bg-[#1e1f27] animate-slidein">
-        <div className="flex items-center gap-4 border-b border-[#293036] p-6">
-          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-[#00aeef]/60">
+      <div className="absolute inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl animate-slidein">
+        <div className="flex items-center gap-4 border-b border-slate-200 p-6">
+          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-blue-400">
             <img src={image} alt={name} className="h-full w-full object-cover" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-xl font-black text-[#e6ebf0]">
+            <h3 className="truncate text-lg font-semibold tracking-tight text-slate-900">
               {OFFICIAL[name]?.fullName || name}
             </h3>
-            <p className="truncate text-xs text-[#76828f]">{OFFICIAL[name]?.designation}</p>
+            <p className="truncate text-xs text-slate-9000">{OFFICIAL[name]?.designation}</p>
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 rounded-md border border-[#293036] px-2.5 py-1.5 text-xs text-[#8391a2] hover:text-[#e6ebf0]"
+            className="shrink-0 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-900"
           >
             ✕
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-px border-b border-[#293036] bg-[#272831]">
+        <div className="grid grid-cols-3 gap-px border-b border-slate-200 bg-slate-100">
           {[
             { k: 'Total', v: records.length },
             { k: 'Cleared', v: counts.transferred + counts.archived },
             { k: 'Pending', v: counts.pending },
           ].map((s) => (
-            <div key={s.k} className="bg-[#1e1f27] p-4 text-center">
-              <p className="font-mono text-2xl font-black text-[#e6ebf0] tabular-nums">{s.v}</p>
-              <p className="text-[11px] tracking-[0.1em] text-[#76828f]">{s.k}</p>
+            <div key={s.k} className="bg-white p-4 text-center">
+              <p className="font-mono text-2xl font-black text-slate-900 tabular-nums">{s.v}</p>
+              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">{s.k}</p>
             </div>
           ))}
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-          <p className="mb-3 text-[11px] font-medium tracking-[0.12em] text-[#5f6b7a]">
+          <p className="av-label mb-3">
             Deployment history
           </p>
           <div className="space-y-3">
             {records.map((r, i) => (
-              <div key={i} className="rounded-md border border-[#293036] bg-[#17181e] p-3">
-                <p className="mb-2 text-sm leading-snug text-[#c3ccd5]">{r.details}</p>
+              <div key={i} className="rounded-[12px] border border-[var(--rule)] bg-[var(--rule-soft)] p-3">
+                <p className="mb-2 text-sm leading-snug text-slate-700">{r.details}</p>
                 <div className="flex items-center justify-between gap-2">
                   <StatusBadge status={r.status} dense />
-                  <span className="font-mono text-[10px] text-[#5f6b7a]">{fmtDate(r.dateObj)}</span>
+                  <span className="font-mono text-[10px] text-slate-400">{fmtDate(r.dateObj)}</span>
                 </div>
               </div>
             ))}
             {records.length === 0 && (
-              <p className="text-sm italic text-[#5f6b7a]">No deployments on record.</p>
+              <p className="text-sm italic text-slate-400">No deployments on record.</p>
             )}
           </div>
         </div>
 
-        <div className="border-t border-[#293036] p-4">
+        <div className="border-t border-slate-200 p-4">
           <button
             onClick={onGenerateIPCR}
-            className="w-full rounded-lg bg-red-600 py-3 text-sm font-bold text-[#e6ebf0] transition-colors hover:bg-red-500"
+            className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 transition-colors hover:bg-blue-700"
           >
             Build IPCR report for {name}
           </button>
@@ -5191,7 +6324,7 @@ type ViewKey =
 
 const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'portfolio',  label: 'Services',   hint: 'Public-facing AV services page' },
-  { key: 'events',     label: 'Events',     hint: 'Approval, services and delivery pipeline' },
+  { key: 'events',     label: 'Events',     hint: 'PM workflow — assessment, endorsement, approval, production' },
   { key: 'gatepass',   label: 'Gate Pass',  hint: 'Equipment releasing and inventory' },
   { key: 'production', label: 'Production', hint: 'Video output board' },
   { key: 'pulse',      label: 'Archive',    hint: 'DMC archive, team and source sheets' },
@@ -5228,6 +6361,7 @@ export default function App() {
   const [evQuery, setEvQuery] = useState('');
   const [evApproval, setEvApproval] = useState<'ALL' | ApprovalKey>('ALL');
   const [evFulfil, setEvFulfil] = useState<'ALL' | Fulfilment>('ALL');
+  const [evPriority, setEvPriority] = useState<'ALL' | PriorityKey>('ALL');
 
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [reqModal, setReqModal] = useState<{ open: boolean; editing: ServiceRequest | null }>({
@@ -5447,7 +6581,6 @@ export default function App() {
     endSession();
   }, [endSession]);
 
-  /** Ang lahat ng pagsulat ay dumadaan dito para masama ang token. */
   /**
    * Ang papel ay galing sa SERVER, hindi sa paghula base sa pangalan.
    * Kung hindi pa dumarating, huhulaan muna para may maipakita, pero
@@ -5593,7 +6726,7 @@ export default function App() {
         if (bootedRef.current) {
           const fresh = formatted.filter((c) => c.id && !seenIds.current.has(c.id));
           if (fresh.length === 1) toast(`Bagong record: ${fresh[0].details.slice(0, 60)}`, 'new');
-          else if (fresh.length > 1) toast(`${fresh.length} new records received`, 'new');
+          else if (fresh.length > 1) toast(`${fresh.length} bagong records ang pumasok`, 'new');
         }
         formatted.forEach((c) => c.id && seenIds.current.add(c.id));
 
@@ -5659,7 +6792,10 @@ export default function App() {
         evRows
           .filter((r: any) => r['Event Title'] || r['Event ID'])
           .map((r: any) => {
-            const approvalRaw = String(r['Approval Status'] || 'For Endorsement');
+            // Blangkong status = hindi pa nasusuri ng AV team. Kapareho ito
+            // ng normStatus_() sa backend — kung magkaiba, magkaibang chip
+            // ang makikita mo sa dashboard at sa sheet.
+            const approvalRaw = String(r['Approval Status'] || 'For Evaluation');
             return {
               id: String(r['Event ID'] || r['Event Title'] || Math.random()),
               dateRequested: parseDate(r['Date Requested']),
@@ -5670,6 +6806,11 @@ export default function App() {
               endDate: parseDate(r['End Date']),
               venue: String(r['Venue'] || ''),
               requested: splitServices(r['Requested Services']),
+              // Blangko sa lumang record → ang hiniling ang ituturing na
+              // pinangako, kaya hindi nagbabago ang dating bilang.
+              agreed: splitServices(
+                String(r['Agreed Services'] ?? '').trim() || r['Requested Services']
+              ),
               delivered: splitServices(r['Delivered Services']),
               reason: String(r['Reason for Gap'] || ''),
               approval: classifyApproval(approvalRaw),
@@ -5681,11 +6822,22 @@ export default function App() {
               approvalRemarks: String(r['Approval Remarks'] || ''),
               lead: String(r['Lead Personnel'] || ''),
               team: String(r['Team'] || ''),
+              priority: String(r['Priority'] || 'Normal'),
+              clientTier: String(r['Client Tier'] || ''),
+              urgentNote: String(r['Urgent Note'] || ''),
               pipeline: {
                 coordination: classifyPipeline(String(r['Coordination'] || '')),
                 documents: classifyPipeline(String(r['Documents'] || '')),
-                deliverables: classifyPipeline(String(r['Deliverables'] || '')),
+                script: classifyPipeline(String(r['Script Approval'] || '')),
+                preInspection: classifyPipeline(String(r['Pre-Inspection'] || '')),
+                // Ang lumang "Deliverables" ang shoot / coverage step.
+                execution: classifyPipeline(String(r['Deliverables'] || '')),
+                postInspection: classifyPipeline(String(r['Post-Inspection'] || '')),
+                editing: classifyPipeline(String(r['Editing'] || '')),
+                finalCut: classifyPipeline(String(r['Final Cut Approval'] || '')),
+                delivery: classifyPipeline(String(r['Client Delivery'] || '')),
                 archiving: classifyPipeline(String(r['Archiving'] || '')),
+                csm: classifyPipeline(String(r['CSM'] || '')),
               },
               targetDate: parseDate(r['Target Date']),
               dateDelivered: parseDate(r['Date Delivered']),
@@ -5817,6 +6969,12 @@ export default function App() {
         return;
       }
       setSubmitting(true);
+
+      // Eksaktong anyo na tinatanggap ng sheet. Dalawa na ang status na
+      // nagsisimula sa "For ", kaya hindi na sapat ang isang .replace().
+      const statusKey = classifyApproval(form.approvalStatus);
+      const normalisedStatus = SERVER_STATUS[statusKey];
+
       const payload = {
         title: form.title,
         client: form.client,
@@ -5826,32 +6984,59 @@ export default function App() {
         eventDate: form.eventDate,
         endDate: form.endDate,
         requestedServices: form.requestedServices,
+        agreedServices: form.agreedServices || '',
         deliveredServices: form.deliveredServices,
         reason: form.reason,
-        approvalStatus: APPROVAL_META[classifyApproval(form.approvalStatus)].label
-          .replace('For endorsement', 'For Endorsement'),
+        approvalStatus: normalisedStatus,
+        // AV TRIAGE — ang rekomendasyon ng team. Ito ang isinisingit ng
+        // backend sa asul na kahon ng approval email.
+        approvalRemarks: form.approvalRemarks || '',
+        priority: classifyPriority(form.priority),
         leadPersonnel: form.lead,
         team: form.team,
-        coordination: form.coordination,
-        documents: form.documents,
-        deliverables: form.deliverables,
-        archiving: form.archiving,
+        ...Object.fromEntries(
+          PIPELINE_STEPS.map((st) => [stepField(st.key), form[stepField(st.key)] || ''])
+        ),
+        clientTier: form.clientTier || '',
+        urgentNote: form.urgentNote || '',
         targetDate: form.targetDate,
         dateDelivered: form.dateDelivered,
         csm: form.csm,
         link: form.link,
         remarks: form.remarks,
       };
+
+      /**
+       * Ang DC at SRS ay nag-a-aprub lamang — hindi sila nag-e-edit ng
+       * nilalaman. Kapag ipinadala natin ang buong form sa pangalan nila,
+       * tatanggihan ito ng server ("Approvers may approve or decline, but may
+       * not edit the record itself"). Kaya ang ipinapadala nila ay ang
+       * desisyon lamang, at ang dahilan nito. Hindi kasama ang AV
+       * recommendation — hindi 'yon sa kanila.
+       */
+      const approverPatch = {
+        approvalStatus: normalisedStatus,
+        reason: form.reason,
+        // Kapag tinanggihan, nililinis ng server ang agreed at delivered —
+        // walang ipinangako sa isang tinanggihang request.
+        actor,
+      };
+
       const body = id
-        ? { action: 'updateEvent', id, patch: { ...payload, actor } }
+        ? {
+            action: 'updateEvent',
+            id,
+            patch: canDecide(myRole) ? approverPatch : { ...payload, actor },
+          }
         : { action: 'addEvent', payload: { ...payload, actor } };
 
       try {
         const out = await authedPost(body);
 
         // The roster is a separate write — it needs the Event ID first.
+        // Approvers do not touch the crew list, so skip it for them.
         const eventId = id || (out && out.id ? String(out.id) : null);
-        if (eventId && roster) {
+        if (eventId && roster && !canDecide(myRole)) {
           await authedPost({
             action: 'setAssignments',
             eventId,
@@ -5863,7 +7048,12 @@ export default function App() {
           if (out?.emailed) {
             toast(`Event updated — email sent to ${out.emailTo}`, 'ok');
           } else {
-            toast('Event updated', 'ok');
+            toast(
+              normalisedStatus === 'For Evaluation'
+                ? 'Saved — still with the AV Team for evaluation'
+                : 'Event updated',
+              'ok'
+            );
             if (out?.emailError) {
               setLastError({
                 what: 'Approval email',
@@ -5874,7 +7064,12 @@ export default function App() {
         } else if (out?.emailed) {
           toast(`Event created — approval email sent to ${out.emailTo || 'the Division Chief'}`, 'ok');
         } else {
-          toast('Event created', 'ok');
+          toast(
+            normalisedStatus === 'For Evaluation'
+              ? 'Event created — queued for AV evaluation'
+              : 'Event created',
+            'ok'
+          );
           if (out?.emailError) {
             setLastError({
               what: 'Approval email',
@@ -5893,7 +7088,7 @@ export default function App() {
         setTimeout(() => fetchProduction(), 1400);
       }
     },
-    [fetchProduction, toast, actor]
+    [fetchProduction, toast, actor, myRole, authedPost]
   );
 
   const notifyApprover = useCallback(
@@ -5912,7 +7107,7 @@ export default function App() {
         setLastError({ what: 'Send approval email', detail: msg });
       }
     },
-    [toast]
+    [toast, authedPost]
   );
 
   const stepEvent = useCallback(
@@ -5926,17 +7121,11 @@ export default function App() {
           x.id === ev.id ? { ...x, pipeline: { ...x.pipeline, [key]: next } } : x
         )
       );
-      const fieldMap: Record<PipelineKey, string> = {
-        coordination: 'coordination',
-        documents: 'documents',
-        deliverables: 'deliverables',
-        archiving: 'archiving',
-      };
       try {
         await authedPost({
             action: 'updateEvent',
             id: ev.id,
-            patch: { [fieldMap[key]]: PIPELINE_META[next].label },
+            patch: { [stepField(key)]: PIPELINE_META[next].label },
           });
       } catch (err) {
         // Ang optimistic na pagbabago ay bumalik sa dating anyo kapag
@@ -5945,7 +7134,7 @@ export default function App() {
       }
       setTimeout(() => fetchProduction(), 1600);
     },
-    [fetchProduction, toast]
+    [fetchProduction, toast, authedPost]
   );
 
   const submitRequest = useCallback(
@@ -5983,7 +7172,7 @@ export default function App() {
         setTimeout(() => fetchProduction(), 1400);
       }
     },
-    [fetchProduction, toast, actor]
+    [fetchProduction, toast, actor, authedPost]
   );
 
   const advanceStage = useCallback(
@@ -6009,7 +7198,7 @@ export default function App() {
         setBusyId(null);
       }, 1400);
     },
-    [fetchProduction, toast]
+    [fetchProduction, toast, authedPost]
   );
 
   useEffect(() => {
@@ -6105,9 +7294,10 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     const q = evQuery.trim().toLowerCase();
-    return events.filter((ev) => {
+    const list = events.filter((ev) => {
       if (evApproval !== 'ALL' && ev.approval !== evApproval) return false;
       if (evFulfil !== 'ALL' && fulfilment(ev) !== evFulfil) return false;
+      if (evPriority !== 'ALL' && classifyPriority(ev.priority) !== evPriority) return false;
       if (
         q &&
         !`${ev.title} ${ev.client} ${ev.lead} ${ev.venue} ${ev.id} ${ev.requested.join(' ')}`
@@ -6117,10 +7307,54 @@ export default function App() {
         return false;
       return true;
     });
-  }, [events, evQuery, evApproval, evFulfil]);
+    // PM order: urgent muna (may nakasulat na paunawa), tapos ang opisyal
+    // na ranggo ng kliyente — Office of the Secretary pababa.
+    return list.sort((a, b) => queueRank(a) - queueRank(b));
+  }, [events, evQuery, evApproval, evFulfil, evPriority]);
 
+  /** Nasa AV team pa — sila ang dapat kumilos, hindi ang DC. */
+  const triageQueue = useMemo(
+    () =>
+      events
+        .filter((ev) => ev.approval === 'for-evaluation')
+        .sort((a, b) => {
+          const r = queueRank(a) - queueRank(b);
+          if (r !== 0) return r;
+          // Pantay ang ranggo → ang pinakamalapit na event ang unang suriin.
+          const at = a.eventDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          const bt = b.eventDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+          return at - bt;
+        }),
+    [events]
+  );
+
+  /** Nasa approver na — DC o SRS ang naghahawak. */
   const approvalQueue = useMemo(
-    () => events.filter(awaitingAction),
+    () =>
+      events
+        .filter((ev) => awaitingAction(ev) && ev.approval !== 'for-evaluation')
+        .sort((a, b) => queueRank(a) - queueRank(b)),
+    [events]
+  );
+
+  /**
+   * Ilang buhay na event ang sabay sa parehong petsa — kapareho ng
+   * scanConflicts_() sa backend. Ito ang ipinapakita bago pa itulak ng
+   * team ang request sa Division Chief.
+   */
+  const conflictsFor = useCallback(
+    (ev: AVEvent): AVEvent[] => {
+      if (!ev.eventDate) return [];
+      const k = dayKey(ev.eventDate);
+      return events.filter(
+        (o) =>
+          o.id !== ev.id &&
+          o.eventDate &&
+          dayKey(o.eventDate) === k &&
+          APPROVAL_META[o.approval].live &&
+          o.approval !== 'for-evaluation'
+      );
+    },
     [events]
   );
 
@@ -6138,8 +7372,11 @@ export default function App() {
     const delivered = approvedOrBeyond.filter((r) => r.status === 'completed');
     const rated = isoRequests.filter((r) => r.csm > 0);
     const passing = rated.filter((r) => r.csm >= CSM_PASS);
+    // Hindi kasama sa denominator — binibilang lang para ipakita.
+    const excluded = isoRequests.filter((r) => REQ_META[r.status].excluded).length;
 
     return {
+      excluded,
       execution: approvedOrBeyond.length
         ? Math.round((delivered.length / approvedOrBeyond.length) * 100)
         : null,
@@ -6478,6 +7715,26 @@ export default function App() {
         run: () => setKioskOn(true),
       },
       {
+        id: 'triage',
+        label: 'Show the AV evaluation queue',
+        hint: 'Triage',
+        group: 'Actions',
+        run: () => {
+          setView('events');
+          setEvApproval('for-evaluation');
+        },
+      },
+      {
+        id: 'high-priority',
+        label: 'Show high priority events only',
+        hint: 'Filter',
+        group: 'Actions',
+        run: () => {
+          setView('events');
+          setEvPriority('High');
+        },
+      },
+      {
         id: 'log-request',
         label: 'Log a service request',
         hint: 'Register',
@@ -6596,8 +7853,8 @@ export default function App() {
       }
     : {
         connecting: { dot: 'bg-amber-500', label: 'Connecting', short: 'Sync' },
-        live: { dot: 'bg-[#44a887]', label: `Live · ${lastUpdated}`, short: 'Live' },
-        error: { dot: 'bg-[#40424f]', label: 'Offline', short: 'Offline' },
+        live: { dot: 'bg-emerald-500', label: `Live · ${lastUpdated}`, short: 'Live' },
+        error: { dot: 'bg-slate-400', label: 'Offline', short: 'Offline' },
       }[conn];
 
   /* --------------------------------------------------------------- VIEW -- */
@@ -6621,167 +7878,111 @@ export default function App() {
   }
 
   return (
-    /* Walang font-sans dito: ang Tailwind utility na 'yon ay pumapalit sa
-       Geist pabalik sa default stack, kaya hindi umaabot ang font sa dashboard. */
-    <div className="relative min-h-screen bg-[#17181e] text-[13px] text-[#aab8c5] antialiased selection:bg-[#00aeef]/25">
+    <div className="av-page relative min-h-screen text-[13px] antialiased">
       <div className="relative z-10 px-4 pb-28 pt-5 md:px-8">
         {/* ================================================ DASHBOARD ==== */}
         <div className="no-print space-y-6">
           {/* ---------------------------------------------- APP BAR -- */}
-          <header className="mx-auto max-w-[1400px]">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-[#293036] pb-4">
-              <img src="/stii.png" alt="DOST-STII" className="h-8 w-auto shrink-0" />
+          <header className="av-bar -mx-4 -mt-5 mb-6 px-4 pt-4 md:-mx-8 md:px-8">
+            <div className="mx-auto max-w-[1400px]">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3">
+                <img src="/stii.png" alt="DOST-STII" className="h-6 w-auto shrink-0 brightness-0 invert md:h-7" />
+                <div className="av-mark">
+                  AV Nexus{' '}
+                  <span className="hidden sm:inline">· Broadcast &amp; Digital Media Section</span>
+                </div>
 
-              <div className="flex min-w-0 items-baseline gap-3">
-                <h1 className="text-[15px] font-semibold tracking-tight text-[#dfe5eb]">
-                  AV Nexus
-                </h1>
-                <span className="hidden truncate text-[12px] text-[#5f6b7a] sm:block">
-                  Broadcast &amp; Digital Media Section
-                </span>
-              </div>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  <button onClick={() => setPaletteOpen(true)} className="av-bar-btn hidden md:inline-flex">
+                    Search <kbd className="ml-1 opacity-60">⌘K</kbd>
+                  </button>
+                  <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="av-bar-btn hidden lg:inline-flex">
+                    Pre-archival
+                  </a>
+                  <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="av-bar-btn hidden lg:inline-flex">
+                    DMC sheet
+                  </a>
 
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setPaletteOpen(true)}
-                  className="flex items-center gap-2 rounded border border-[#293036] bg-[#1e1f27] px-3 py-1.5 text-[12px] text-[#8391a2] transition-colors hover:border-[#363c44] hover:text-[#dfe5eb]"
-                >
-                  Search
-                  <kbd className="rounded border border-[#293036] px-1 font-mono text-[10px] text-[#5f6b7a]">
-                    ⌘K
-                  </kbd>
-                </button>
-
-                <a
-                  href={PRE_ARCHIVAL_LINK}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-[#293036] px-3 py-1.5 text-[12px] text-[#8391a2] transition-colors hover:border-[#363c44] hover:text-[#dfe5eb]"
-                >
-                  Pre-Archival
-                </a>
-                <a
-                  href={DMC_MONITORING_LINK}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded border border-[#293036] px-3 py-1.5 text-[12px] text-[#8391a2] transition-colors hover:border-[#363c44] hover:text-[#dfe5eb]"
-                >
-                  DMC Sheet
-                </a>
-
-                {AUTH_ENABLED && (user || session) ? (
-                  <div className="flex items-center gap-2 rounded border border-[#293036] bg-[#1e1f27] py-1 pl-1 pr-2.5">
-                    {user?.picture ? (
-                      <img
-                        src={user.picture}
-                        alt=""
-                        className="h-6 w-6 rounded-full"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#272831] text-[11px] text-[#aab8c5]">
-                        {(myName || '?').slice(0, 1)}
-                      </span>
-                    )}
-                    <span className="max-w-[130px] truncate text-[12px] text-[#aab8c5]">
-                      {myName}
+                  {AUTH_ENABLED && (user || session) ? (
+                    <span className="av-bar-btn flex items-center gap-2">
+                      {user?.picture ? (
+                        <img src={user.picture} alt="" className="h-5 w-5 rounded-full" referrerPolicy="no-referrer" />
+                      ) : (
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/15">
+                          {(myName || '?').slice(0, 1)}
+                        </span>
+                      )}
+                      <span className="max-w-[120px] truncate">{myName}</span>
+                      <button onClick={signOut} title="Sign out" className="opacity-60 hover:opacity-100">
+                        Sign out
+                      </button>
                     </span>
-                    <button
-                      onClick={signOut}
-                      title="Sign out"
-                      className="text-[11px] text-[#5f6b7a] transition-colors hover:text-[#aab8c5]"
+                  ) : (
+                    <select
+                      value={actor}
+                      onChange={(e) => chooseActor(e.target.value)}
+                      title="Changes are recorded under this name. Not a security control."
+                      className="av-bar-btn bg-transparent"
+                      style={{ color: actor ? '#A8C2DE' : '#FCA5A5' }}
                     >
-                      Sign out
-                    </button>
-                  </div>
-                ) : (
-                  <select
-                    value={actor}
-                    onChange={(e) => chooseActor(e.target.value)}
-                    title="Changes are recorded under this name. Not a security control."
-                    className={`rounded border bg-[#1e1f27] px-2.5 py-1.5 text-[12px] focus:border-[#00aeef] focus:outline-none ${
-                      actor
-                        ? 'border-[#293036] text-[#aab8c5]'
-                        : 'border-amber-600/50 text-amber-400'
-                    }`}
-                  >
-                    <option value="">Working as…</option>
-                    {Object.keys(OFFICIAL).map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                      <option value="" style={{ color: '#0E2A47' }}>Working as…</option>
+                      {Object.keys(OFFICIAL).map((n) => (
+                        <option key={n} value={n} style={{ color: '#0E2A47' }}>{n}</option>
+                      ))}
+                    </select>
+                  )}
 
-                <button
-                  onClick={() => {
-                    fetchTasks(true);
-                    fetchProduction();
-                  }}
-                  title={connMeta.label}
-                  className="flex items-center gap-2 rounded px-2.5 py-1.5 text-[12px] text-[#76828f] transition-colors hover:bg-[#1a1b22] hover:text-[#aab8c5]"
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
-                  <span className="font-mono">{refreshing ? 'Syncing' : connMeta.short}</span>
-                </button>
+                  <button
+                    onClick={() => { fetchTasks(true); fetchProduction(); }}
+                    title={connMeta.label}
+                    className="av-bar-meta flex items-center gap-2 px-1"
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
+                    <span className="font-mono">{refreshing ? 'Syncing' : connMeta.short}</span>
+                  </button>
+                </div>
               </div>
+
+              <nav className="custom-scrollbar hidden gap-0.5 overflow-x-auto md:flex">
+                {VIEWS.map((v) => {
+                  const active = view === v.key;
+                  const badge =
+                    v.key === 'events' ? events.length
+                    : v.key === 'requests' ? requests.length
+                    : v.key === 'production' ? outputs.length
+                    : 0;
+                  const alert =
+                    v.key === 'events' ? approvalQueue.length + triageQueue.length : 0;
+                  return (
+                    <button
+                      key={v.key}
+                      onClick={() => setView(v.key)}
+                      title={v.hint}
+                      data-on={active ? '1' : '0'}
+                      className="av-tab relative shrink-0"
+                    >
+                      {v.label}
+                      {badge > 0 && <b>{badge}</b>}
+                      {alert > 0 && (
+                        <span className="absolute right-0 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-400" />
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
             </div>
           </header>
 
           <main className="mx-auto max-w-[1400px] space-y-9">
-            {/* --------------------------------------------- NAV ------- */}
-            <nav className="-mt-6 flex gap-0.5 overflow-x-auto border-b border-[#293036] pb-px custom-scrollbar">
-              {VIEWS.map((v) => {
-                const active = view === v.key;
-                const badge =
-                  v.key === 'events'
-                    ? events.length
-                    : v.key === 'requests'
-                    ? requests.length
-                    : v.key === 'production'
-                    ? outputs.length
-                    : 0;
-                const external = v.key === 'portfolio' || v.key === 'gatepass';
-                const alert = v.key === 'events' ? approvalQueue.length : 0;
-                return (
-                  <button
-                    key={v.key}
-                    onClick={() => setView(v.key)}
-                    title={v.hint}
-                    className={`group relative shrink-0 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
-                      active ? 'text-[#dfe5eb]' : 'text-[#76828f] hover:text-[#aab8c5]'
-                    }`}
-                  >
-                    {v.label}
-                    {badge > 0 && (
-                      <span className="ml-1.5 font-mono text-[11px] text-[#5f6b7a]">{badge}</span>
-                    )}
-                    {external && (
-                      <span className="ml-1 text-[10px] text-[#4a5360]" aria-hidden>
-                        ·
-                      </span>
-                    )}
-                    {alert > 0 && (
-                      <span className="absolute right-1 top-2 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                    )}
-                    {active && (
-                      <span className="absolute inset-x-0 -bottom-px h-px bg-[#00aeef]" />
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-
             {healthChecked && health && health.problems.length > 0 && (
-              <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-4 py-3 text-[12px] leading-relaxed text-amber-200">
+              <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-800">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <p className="font-medium">
                     Backend setup needs attention ({health.problems.length})
                   </p>
                   <button
                     onClick={checkHealth}
-                    className="shrink-0 text-[11px] text-amber-300/70 underline transition-colors hover:text-amber-200"
+                    className="shrink-0 text-[11px] text-amber-700 underline transition-colors hover:text-amber-800"
                   >
                     Check again
                   </button>
@@ -6789,7 +7990,7 @@ export default function App() {
                 <ul className="space-y-1.5">
                   {health.problems.map((prob, i) => (
                     <li key={i} className="flex gap-2">
-                      <span className="shrink-0 text-amber-500/60">{i + 1}.</span>
+                      <span className="shrink-0 text-amber-500">{i + 1}.</span>
                       <span className="whitespace-pre-line">{prob}</span>
                     </li>
                   ))}
@@ -6798,33 +7999,33 @@ export default function App() {
             )}
 
             {lastError && (
-              <div className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+              <div className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-3 text-[12px] leading-relaxed text-red-800">
                 <div className="mb-1 flex items-start justify-between gap-3">
                   <p className="font-medium">{lastError.what} failed</p>
                   <button
                     onClick={() => setLastError(null)}
-                    className="shrink-0 text-[11px] text-red-300/60 underline transition-colors hover:text-red-200"
+                    className="shrink-0 text-[11px] text-red-600 underline transition-colors hover:text-red-800"
                   >
                     Dismiss
                   </button>
                 </div>
-                <p className="font-mono text-[11px] leading-relaxed text-red-200/90">
+                <p className="font-mono text-[11px] leading-relaxed text-red-800">
                   {lastError.detail}
                 </p>
               </div>
             )}
 
             {setupError && (
-              <div className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-3 text-[12px] leading-relaxed text-red-200">
+              <div className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-3 text-[12px] leading-relaxed text-red-800">
                 <p className="mb-1 font-medium">Setup incomplete</p>
                 <p>{setupError}</p>
-                <p className="mt-2 text-red-300/70">
+                <p className="mt-2 text-red-600">
                   In Apps Script: Run → <span className="font-mono">authorize()</span>, accept
                   the permission prompt, then Deploy → Manage deployments → New version.
                 </p>
                 <button
                   onClick={() => setSetupError('')}
-                  className="mt-2 text-[11px] text-red-300/60 underline transition-colors hover:text-red-200"
+                  className="mt-2 text-[11px] text-red-600 underline transition-colors hover:text-red-800"
                 >
                   Dismiss
                 </button>
@@ -6832,7 +8033,7 @@ export default function App() {
             )}
 
             {!AUTH_ENABLED && (
-              <div className="rounded-md border border-amber-900/60 bg-amber-950/20 px-4 py-2.5 text-[12px] text-amber-300">
+              <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-2.5 text-[12px] text-amber-700">
                 <span className="font-medium">Attribution mode.</span> Changes are recorded
                 under the selected name, but nothing is enforced — anyone with this link can
                 edit any record. Set{' '}
@@ -6844,7 +8045,7 @@ export default function App() {
             {(conn === 'error' || probes.some((pr) => !pr.ok)) && (
               <div className="space-y-3">
                 {conn === 'error' && (
-                  <p className="rounded-md border border-red-900/60 bg-red-950/25 px-4 py-2.5 text-[12px] text-red-200">
+                  <p className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-2.5 text-[12px] text-red-800">
                     Could not load records — {errMsg}. Showing the last data received.
                   </p>
                 )}
@@ -6866,7 +8067,7 @@ export default function App() {
                     name: 'Tasking System',
                     role: 'AppSheet — DMC transfer and archiving log',
                     url: SYSTEMS.find((x) => x.id === 'tasking')?.url || '',
-                    accent: '#f59e0b',
+                    accent: '#d97706',
                   },
                   {
                     name: 'DMC Monitoring',
@@ -6878,7 +8079,7 @@ export default function App() {
                     name: 'Pre-Archival',
                     role: 'Staging list before DMC transfer',
                     url: PRE_ARCHIVAL_LINK,
-                    accent: '#71717a',
+                    accent: '#64748b',
                   },
                 ].map((tool) => (
                   <a
@@ -6886,7 +8087,7 @@ export default function App() {
                     href={tool.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="group flex items-center justify-between gap-4 rounded-md border border-[#293036] bg-[#1e1f27] px-4 py-3.5 transition-colors hover:border-[#363c44]"
+                    className="av-card group flex items-center justify-between gap-4 px-4 py-3.5 transition-all hover:border-[#CBD8E8]"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <span
@@ -6894,11 +8095,11 @@ export default function App() {
                         style={{ background: tool.accent }}
                       />
                       <div className="min-w-0">
-                        <p className="text-[13px] font-medium text-[#dfe5eb]">{tool.name}</p>
-                        <p className="truncate text-[11px] text-[#5f6b7a]">{tool.role}</p>
+                        <p className="text-[13px] font-medium text-slate-800">{tool.name}</p>
+                        <p className="truncate text-[11px] text-slate-400">{tool.role}</p>
                       </div>
                     </div>
-                    <span className="shrink-0 text-[12px] text-[#5f6b7a] transition-colors group-hover:text-[#00aeef]">
+                    <span className="shrink-0 text-[12px] text-slate-400 transition-colors group-hover:text-blue-600">
                       Open
                     </span>
                   </a>
@@ -6921,63 +8122,63 @@ export default function App() {
                   label="DMC cleared"
                   value={stats.counts.transferred + stats.counts.archived}
                   sub="Transferred + archived"
-                  accent="#44a887"
+                  accent="#16a34a"
                   bar={stats.total ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100 : 0}
                 />
                 <StatTile
                   label="Pending transfer"
                   value={stats.counts.pending}
                   sub="Awaiting upload"
-                  accent="#f59e0b"
+                  accent="#d97706"
                   bar={stats.total ? (stats.counts.pending / stats.total) * 100 : 0}
                 />
                 <StatTile
                   label="This month"
                   value={stats.thisMonth}
                   sub={new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}
-                  accent="#ee4444"
+                  accent="#dc2626"
                   bar={stats.total ? (stats.thisMonth / Math.max(1, stats.total)) * 100 : 0}
                 />
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-5">
-                  <p className="mb-4 text-[11px] font-medium tracking-[0.12em] text-[#76828f]">
+                <div className="av-card p-5">
+                  <p className="mb-4 av-label">
                     DMC status mix
                   </p>
                   <StatusDonut counts={stats.counts} total={stats.total} />
                 </div>
-                <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-5">
-                  <p className="mb-4 text-[11px] font-medium tracking-[0.12em] text-[#76828f]">
+                <div className="av-card p-5">
+                  <p className="mb-4 av-label">
                     Deployment load
                   </p>
                   <WorkloadBars data={workload} />
-                  <div className="mt-4 flex gap-4 border-t border-[#23272e] pt-3">
-                    <span className="flex items-center gap-1.5 text-[10px] text-[#76828f]">
-                      <span className="h-1.5 w-3 rounded-full bg-[#00aeef]" />
+                  <div className="mt-4 flex gap-4 border-t border-slate-200 pt-3">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
+                      <span className="h-1.5 w-3 rounded-full bg-blue-600 hover:bg-blue-700" />
                       Field coverage (DMC)
                     </span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-[#76828f]">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
                       <span className="h-1.5 w-3 rounded-full bg-amber-400" />
                       Video output
                     </span>
                   </div>
                 </div>
-                <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-5">
-                  <p className="mb-4 text-[11px] font-medium tracking-[0.12em] text-[#76828f]">
+                <div className="av-card p-5">
+                  <p className="mb-4 av-label">
                     Up next
                   </p>
                   <div className="space-y-3">
                     {upNext.map((c, i) => (
-                      <div key={i} className="border-l-2 border-red-500/60 pl-3">
-                        <p className="line-clamp-2 text-xs leading-snug text-[#aab8c5]">{c.details}</p>
-                        <p className="mt-1 font-mono text-[10px] text-[#5f6b7a]">
+                      <div key={i} className="border-l-2 border-red-400 pl-3">
+                        <p className="line-clamp-2 text-xs leading-snug text-slate-600">{c.details}</p>
+                        <p className="mt-1 font-mono text-[10px] text-slate-400">
                           {fmtDate(c.dateObj)} {relativeDay(c.dateObj) && `· ${relativeDay(c.dateObj)}`}
                         </p>
                       </div>
                     ))}
                     {upNext.length === 0 && (
-                      <p className="text-xs italic text-[#5f6b7a]">
+                      <p className="text-xs italic text-slate-400">
                         Nothing scheduled.
                       </p>
                     )}
@@ -6985,8 +8186,8 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="mt-4 rounded-md border border-[#293036] bg-[#1e1f27] p-5">
-                <p className="mb-3 text-[11px] font-medium tracking-[0.12em] text-[#76828f]">
+              <div className="av-card mt-4 p-5">
+                <p className="mb-3 av-label">
                   Coverage density · last 26 weeks
                 </p>
                 <ActivityGrid coverages={coverages} />
@@ -7004,36 +8205,36 @@ export default function App() {
                     <button
                       key={member.name}
                       onClick={() => setDrawerPerson(member)}
-                      className="group relative cursor-pointer overflow-hidden rounded-md border border-[#293036] bg-[#1e1f27] p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-[#00aeef]/50 hover:bg-[#1e1f27]"
+                      className="av-card group relative cursor-pointer overflow-hidden p-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-[#CBD8E8]"
                     >
                       <div className="mb-4 flex items-center gap-4">
-                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-[#293036] transition-colors duration-300 group-hover:border-[#00aeef]">
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-slate-200 transition-colors duration-300 group-hover:border-blue-500">
                           <img
                             src={member.image}
                             alt={member.name}
-                            className="h-full w-full transform object-cover transition-transform duration-500 group-hover:scale-125"
+                            className="h-full w-full transform object-cover transition-transform duration-500 group-hover:scale-110"
                           />
                         </div>
                         <div className="flex flex-1 items-center justify-between">
                           <div>
-                            <h3 className="text-xl font-black text-[#e6ebf0]">
+                            <h3 className="text-lg font-semibold tracking-tight text-slate-900">
                               {member.name}
                             </h3>
-                            <p className="font-mono text-[10px] text-[#5f6b7a]">
+                            <p className="font-mono text-[10px] text-slate-400">
                               {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                             </p>
                           </div>
                           {act ? (
-                            <span className="h-1.5 w-1.5 rounded-full bg-[#00aeef]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-blue-600 hover:bg-blue-700" />
                           ) : (
-                            <span className="h-3 w-3 rounded-full bg-[#272831]" />
+                            <span className="h-3 w-3 rounded-full bg-slate-100" />
                           )}
                         </div>
                       </div>
                       {act ? (
                         <div className="relative z-10">
                           <p
-                            className="mb-3 line-clamp-2 text-sm leading-relaxed text-[#aab8c5]"
+                            className="mb-3 line-clamp-2 text-sm leading-relaxed text-slate-600"
                             title={act.kind === 'coverage' ? act.cov.details : act.out.title}
                           >
                             {act.kind === 'coverage' ? act.cov.details : act.out.title}
@@ -7044,13 +8245,13 @@ export default function App() {
                             ) : (
                               <StageBadge stage={act.out.stage} />
                             )}
-                            <span className="font-mono text-[10px] text-[#76828f]">
+                            <span className="font-mono text-[10px] text-slate-9000">
                               {fmtDate(act.when)}
                             </span>
                           </div>
                         </div>
                       ) : (
-                        <p className="mt-6 text-xs italic text-[#5f6b7a]">Standby — no active deployment.</p>
+                        <p className="mt-6 text-xs italic text-slate-400">Standby — no active deployment.</p>
                       )}
                     </button>
                   );
@@ -7075,7 +8276,11 @@ export default function App() {
                         <button
                           key={n}
                           onClick={() => setProdPerson(n)}
-                          className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${ prodPerson === n ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]' : 'border-[#293036] text-[#76828f] hover:text-[#aab8c5]' }`}
+                          className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                            prodPerson === n
+                              ? 'border-blue-300 bg-blue-50 text-blue-600'
+                              : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                          }`}
                         >
                           {n === 'ALL' ? 'Lahat' : n}
                         </button>
@@ -7083,7 +8288,7 @@ export default function App() {
                     </div>
                     <button
                       onClick={() => setLogOpen(true)}
-                      className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                      className="av-btn"
                     >
                       + Log output
                     </button>
@@ -7092,15 +8297,15 @@ export default function App() {
               />
 
               {prodReady === 'missing' ? (
-                <div className="rounded-md border border-dashed border-[#293036] bg-[#1e1f27] p-8 text-center">
-                  <p className="mb-2 text-sm font-bold text-[#e6ebf0]">Production Log is not set up yet</p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-[#76828f]">
+                <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-8 text-center">
+                  <p className="mb-2 text-sm font-bold text-slate-900">Production Log is not set up yet</p>
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                     In the AV Production Log spreadsheet, open Extensions → Apps Script, paste{' '}
-                    <span className="font-mono text-[#aab8c5]">AVNexus.gs</span>, run{' '}
-                    <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                    <span className="font-mono text-[#00aeef]">quickSetup()</span>, redeploy the web
+                    <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
+                    <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                    <span className="font-mono text-blue-600">quickSetup()</span>, redeploy the web
                     app, and put the /exec URL in{' '}
-                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span>. The DMC and
+                    <span className="font-mono text-blue-600">PROD_SCRIPT_URL</span>. The DMC and
                     AppSheet spreadsheet is not touched.
                   </p>
                 </div>
@@ -7118,14 +8323,14 @@ export default function App() {
                       label="In progress"
                       value={prodSummary.live}
                       sub="Still in progress"
-                      accent="#f59e0b"
+                      accent="#d97706"
                       bar={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
                     />
                     <StatTile
-                      label="Delivered"
+                      label="Served"
                       value={prodSummary.done}
                       sub={`Total runtime ${fmtRuntime(prodSummary.seconds)}`}
-                      accent="#44a887"
+                      accent="#16a34a"
                       bar={prodSummary.total ? (prodSummary.done / prodSummary.total) * 100 : 0}
                     />
                     <StatTile
@@ -7136,20 +8341,20 @@ export default function App() {
                           ? 'No target dates set'
                           : `${prodSummary.onTime}% on-time delivery`
                       }
-                      accent="#ee4444"
+                      accent="#dc2626"
                       bar={prodSummary.total ? (prodSummary.overdue / prodSummary.total) * 100 : 0}
                     />
                   </div>
 
                   {outputs.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-[#293036] bg-[#1e1f27] p-10 text-center">
-                      <p className="mb-1 text-sm text-[#aab8c5]">No outputs logged yet.</p>
-                      <p className="mb-4 text-xs text-[#5f6b7a]">
+                    <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-10 text-center">
+                      <p className="mb-1 text-sm text-slate-600">No outputs logged yet.</p>
+                      <p className="mb-4 text-xs text-slate-400">
                         Simulan sina Marx at Reiner — kahit shoot day lang, bilang 'yon.
                       </p>
                       <button
                         onClick={() => setLogOpen(true)}
-                        className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black hover:opacity-85"
+                        className="av-btn"
                       >
                         Log the first output
                       </button>
@@ -7161,8 +8366,8 @@ export default function App() {
                         onAdvance={advanceStage}
                         busyId={busyId}
                       />
-                      <div className="mt-4 rounded-md border border-[#293036] bg-[#1e1f27] p-5">
-                        <p className="mb-4 text-[11px] font-medium tracking-[0.12em] text-[#76828f]">
+                      <div className="av-card mt-4 p-5">
+                        <p className="mb-4 av-label">
                           Output scoreboard · quantity, timeliness, revisions
                         </p>
                         <ProductionScoreboard
@@ -7189,17 +8394,17 @@ export default function App() {
                   hint={`${filteredRecords.length} of ${coverages.length} records match.`}
                 />
 
-                <div className="mb-4 space-y-3 rounded-md border border-[#293036] bg-[#1e1f27] p-4">
-                  <div className="flex items-center gap-2 rounded-md border border-[#293036] bg-[#17181e] px-3 py-2">
-                    <span className="text-[#5f6b7a]">⌕</span>
+                <div className="mb-4 space-y-3 av-card p-4">
+                  <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
+                    <span className="text-slate-400">⌕</span>
                     <input
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="Search coverage, personnel or status…"
-                      className="flex-1 bg-transparent text-sm text-[#e6ebf0] placeholder:text-[#5f6b7a] focus:outline-none"
+                      className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     {query && (
-                      <button onClick={() => setQuery('')} className="text-xs text-[#76828f] hover:text-[#e6ebf0]">
+                      <button onClick={() => setQuery('')} className="text-xs text-slate-9000 hover:text-slate-900">
                         ✕
                       </button>
                     )}
@@ -7209,17 +8414,25 @@ export default function App() {
                       <button
                         key={p}
                         onClick={() => setFilterPerson(p)}
-                        className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${ filterPerson === p ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]' : 'border-[#293036] text-[#76828f] hover:text-[#aab8c5]' }`}
+                        className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                          filterPerson === p
+                            ? 'border-blue-300 bg-blue-50 text-blue-600'
+                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                        }`}
                       >
                         {p === 'ALL' ? 'All personnel' : p}
                       </button>
                     ))}
-                    <span className="mx-1 w-px bg-[#272831]" />
+                    <span className="mx-1 w-px bg-slate-100" />
                     {(['ALL', ...STATUS_ORDER] as const).map((s) => (
                       <button
                         key={s}
                         onClick={() => setFilterStatus(s as 'ALL' | StatusKey)}
-                        className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${ filterStatus === s ? 'border-red-500/50 bg-red-500/10 text-[#f07070]' : 'border-[#293036] text-[#76828f] hover:text-[#aab8c5]' }`}
+                        className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                          filterStatus === s
+                            ? 'border-red-300 bg-red-100 text-red-600'
+                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                        }`}
                       >
                         {s === 'ALL' ? 'All status' : STATUS_META[s as StatusKey].label}
                       </button>
@@ -7232,7 +8445,7 @@ export default function App() {
                     [0, 1, 2].map((i) => (
                       <div
                         key={i}
-                        className="h-28 animate-pulse rounded-lg border border-[#293036] bg-[#1e1f27]"
+                        className="av-card h-28 animate-pulse"
                       />
                     ))}
 
@@ -7240,22 +8453,22 @@ export default function App() {
                     filteredRecords.slice(0, visibleCount).map((cov, idx) => (
                       <div
                         key={idx}
-                        className="flex flex-col justify-between gap-4 rounded-md border border-[#293036] bg-[#1e1f27] p-5 transition-colors hover:border-[#363c44] hover:bg-[#1e1f27] md:flex-row"
+                        className="av-card flex flex-col justify-between gap-4 p-5 transition-all hover:border-[#CBD8E8] md:flex-row"
                       >
                         <div className="min-w-0 flex-1">
-                          <h3 className="mb-2 text-base font-bold leading-snug text-[#dfe5eb]">
+                          <h3 className="mb-2 text-base font-semibold leading-snug tracking-tight text-slate-800">
                             {cov.details || 'Untitled coverage'}
                           </h3>
-                          <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-xs text-[#8391a2]">
-                            <span className="rounded bg-[#272831] px-2 py-0.5 font-medium text-[#c3ccd5]">
+                          <div className="mb-3 flex flex-wrap items-center gap-2 font-mono text-xs text-slate-500">
+                            <span className="rounded bg-slate-100 px-2 py-0.5 font-bold uppercase tracking-wider text-slate-700">
                               {cov.personnel}
                             </span>
-                            <span className="text-[#5f6b7a]">•</span>
+                            <span className="text-slate-400">•</span>
                             <span>{fmtDate(cov.dateObj, cov.date)}</span>
                             {relativeDay(cov.dateObj) && (
                               <>
-                                <span className="text-[#5f6b7a]">•</span>
-                                <span className="text-[#76828f]">{relativeDay(cov.dateObj)}</span>
+                                <span className="text-slate-400">•</span>
+                                <span className="text-slate-9000">{relativeDay(cov.dateObj)}</span>
                               </>
                             )}
                           </div>
@@ -7265,7 +8478,7 @@ export default function App() {
                                 href={cov.gdrive}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] transition-colors hover:text-[#e6ebf0]"
+                                className="flex items-center gap-1 text-xs font-medium text-blue-600 transition-colors hover:text-slate-900"
                               >
                                 Drive
                               </a>
@@ -7275,7 +8488,7 @@ export default function App() {
                                 href={cov.socialMediaLink}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center gap-1 text-xs font-medium text-[#00aeef] transition-colors hover:text-[#e6ebf0]"
+                                className="flex items-center gap-1 text-xs font-medium text-blue-600 transition-colors hover:text-slate-900"
                               >
                                 Social
                               </a>
@@ -7287,7 +8500,7 @@ export default function App() {
                                 );
                                 toast('Copied to clipboard', 'ok');
                               }}
-                              className="text-xs text-[#5f6b7a] transition-colors hover:text-[#aab8c5]"
+                              className="text-xs text-slate-400 transition-colors hover:text-slate-600"
                             >
                               ⧉ Copy line
                             </button>
@@ -7300,15 +8513,15 @@ export default function App() {
                     ))}
 
                   {booted && filteredRecords.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-[#293036] p-10 text-center">
-                      <p className="text-sm text-[#8391a2]">No matching records.</p>
+                    <div className="rounded-[16px] border border-dashed border-[var(--rule)] p-10 text-center">
+                      <p className="text-sm text-slate-500">No matching records.</p>
                       <button
                         onClick={() => {
                           setQuery('');
                           setFilterPerson('ALL');
                           setFilterStatus('ALL');
                         }}
-                        className="mt-3 text-xs font-bold text-[#00aeef] hover:underline"
+                        className="mt-3 text-xs font-bold text-blue-600 hover:underline"
                       >
                         Clear filters
                       </button>
@@ -7318,7 +8531,7 @@ export default function App() {
                   {filteredRecords.length > visibleCount && (
                     <button
                       onClick={() => setVisibleCount((v) => v + 12)}
-                      className="w-full rounded-lg border border-[#293036] py-3 text-xs font-medium tracking-[0.1em] text-[#8391a2] transition-colors hover:border-[#00aeef]/40 hover:text-[#00aeef]"
+                      className="av-btn-ghost w-full py-3 text-[12px]"
                     >
                       Show 12 more · {filteredRecords.length - visibleCount} remaining
                     </button>
@@ -7329,7 +8542,7 @@ export default function App() {
               <section className="space-y-8 lg:col-span-1">
                 <div>
                   <SectionHead title="AV calendar" />
-                  <div className="group relative h-[450px] overflow-hidden rounded-md border border-[#293036] bg-[#1e1f27]">
+                  <div className="group relative h-[450px] overflow-hidden av-card">
                     <iframe
                       src={CAL_EMBED}
                       style={{ border: 0 }}
@@ -7337,7 +8550,7 @@ export default function App() {
                       height="100%"
                       frameBorder="0"
                       scrolling="no"
-                      className="absolute inset-0 opacity-80 transition-opacity hover:opacity-100"
+                      className="absolute inset-0"
                       title="AV Calendar"
                     />
                   </div>
@@ -7345,17 +8558,17 @@ export default function App() {
 
                 <div>
                   <SectionHead title="Shortcuts" />
-                  <div className="space-y-2 rounded-md border border-[#293036] bg-[#1e1f27] p-4">
+                  <div className="space-y-2 av-card p-4">
                     {[
                       ['⌘K / Ctrl K', 'Jump to anything'],
                       ['/', 'Open search'],
                       ['ESC', 'Close the current panel'],
                     ].map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between gap-3">
-                        <kbd className="rounded border border-[#293036] bg-black/60 px-2 py-1 font-mono text-[10px] text-[#8391a2]">
+                        <kbd className="rounded border border-slate-200 bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">
                           {k}
                         </kbd>
-                        <span className="text-xs text-[#76828f]">{v}</span>
+                        <span className="text-xs text-slate-9000">{v}</span>
                       </div>
                     ))}
                   </div>
@@ -7372,11 +8585,11 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="Event monitoring"
-                    hint="For every event: what was requested, what was approved, and what was actually delivered."
+                    hint="AV Services PM: SRS II assesses → Supervising SRS endorses → Division Chief approves → production or coverage."
                     right={
                       <button
                         onClick={() => setEvModal({ open: true, editing: null })}
-                        className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                        className="av-btn"
                       >
                         + New event
                       </button>
@@ -7384,16 +8597,16 @@ export default function App() {
                   />
 
                   {prodReady === 'missing' ? (
-                    <div className="rounded-md border border-dashed border-[#293036] bg-[#1e1f27] p-8 text-center">
-                      <p className="mb-2 text-sm font-bold text-[#e6ebf0]">
+                    <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-8 text-center">
+                      <p className="mb-2 text-sm font-bold text-slate-900">
                         Events sheet is not connected
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-[#76828f]">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
-                        paste <span className="font-mono text-[#aab8c5]">AVNexus.gs</span>, fill in
+                        paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
-                        <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                        <span className="font-mono text-[#00aeef]">quickSetup()</span>, then
+                        <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                        <span className="font-mono text-blue-600">quickSetup()</span>, then
                         Deploy → Manage deployments → New version.
                       </p>
                     </div>
@@ -7401,34 +8614,99 @@ export default function App() {
                     <>
                       <EventSummary events={events} />
 
-                      {approvalQueue.length > 0 && (
-                        <div className="mt-4 rounded-[5px] border border-[#293036] bg-[#1e1f27] p-4">
-                          <div className="mb-3 flex items-center justify-between gap-3">
-                            <p className="flex items-center gap-2 text-[13px] font-medium text-[#dfe5eb]">
-                              <span className="h-1.5 w-1.5 rounded-full bg-[#d4a44a]" />
-                              Awaiting action
-                              <span className="text-[#76828f]">{approvalQueue.length}</span>
+                      {/* ---------------- AV TRIAGE QUEUE ---------------- */}
+                      {triageQueue.length > 0 && (
+                        <div className="mt-4 rounded-[16px] border border-purple-200 bg-purple-50 p-4">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p className="av-label" style={{ color: 'var(--triage)' }}>
+                              AV evaluation queue · {triageQueue.length}
                             </p>
-                            <span className="text-[11.5px] text-[#76828f]">
-                              Division Chief, then Supervising SRS
+                            <span className="font-mono text-[10px] text-purple-500">
+                              SRS II → Supervising SRS → Division Chief
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {triageQueue.slice(0, 5).map((ev) => {
+                              const clash = conflictsFor(ev);
+                              return (
+                                <div
+                                  key={ev.id}
+                                  className="rounded-md border border-purple-200 bg-white px-3 py-2"
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <button
+                                      onClick={() => setEvModal({ open: true, editing: ev })}
+                                      className="min-w-0 flex-1 text-left"
+                                    >
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <p className="truncate text-xs font-semibold text-slate-800">
+                                          {ev.title}
+                                        </p>
+                                        <PriorityBadge priority={ev.priority} dense />
+                                      </div>
+                                      <p className="truncate font-mono text-[10px] text-slate-400">
+                                        #{tierRank(ev.clientTier) + 1} {ev.clientTier || 'Unranked'} ·{' '}
+                                        {fmtDate(ev.eventDate)} · {ev.requested.length} requested
+                                      </p>
+                                    </button>
+                                    <div className="flex shrink-0 items-center gap-2">
+                                      {!ev.approvalRemarks.trim() && (
+                                        <span className="rounded border border-purple-300 px-2 py-0.5 text-[9px] font-bold text-purple-700">
+                                          NO ADVICE
+                                        </span>
+                                      )}
+                                      <ApprovalChip k={ev.approval} dense />
+                                    </div>
+                                  </div>
+                                  {clash.length > 0 && (
+                                    <p className="mt-1.5 border-t border-purple-100 pt-1.5 text-[10px] leading-relaxed text-amber-700">
+                                      ⚠ {clash.length} other active event
+                                      {clash.length === 1 ? '' : 's'} on {fmtDate(ev.eventDate)}:{' '}
+                                      {clash.map((c) => c.title || c.id).join(', ')}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-3 text-[10px] leading-relaxed text-purple-700">
+                            Open each one, set the agreed volume, write the recommendation,
+                            then move it to <b>{APPROVAL_META['for-endorsement'].label}</b>.
+                            That emails the Supervising SRS — with your advice and a
+                            schedule-conflict scan — who then forwards it to the Division Chief.
+                          </p>
+                        </div>
+                      )}
+
+                      {approvalQueue.length > 0 && (
+                        <div className="mt-4 rounded-[16px] border border-amber-200 bg-amber-50 p-4">
+                          <div className="mb-3 flex items-center justify-between">
+                            <p className="av-label" style={{ color: 'var(--waiting)' }}>
+                              Awaiting approver · {approvalQueue.length}
+                            </p>
+                            <span className="font-mono text-[10px] text-slate-9000">
+                              Supervising SRS → Division Chief
                             </span>
                           </div>
                           <div className="space-y-2">
                             {approvalQueue.slice(0, 5).map((ev) => (
                               <div
                                 key={ev.id}
-                                className="flex items-center justify-between gap-3 rounded-md border border-[#293036] bg-[#17181e] px-3 py-2"
+                                className="flex items-center justify-between gap-3 rounded-md border border-slate-300 bg-white px-3 py-2"
                               >
                                 <button
                                   onClick={() => setEvModal({ open: true, editing: ev })}
                                   className="min-w-0 flex-1 text-left"
                                 >
-                                  <p className="truncate text-xs font-semibold text-[#dfe5eb]">
-                                    {ev.title}
-                                  </p>
-                                  <p className="truncate font-mono text-[10px] text-[#5f6b7a]">
-                                    {ev.client || '—'} ·{' '}
-                                    {ev.requested.length} services requested
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="truncate text-xs font-semibold text-slate-800">
+                                      {ev.title}
+                                    </p>
+                                    <PriorityBadge priority={ev.priority} dense />
+                                  </div>
+                                  <p className="truncate font-mono text-[10px] text-slate-400">
+                                    #{tierRank(ev.clientTier) + 1} {ev.clientTier || 'Unranked'} ·{' '}
+                                    {ev.requested.length} requested · with {awaitingWho(ev)}
                                   </p>
                                 </button>
                                 <div className="flex shrink-0 items-center gap-2">
@@ -7436,9 +8714,9 @@ export default function App() {
                                   <button
                                     onClick={() => notifyApprover(ev.id)}
                                     title="Resend approval email"
-                                    className="rounded border border-[#293036] px-2 py-1 text-[10px] text-[#76828f] transition-colors hover:border-[#00aeef]/50 hover:text-[#00aeef]"
+                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
                                   >
-                                    
+                                    Email
                                   </button>
                                 </div>
                               </div>
@@ -7447,19 +8725,19 @@ export default function App() {
                         </div>
                       )}
 
-                      <div className="mb-4 mt-4 space-y-3 rounded-md border border-[#293036] bg-[#1e1f27] p-4">
-                        <div className="flex items-center gap-2 rounded-md border border-[#293036] bg-[#17181e] px-3 py-2">
-                          <span className="text-[#5f6b7a]">⌕</span>
+                      <div className="mb-4 mt-4 space-y-3 av-card p-4">
+                        <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
+                          <span className="text-slate-400">⌕</span>
                           <input
                             value={evQuery}
                             onChange={(e) => setEvQuery(e.target.value)}
                             placeholder="Search events, clients, personnel, venue or service…"
-                            className="flex-1 bg-transparent text-sm text-[#e6ebf0] placeholder:text-[#5f6b7a] focus:outline-none"
+                            className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                           />
                           {evQuery && (
                             <button
                               onClick={() => setEvQuery('')}
-                              className="text-xs text-[#76828f] hover:text-[#e6ebf0]"
+                              className="text-xs text-slate-9000 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -7470,46 +8748,74 @@ export default function App() {
                             <button
                               key={k}
                               onClick={() => setEvApproval(k as 'ALL' | ApprovalKey)}
-                              className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${ evApproval === k ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]' : 'border-[#293036] text-[#76828f] hover:text-[#aab8c5]' }`}
+                              className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                                evApproval === k
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              }`}
                             >
                               {k === 'ALL' ? 'All approval' : APPROVAL_META[k as ApprovalKey].label}
                             </button>
                           ))}
-                          <span className="mx-1 w-px bg-[#272831]" />
-                          {(['ALL', 'full', 'partial', 'none', 'declined'] as const).map((k) => (
+                          <span className="mx-1 w-px bg-slate-100" />
+                          {(
+                            ['ALL', 'full', 'partial', 'none', 'declined', 'cancelled', 'rescheduled'] as const
+                          ).map((k) => (
                             <button
                               key={k}
                               onClick={() => setEvFulfil(k as 'ALL' | Fulfilment)}
-                              className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${ evFulfil === k ? 'border-red-500/50 bg-red-500/10 text-[#f07070]' : 'border-[#293036] text-[#76828f] hover:text-[#aab8c5]' }`}
+                              className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                                evFulfil === k
+                                  ? 'border-red-300 bg-red-100 text-red-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              }`}
                             >
                               {k === 'ALL' ? 'All service' : FULFIL_META[k as Fulfilment].label}
+                            </button>
+                          ))}
+                          <span className="mx-1 w-px bg-slate-100" />
+                          {(['ALL', ...PRIORITY_ORDER] as const).map((k) => (
+                            <button
+                              key={k}
+                              onClick={() => setEvPriority(k as 'ALL' | PriorityKey)}
+                              className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                                evPriority === k
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              }`}
+                            >
+                              {k === 'ALL' ? 'All priority' : `${k} priority`}
                             </button>
                           ))}
                         </div>
                       </div>
 
                       {filteredEvents.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-[#293036] p-10 text-center">
-                          <p className="mb-1 text-sm text-[#aab8c5]">No matching events.</p>
-                          <p className="mb-4 text-xs text-[#5f6b7a]">
+                        <div className="rounded-[16px] border border-dashed border-[var(--rule)] p-10 text-center">
+                          <p className="mb-1 text-sm text-slate-600">No matching events.</p>
+                          <p className="mb-4 text-xs text-slate-400">
                             Dito nagsisimula ang lahat — gumawa ng event para masimulan ang
-                            approval at tasking.
+                            evaluation, approval at tasking.
                           </p>
                           <button
                             onClick={() => setEvModal({ open: true, editing: null })}
-                            className="rounded-lg bg-[#00aeef] px-5 py-2 text-sm font-bold text-black hover:opacity-85"
+                            className="av-btn"
                           >
                             Create the first event
                           </button>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                           {filteredEvents.map((ev) => (
                             <EventCard
                               key={ev.id}
                               ev={ev}
                               crew={assignments.filter((a) => a.eventId === ev.id)}
-                              canEdit={can('edit', myRole, ev.createdBy, myName)}
+                              canEdit={
+                                ev.approval === 'for-evaluation'
+                                  ? myRole === 'admin' || myRole === 'staff'
+                                  : can('edit', myRole, ev.createdBy, myName)
+                              }
                               onOpen={() => setEvModal({ open: true, editing: ev })}
                               onStep={(k, next) => stepEvent(ev, k, next)}
                             />
@@ -7542,7 +8848,7 @@ export default function App() {
                     right={
                       <button
                         onClick={() => setReqModal({ open: true, editing: null })}
-                        className="rounded bg-[#00aeef] px-3 py-1.5 text-[12px] font-medium text-[#06121a] transition-opacity hover:opacity-90"
+                        className="av-btn"
                       >
                         + Log request
                       </button>
@@ -7550,34 +8856,34 @@ export default function App() {
                   />
 
                   {prodReady === 'missing' ? (
-                    <div className="rounded-md border border-dashed border-[#293036] bg-[#1e1f27] p-8 text-center">
-                      <p className="mb-2 text-sm font-bold text-[#e6ebf0]">
+                    <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-8 text-center">
+                      <p className="mb-2 text-sm font-bold text-slate-900">
                         Request Register is not set up
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-[#76828f]">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
-                        paste <span className="font-mono text-[#aab8c5]">AVNexus.gs</span>, fill in
+                        paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
-                        <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                        <span className="font-mono text-[#00aeef]">quickSetup()</span>, then
+                        <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                        <span className="font-mono text-blue-600">quickSetup()</span>, then
                         Deploy → Manage deployments → New version.
                       </p>
                     </div>
                   ) : (
                     <>
-                      <div className="mb-4 space-y-3 rounded-md border border-[#293036] bg-[#1e1f27] p-4">
-                        <div className="flex items-center gap-2 rounded-md border border-[#293036] bg-[#17181e] px-3 py-2">
-                          <span className="text-[#5f6b7a]">⌕</span>
+                      <div className="mb-4 space-y-3 av-card p-4">
+                        <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
+                          <span className="text-slate-400">⌕</span>
                           <input
                             value={reqQuery}
                             onChange={(e) => setReqQuery(e.target.value)}
                             placeholder="Search requests, clients, personnel or service type…"
-                            className="flex-1 bg-transparent text-sm text-[#e6ebf0] placeholder:text-[#5f6b7a] focus:outline-none"
+                            className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                           />
                           {reqQuery && (
                             <button
                               onClick={() => setReqQuery('')}
-                              className="text-xs text-[#76828f] hover:text-[#e6ebf0]"
+                              className="text-xs text-slate-9000 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -7588,19 +8894,27 @@ export default function App() {
                             <button
                               key={k}
                               onClick={() => setReqStatusFilter(k as 'ALL' | ReqStatus)}
-                              className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${ reqStatusFilter === k ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#00aeef]' : 'border-[#293036] text-[#76828f] hover:text-[#aab8c5]' }`}
+                              className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                                reqStatusFilter === k
+                                  ? 'border-blue-300 bg-blue-50 text-blue-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              }`}
                             >
                               {k === 'ALL'
                                 ? 'All status'
                                 : `${REQ_META[k as ReqStatus].label} ${reqCounts[k as ReqStatus] || 0}`}
                             </button>
                           ))}
-                          <span className="mx-1 w-px bg-[#272831]" />
+                          <span className="mx-1 w-px bg-slate-100" />
                           {(['ALL', 'coverage', 'production'] as const).map((k) => (
                             <button
                               key={k}
                               onClick={() => setReqStreamFilter(k as 'ALL' | Stream)}
-                              className={`rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${ reqStreamFilter === k ? 'border-red-500/50 bg-red-500/10 text-[#f07070]' : 'border-[#293036] text-[#76828f] hover:text-[#aab8c5]' }`}
+                              className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                                reqStreamFilter === k
+                                  ? 'border-red-300 bg-red-100 text-red-600'
+                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              }`}
                             >
                               {k === 'ALL' ? 'All streams' : STREAM_META[k as Stream].short}
                             </button>
@@ -7621,7 +8935,7 @@ export default function App() {
                     title="Unmet requests log"
                     hint="Audit Item 40 — outcome and justification for every unserved request."
                   />
-                  <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-5">
+                  <div className="av-card p-5">
                     <UnmetRequestsLog requests={requests} />
                   </div>
                 </section>
@@ -7635,16 +8949,16 @@ export default function App() {
                   title="Compliance"
                   hint="Audit Items 40, 41 and 44 — awaiting a connection to the register."
                 />
-                <div className="rounded-md border border-dashed border-[#293036] bg-[#1e1f27] p-8 text-center">
-                  <p className="mb-2 text-sm font-bold text-[#e6ebf0]">
+                <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-8 text-center">
+                  <p className="mb-2 text-sm font-bold text-slate-900">
                     Register is not connected
                   </p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-[#76828f]">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
                     No compliance data can be shown until requests are recorded. Paste{' '}
-                    <span className="font-mono text-[#aab8c5]">AVNexus.gs</span>, run{' '}
-                    <span className="font-mono text-[#00aeef]">authorize()</span> then{' '}
-                    <span className="font-mono text-[#00aeef]">quickSetup()</span>, redeploy, and set{' '}
-                    <span className="font-mono text-[#00aeef]">PROD_SCRIPT_URL</span>.
+                    <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
+                    <span className="font-mono text-blue-600">authorize()</span> then{' '}
+                    <span className="font-mono text-blue-600">quickSetup()</span>, redeploy, and set{' '}
+                    <span className="font-mono text-blue-600">PROD_SCRIPT_URL</span>.
                   </p>
                 </div>
               </section>
@@ -7658,20 +8972,24 @@ export default function App() {
                     hint="PM-CRPD-AV-08-04 Rev 7, section 2 — Expected Outputs."
                   />
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-6">
+                    <div className="av-card p-6">
                       <KPIRing
                         value={kpi.execution}
                         target={KPI_EXECUTION_TARGET}
                         label="Requests executed"
-                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests delivered to the client.`}
+                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests served to the client.${
+                          kpi.excluded
+                            ? ` ${kpi.excluded} cancelled or rescheduled request(s) excluded — see Schedule volatility.`
+                            : ''
+                        }`}
                       />
                     </div>
-                    <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-6">
+                    <div className="av-card p-6">
                       <KPIRing
                         value={kpi.csm}
                         target={KPI_CSM_TARGET}
                         label="CSM very satisfactory+"
-                        sub={`${kpi.rated} request${kpi.rated === 1 ? ' has' : 's have'} a CSM rating. Target: 93% Very Satisfactory or higher.`}
+                        sub={`${kpi.rated} request ang may CSM rating. Target: 93% na Very Satisfactory pataas.`}
                       />
                     </div>
                   </div>
@@ -7679,10 +8997,20 @@ export default function App() {
 
                 <section>
                   <SectionHead
-                    title="Service gap analysis"
-                    hint="Audit Item 44 — every service requested against what was actually delivered."
+                    title="Schedule volatility"
+                    hint="Cancelled and rescheduled requests — excluded from the service KPI, counted and reasoned here."
                   />
-                  <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-5">
+                  <div className="av-card p-5">
+                    <ScheduleVolatilityPanel events={events} />
+                  </div>
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="Service gap analysis"
+                    hint="Audit Item 44 — every service requested against what was actually served."
+                  />
+                  <div className="av-card p-5">
                     <ServiceGapPanel events={events} />
                   </div>
                 </section>
@@ -7693,7 +9021,7 @@ export default function App() {
                       title="Demand vs capacity"
                       hint="Monthly demand against services rendered."
                     />
-                    <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-5">
+                    <div className="av-card p-5">
                       <DemandCapacityPanel requests={requests} />
                     </div>
                   </section>
@@ -7704,10 +9032,10 @@ export default function App() {
                     title="Workload by role"
                     hint="Audit Item 41 — true workload: every role counted separately."
                   />
-                  <div className="overflow-x-auto rounded-md border border-[#293036] bg-[#1e1f27] custom-scrollbar">
+                  <div className="overflow-x-auto av-card custom-scrollbar">
                     <table className="w-full min-w-[640px] text-left">
                       <thead>
-                        <tr className="border-b border-[#293036] text-[11px] text-[#5f6b7a]">
+                        <tr className="border-b border-slate-200 text-[11px] text-slate-400">
                           <th className="px-4 py-2.5 font-medium">Personnel</th>
                           <th className="px-4 py-2.5 text-right font-medium">Events</th>
                           <th className="px-4 py-2.5 text-right font-medium">Roles filled</th>
@@ -7717,20 +9045,20 @@ export default function App() {
                       </thead>
                       <tbody>
                         {roleLoad.map((r) => (
-                          <tr key={r.name} className="border-b border-[#23272e] last:border-0">
-                            <td className="px-4 py-3 text-[13px] font-medium text-[#c3ccd5]">
+                          <tr key={r.name} className="border-b border-slate-200 last:border-0">
+                            <td className="px-4 py-3 text-[13px] font-medium text-slate-700">
                               {r.name}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-[#aab8c5] tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-600 tabular-nums">
                               {r.events}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-[#e6ebf0] tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
                               {r.roleCount}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-[#76828f] tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-9000 tabular-nums">
                               {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
                             </td>
-                            <td className="px-4 py-3 text-[12px] text-[#76828f]">
+                            <td className="px-4 py-3 text-[12px] text-slate-9000">
                               {r.top.length
                                 ? r.top.map(([role, n]) => `${role} (${n})`).join(', ')
                                 : '—'}
@@ -7740,12 +9068,12 @@ export default function App() {
                       </tbody>
                     </table>
                     {roleLoad.every((r) => r.roleCount === 0) && (
-                      <p className="px-4 py-6 text-center text-[12px] text-[#5f6b7a]">
+                      <p className="px-4 py-6 text-center text-[12px] text-slate-400">
                         No crew assignments recorded yet. Add them inside an event.
                       </p>
                     )}
                   </div>
-                  <p className="mt-2 text-[11px] text-[#5f6b7a]">
+                  <p className="mt-2 text-[11px] text-slate-400">
                     An average above 1.0 means one person is holding several roles at once — direct evidence of a personnel shortfall.
                   </p>
                 </section>
@@ -7753,18 +9081,9 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="Turnaround time monitor"
-                    hint="Audit Item 41 — actual processing time against the standard, in working days."
+                    hint="Audit Item 41 — actual processing time from the date of receipt, in working days."
                   />
-                  <div className="mb-3 rounded-md border border-[#293036] bg-[#1e1f27] px-4 py-3 text-[11px] leading-relaxed text-[#76828f]">
-                    <span className="text-[#aab8c5]">How the clock is counted.</span>{' '}
-                    It starts on the later of the approval date and the last day of the
-                    event, because the deliverable is the finished photo and video and
-                    that work can only begin once the shoot ends. For a multi-day event,
-                    the End Date is used. It stops on the Date Delivered — the day the
-                    output was handed over to the client, not the last day of coverage.
-                    Weekends and the holidays listed in the script are excluded.
-                  </div>
-                  <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-5">
+                  <div className="av-card p-5">
                     <SLAMonitor requests={isoRequests} />
                   </div>
                 </section>
@@ -7782,14 +9101,14 @@ export default function App() {
             {view === 'reports' && (
             <>
             {/* ------------------------------------ IPCR GENERATOR ------ */}
-            <section ref={ipcrRef} className="border-t border-[#293036] pt-10">
-              <div className="rounded-md border border-[#293036] bg-[#1e1f27] p-6">
+            <section ref={ipcrRef} className="border-t border-slate-200 pt-10">
+              <div className="av-card p-6">
                 <div className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
                   <div>
-                    <h2 className="text-lg font-medium text-[#e6ebf0]">
-                      IPCR / MOV Report Generator
+                    <h2 className="text-lg font-semibold tracking-tight text-slate-900">
+                      IPCR / MOV report generator
                     </h2>
-                    <p className="text-xs text-[#8391a2]">
+                    <p className="text-xs text-slate-500">
                       Select a name and year, then print or export for the IPCR/SPMS attachment.
                     </p>
                   </div>
@@ -7797,7 +9116,7 @@ export default function App() {
                     <select
                       value={selectedIPCRPersonnel}
                       onChange={(e) => setSelectedIPCRPersonnel(e.target.value)}
-                      className="rounded border border-[#293036] bg-[#17181e] px-3 py-1.5 text-[13px] text-[#c3ccd5] focus:border-[#00aeef] focus:outline-none"
+                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     >
                       <option value="Xyrus">Xyrus (AVAT IV)</option>
                       <option value="Marx">Marx (SRS II)</option>
@@ -7808,7 +9127,7 @@ export default function App() {
                     <select
                       value={ipcrYear}
                       onChange={(e) => setIpcrYear(e.target.value)}
-                      className="rounded border border-[#293036] bg-[#17181e] px-3 py-1.5 text-[13px] text-[#c3ccd5] focus:border-[#00aeef] focus:outline-none"
+                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     >
                       <option value="ALL">All years</option>
                       {years.map((y) => (
@@ -7819,13 +9138,13 @@ export default function App() {
                     </select>
                     <button
                       onClick={exportCSV}
-                      className="rounded border border-[#293036] px-3 py-2 text-[13px] text-[#8391a2] transition-colors hover:border-[#363c44] hover:text-[#dfe5eb]"
+                      className="rounded-md border border-slate-200 px-3 py-2 text-[13px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                     >
                       Export CSV
                     </button>
                     <button
                       onClick={printSheet}
-                      className="flex items-center gap-2 rounded border border-[#293036] px-4 py-2 text-[13px] font-medium text-[#aab8c5] transition-colors hover:border-[#363c44] hover:text-[#dfe5eb]"
+                      className="flex items-center gap-2 rounded-md border border-slate-200 px-4 py-2 text-[13px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800"
                     >
                       Print / Save as PDF
                     </button>
@@ -7833,57 +9152,57 @@ export default function App() {
                 </div>
 
                 <div className="mb-4 flex flex-wrap items-center gap-4">
-                  <label className="flex cursor-pointer items-center gap-2 text-xs text-[#8391a2]">
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
                     <input
                       type="checkbox"
                       checked={ipcrIncludeLinks}
                       onChange={(e) => setIpcrIncludeLinks(e.target.checked)}
-                      className="accent-[#00aeef]"
+                      className="accent-blue-600"
                     />
                     Include Drive and social links in the printout
                   </label>
-                  <span className="font-mono text-[11px] tracking-[0.1em] text-[#5f6b7a]">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-400">
                     Control no. {controlNo}
                   </span>
                 </div>
 
-                <div className="custom-scrollbar max-h-[420px] overflow-y-auto rounded-lg border border-[#293036] bg-black p-5 font-mono text-sm">
-                  <p className="mb-3 border-b border-[#293036] pb-2 font-bold text-red-500">
-                    PREVIEW — ito ang lalabas sa printed sheet
+                <div className="custom-scrollbar max-h-[420px] overflow-y-auto rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-5 font-mono text-sm">
+                  <p className="mb-3 border-b border-slate-200 pb-2 font-bold text-red-600">
+                    Preview — ito ang lalabas sa printed sheet
                   </p>
-                  <div className="space-y-1 text-[#aab8c5]">
-                    <p className="text-base font-medium text-[#e6ebf0]">
+                  <div className="space-y-1 text-slate-600">
+                    <p className="text-base font-bold uppercase text-slate-900">
                       {OFFICIAL[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel} — TOTAL:{' '}
                       {ipcrRecords.length}{' '}
                       {selectedIPCRPersonnel === 'Lotus' ? 'VERIFIED / CHECKED' : 'COVERAGES CATERED'}
                     </p>
-                    <p className="text-[#4a5360]">
+                    <p className="text-slate-400">
                       --------------------------------------------------
                     </p>
                     {ipcrRecords.map((cov, idx) => (
                       <p key={idx} className="whitespace-pre-wrap leading-relaxed">
-                        <span className="font-bold text-red-500">{idx + 1}.</span> [
+                        <span className="font-bold text-red-600">{idx + 1}.</span> [
                         {fmtDate(cov.dateObj, cov.date)}] — {cov.details}{' '}
-                        <span className="text-[#5f6b7a]">[{cov.status.toUpperCase()}]</span>
+                        <span className="text-slate-400">[{cov.status.toUpperCase()}]</span>
                       </p>
                     ))}
                     {ipcrRecords.length === 0 && (
-                      <p className="italic text-[#5f6b7a]">No field coverage for the selected period.</p>
+                      <p className="italic text-slate-400">No field coverage for the selected period.</p>
                     )}
 
                     {ipcrRoles.length > 0 && (
                       <>
-                        <p className="mt-4 text-base font-medium text-[#e6ebf0]">
+                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
                           PART D — ROLES PERFORMED: {ipcrRoles.reduce((a, x) => a + x.roles.length, 0)}
                         </p>
-                        <p className="text-[#4a5360]">
+                        <p className="text-slate-400">
                           --------------------------------------------------
                         </p>
                         {ipcrRoles.map((a, idx) => (
                           <p key={a.id} className="whitespace-pre-wrap leading-relaxed">
-                            <span className="font-bold text-[#00aeef]">{idx + 1}.</span> [
+                            <span className="font-bold text-blue-600">{idx + 1}.</span> [
                             {fmtDate(a.dateCompleted || a.dateAssigned)}] — {a.eventTitle || a.eventId}{' '}
-                            <span className="text-[#5f6b7a]">[{a.roles.join(', ') || '—'}]</span>
+                            <span className="text-slate-400">[{a.roles.join(', ') || '—'}]</span>
                           </p>
                         ))}
                       </>
@@ -7891,19 +9210,19 @@ export default function App() {
 
                     {ipcrRequests.length > 0 && (
                       <>
-                        <p className="mt-4 text-base font-medium text-[#e6ebf0]">
+                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
                           PART C — SERVICE REQUESTS HANDLED: {ipcrRequests.length}
                         </p>
-                        <p className="text-[#4a5360]">
+                        <p className="text-slate-400">
                           --------------------------------------------------
                         </p>
                         {ipcrRequests.map((r, idx) => {
                           const tat = actualTAT(r);
                           return (
                             <p key={r.id} className="whitespace-pre-wrap leading-relaxed">
-                              <span className="font-bold text-green-500">{idx + 1}.</span> [
+                              <span className="font-bold text-green-600">{idx + 1}.</span> [
                               {fmtDate(r.dateDelivered || r.dateRequested)}] — {r.title}{' '}
-                              <span className="text-[#5f6b7a]">
+                              <span className="text-slate-400">
                                 [{STREAM_META[r.stream].short} ·{' '}
                                 {REQ_META[r.status].label.toUpperCase()}
                                 {tat !== null ? ` · ${tat} WD` : ''}
@@ -7917,17 +9236,17 @@ export default function App() {
 
                     {ipcrOutputs.length > 0 && (
                       <>
-                        <p className="mt-4 text-base font-medium text-[#e6ebf0]">
+                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
                           PART B — VIDEO PRODUCTION OUTPUTS: {ipcrOutputs.length}
                         </p>
-                        <p className="text-[#4a5360]">
+                        <p className="text-slate-400">
                           --------------------------------------------------
                         </p>
                         {ipcrOutputs.map((o, idx) => (
                           <p key={o.id} className="whitespace-pre-wrap leading-relaxed">
-                            <span className="font-bold text-[#00aeef]">{idx + 1}.</span> [
+                            <span className="font-bold text-blue-600">{idx + 1}.</span> [
                             {fmtDate(o.delivered || o.target || o.assigned)}] — {o.title}{' '}
-                            <span className="text-[#5f6b7a]">
+                            <span className="text-slate-400">
                               [{o.type}{o.seconds ? ` · ${fmtRuntime(o.seconds)}` : ''} · {o.role} ·{' '}
                               {STAGE_META[o.stage].label.toUpperCase()}]
                             </span>
@@ -7944,7 +9263,7 @@ export default function App() {
             )}
 
             <footer className="pb-8 pt-4 text-center">
-              <p className="font-mono text-[11px] tracking-[0.14em] text-[#4a5360]">
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-slate-400">
                 DOST-STII · CRPD · Broadcast &amp; Digital Media Section
               </p>
             </footer>
@@ -8115,12 +9434,12 @@ export default function App() {
                     <p>
                       {ipcrQQT.onTime === null
                         ? 'No target dates recorded'
-                        : `${ipcrQQT.onTime}% delivered on or before target date`}
+                        : `${ipcrQQT.onTime}% served on or before target date`}
                     </p>
                     {ipcrSLA.onTime !== null && (
                       <p>
                         Requests: {ipcrSLA.onTime}% within SLA
-                        {ipcrSLA.avgTAT !== null && `, avg ${ipcrSLA.avgTAT.toFixed(1)} WD`}
+                        {ipcrSLA.avgTAT !== null && `, avg ${ipcrSLA.avgTAT.toFixed(1)} WD from receipt`}
                       </p>
                     )}
                     {ipcrSLA.csm !== null && (
@@ -8192,7 +9511,8 @@ export default function App() {
                 </tbody>
               </table>
               <p className="mt-1 text-[10px] italic text-gray-600">
-                TAT shown as actual/standard in working days. Standard turnaround per
+                TAT shown as actual/standard in working days, counted from the date the request
+                was received up to the date it was served. Standard turnaround per
                 PM-CRPD-AV-08-04 Rev 7: AV Coverage 3 WDs, AVP Production 13 WDs.
               </p>
             </>
@@ -8278,21 +9598,36 @@ export default function App() {
       </div>
 
       {/* ------------------------------------------------------- DOCK ---- */}
-      <div className="no-print fixed bottom-5 left-1/2 z-[70] -translate-x-1/2">
-        <div className="flex items-center gap-0.5 rounded-lg border border-[#293036] bg-[#1e1f27] p-1">
+      <div className="av-dock no-print fixed bottom-5 left-1/2 z-[70] -translate-x-1/2">
+        <div className="av-float flex items-center gap-0.5 border border-[var(--rule)] bg-white p-1.5">
           <button
             onClick={() => setPaletteOpen(true)}
             title="Quick jump"
-            className="flex h-9 items-center rounded px-3 text-[11px] font-semibold text-[#8391a2] transition-colors hover:bg-[#272831] hover:text-[#dfe5eb]"
+            className="flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Search
           </button>
           <button
             onClick={() => setLogOpen(true)}
             title="Log a video output"
-            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-[#8391a2] transition-colors hover:bg-[#272831] hover:text-[#dfe5eb]"
+            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Output
+          </button>
+          <button
+            onClick={() => {
+              setView('events');
+              setEvApproval('for-evaluation');
+            }}
+            title="AV evaluation queue"
+            className="relative flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+          >
+            Triage
+            {triageQueue.length > 0 && (
+              <span className="ml-1.5 rounded-full bg-purple-100 px-1.5 font-mono text-[10px] font-bold text-purple-700">
+                {triageQueue.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => {
@@ -8300,7 +9635,7 @@ export default function App() {
               setEvModal({ open: true, editing: null });
             }}
             title="New event request"
-            className="relative flex h-9 items-center rounded px-3 text-[11px] font-semibold text-[#8391a2] transition-colors hover:bg-[#272831] hover:text-[#dfe5eb]"
+            className="relative flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             New event
             {approvalQueue.length > 0 && (
@@ -8310,31 +9645,79 @@ export default function App() {
           <button
             onClick={() => setKioskOn(true)}
             title="Kiosk mode — for the office monitor"
-            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-[#8391a2] transition-colors hover:bg-[#272831] hover:text-[#dfe5eb]"
+            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Kiosk
           </button>
           <button
             onClick={printSheet}
             title="Print IPCR"
-            className="flex h-9 items-center justify-center rounded px-3 text-[11px] font-semibold text-[#8391a2] transition-colors hover:bg-[#272831] hover:text-[#dfe5eb]"
+            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Print
           </button>
         </div>
       </div>
 
+      {/* ------------------------------------------------- MOBILE NAV ---- */}
+      {/* Sa telepono, ang bottom bar ang nabibigyan ng hinlalaki. Ang
+          floating dock ay nakatago doon — isa lang ang kailangan. */}
+      <nav className="av-mobnav no-print">
+        {(
+          [
+            { k: 'events', label: 'Events', g: '◼', badge: triageQueue.length + approvalQueue.length },
+            { k: 'production', label: 'Production', g: '▶', badge: 0 },
+            { k: 'compliance', label: 'Compliance', g: '◈', badge: 0 },
+            { k: 'pulse', label: 'Archive', g: '▤', badge: 0 },
+            { k: 'reports', label: 'Reports', g: '▦', badge: 0 },
+          ] as { k: ViewKey; label: string; g: string; badge: number }[]
+        ).map((m) => (
+          <button
+            key={m.k}
+            onClick={() => {
+              setView(m.k);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            data-on={view === m.k ? '1' : '0'}
+            className="av-mobtab relative"
+          >
+            <span className="g" aria-hidden>
+              {m.g}
+            </span>
+            {m.label}
+            {m.badge > 0 && <span className="b font-mono">{m.badge}</span>}
+          </button>
+        ))}
+      </nav>
+
+      {/* Mabilis na paggawa, abot ng hinlalaki. */}
+      <button
+        onClick={() => {
+          setView('events');
+          setEvModal({ open: true, editing: null });
+        }}
+        aria-label="New event request"
+        className="av-float no-print fixed right-4 z-[71] flex h-12 w-12 items-center justify-center text-[22px] font-light text-white md:hidden"
+        style={{
+          bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))',
+          background: 'var(--signal)',
+          borderRadius: 'var(--r-pill)',
+        }}
+      >
+        +
+      </button>
+
       {/* ----------------------------------------------------- TOASTS ---- */}
       <div className="no-print fixed right-5 top-5 z-[100] flex w-72 flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`animate-slidein rounded-lg border px-4 py-3 text-xs ${
+            className={`animate-slidein rounded-lg border px-4 py-3 text-xs shadow-md ${
               t.tone === 'err'
-                ? 'border-red-900 bg-red-950/80 text-red-200'
+                ? 'border-red-200 bg-red-50 text-red-800'
                 : t.tone === 'new'
-                ? 'border-[#00aeef]/40 bg-[#00aeef]/10 text-[#7fdcff]'
-                : 'border-[#293036] bg-[#1e1f27] text-[#aab8c5]'
+                ? 'border-blue-300 bg-blue-50 text-blue-700'
+                : 'border-slate-200 bg-white text-slate-600'
             }`}
           >
             {t.text}
@@ -8370,7 +9753,12 @@ export default function App() {
           }
           role={myRole}
           canEdit={
-            !evModal.editing || can('edit', myRole, evModal.editing.createdBy, myName)
+            !evModal.editing ||
+            // Sa AV triage, walang may-ari pa — kaya kahit sinong AV staff
+            // ay makakapag-edit. Kapareho ito ng ipinapatupad ng server.
+            (evModal.editing.approval === 'for-evaluation'
+              ? myRole === 'admin' || myRole === 'staff'
+              : can('edit', myRole, evModal.editing.createdBy, myName))
           }
         />
       )}
@@ -8409,37 +9797,224 @@ export default function App() {
       <style
         dangerouslySetInnerHTML={{
           __html: `
-        /* Geist — ang font ng Vona. Iisang pamilya sa buong dashboard; ang Geist Mono
-           ay para lang sa mga ID at URL na kailangang pumantay nang patayo. */
-        @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap');
-        html {
-          font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-          font-feature-settings: 'ss01' on;
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;500;600;700&display=swap');
+
+        /* ====================================================================
+           AV NEXUS — design tokens
+           Ang asul ng DOST, hinila papalalim para kayanin nitong maging
+           GROUND at hindi lang link colour. Doon nanggagaling ang timbang.
+           IBM Plex: ginawa para sa technical documentation, may totoong
+           tabular figures, at open source — walang lisensyang sasagutin.
+           ==================================================================== */
+        :root {
+          --ink: #0E2A47;
+          --ink-2: #37506B;
+          --ink-3: #6B7F95;
+          --signal: #1D4ED8;
+          --paper: #EDF2F9;
+          --card: #FFFFFF;
+          --rule: #E2E9F2;
+          --rule-soft: #F0F4F9;
+          /* Malambot na tint para sa maliliit na stat box — ang paraan ng
+             pangatlong peg para paghiwalayin ang numero nang walang border. */
+          --tint-blue: #EAF0FC;
+          --tint-green: #E7F4EF;
+          --tint-amber: #FCF3E4;
+          --tint-violet: #F1ECFD;
+          --tint-slate: #EDF1F7;
+          /* Mga estado, pinalalim. Ang Tailwind 500s ay parang kendi katabi ng ink. */
+          --triage: #6D28D9;
+          --waiting: #B45309;
+          --cleared: #0F766E;
+          --served: #047857;
+          --refused: #B42318;
+          --standby: #64748B;
+          --moved: #A16207;
+          --lift: 0 1px 3px rgba(14,42,71,.05), 0 1px 2px rgba(14,42,71,.03);
+          --lift-raise: 0 6px 18px -6px rgba(14,42,71,.12), 0 2px 5px rgba(14,42,71,.04);
+          --lift-float: 0 18px 44px -12px rgba(14,42,71,.22), 0 3px 8px rgba(14,42,71,.06);
+          /* Malalaking radius — ito ang unang bagay na nagpapalambot ng
+             interface sa tatlong peg. Iba-iba pa rin ayon sa lalim. */
+          --r-tight: 9px;
+          --r-card: 16px;
+          --r-float: 22px;
+          --r-pill: 999px;
         }
+
+        html {
+          font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+        }
+        body { background: var(--paper); }
         .font-display { font-family: inherit; letter-spacing: -0.015em; }
+        /* Mono LAMANG kung talagang code ang bagay: reference, petsa, bilang. */
         .font-mono, code, kbd {
-          font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
           font-variant-numeric: tabular-nums;
         }
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+
+        /* ---------------------------------------------------- app shell --- */
+        .av-page { background: var(--paper); color: var(--ink); }
+        .av-bar { background: var(--ink); color: #fff; }
+        .av-mark { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #fff; }
+        .av-mark span { font-weight: 400; color: #93B4D8; }
+        .av-bar-meta { font-size: 12px; color: #93B4D8; }
+        .av-bar-btn {
+          font-size: 12px; color: #A8C2DE; padding: 6px 13px; border-radius: var(--r-pill);
+          border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.05);
+          transition: background .15s, color .15s;
+        }
+        .av-bar-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
+        .av-tab {
+          padding: 9px 13px; font-size: 13px; font-weight: 450; color: #A8C2DE;
+          border-bottom: 2px solid transparent; white-space: nowrap;
+          transition: color .15s, border-color .15s;
+        }
+        .av-tab:hover { color: #D6E4F3; }
+        .av-tab[data-on='1'] { color: #fff; border-bottom-color: #5B9BD5; font-weight: 500; }
+        .av-track { border-radius: var(--r-pill); }
+        .av-fill { border-radius: var(--r-pill); }
+        .av-tab b { font-weight: 400; opacity: .6; margin-left: 5px; }
+
+        /* -------------------------------------------------------- cards --- */
+        .av-card {
+          background: var(--card); border: 1px solid var(--rule);
+          border-radius: var(--r-card); box-shadow: var(--lift);
+        }
+        .av-pill { border-radius: var(--r-pill); }
+        /* Number-first: ang bilang ang bida, maliit ang label sa ilalim. */
+        .av-fig { font-size: 34px; font-weight: 600; letter-spacing: -0.025em; line-height: 1; }
+        .av-fig-sm { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+        .av-unit { font-size: 15px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
+        .av-tintbox { border-radius: var(--r-tight); padding: 12px 14px; }
+        .av-dot {
+          width: 34px; height: 34px; border-radius: var(--r-pill);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 13px; font-weight: 600; flex-shrink: 0;
+        }
+        /* Channel strip: ang kaliwang rail ang may dala ng estado. */
+        .av-strip {
+          display: grid; grid-template-columns: 4px 1fr; overflow: hidden;
+          background: var(--card); border: 1px solid var(--rule);
+          border-radius: var(--r-card); box-shadow: var(--lift);
+          transition: box-shadow .18s, border-color .18s;
+        }
+        .av-strip:hover { border-color: #CBD8E8; box-shadow: var(--lift-raise); }
+        .av-title { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--ink); }
+        .av-state-k { font-size: 12.5px; font-weight: 550; }
+        .av-state-s { font-size: 11.5px; color: var(--ink-3); }
+
+        /* Labelled values — hindi na hanay ng tuldok. */
+        .av-idl { display: flex; flex-wrap: wrap; gap: 3px 18px; font-size: 12px; color: var(--ink-3); }
+        .av-idl i { font-style: normal; opacity: .72; }
+        .av-idl b { font-weight: 450; color: var(--ink-2); }
+
+        .av-chip {
+          display: inline-flex; align-items: center; gap: 5px;
+          font-size: 12px; padding: 4px 11px; border-radius: var(--r-pill);
+          border: 1px solid var(--rule); color: var(--ink-2); background: var(--rule-soft);
+        }
+        .av-chip.ok    { border-color: #A7D9C8; background: #EAF7F2; color: var(--served); }
+        .av-chip.gap   { border-color: #F2C9C4; background: #FDF0EE; color: var(--refused); }
+        .av-chip.nocap { border-color: #EED9A8; background: #FCF6E8; color: var(--waiting); }
+        .av-chip.lock  { border-style: dashed; background: transparent; color: var(--ink-3); }
+        .av-chip.add   { border-color: #B9CDEA; background: #EEF4FD; color: var(--signal); }
+
+        .av-track { height: 5px; border-radius: 3px; background: var(--rule-soft); overflow: hidden; }
+        .av-fill  { height: 100%; border-radius: 3px; background: var(--signal); transition: width .6s cubic-bezier(.16,1,.3,1); }
+
+        .av-note { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+        .av-note b { font-weight: 550; }
+        .av-dim { color: var(--ink-3); }
+        .av-hair { border-top: 1px solid var(--rule-soft); }
+
+        /* -------------------------------------------------- headline nos -- */
+        /* BENTO — magkakaibang laki ang card ayon sa bigat ng laman.
+           Ang "waiting on someone" ang pinakamalaki dahil 'yon ang
+           kinikilos mo ngayon. Sa mobile, dalawang hanay lang. */
+        .av-bento { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); }
+        @media (min-width: 900px) { .av-bento { grid-template-columns: repeat(4, 1fr); } }
+        .av-bento > .wide { grid-column: span 2; }
+        .av-bento > .full { grid-column: 1 / -1; }
+        .av-head {
+          background: var(--card); border: 1px solid var(--rule);
+          border-radius: var(--r-card); box-shadow: var(--lift);
+          padding: 16px 18px; min-width: 0;
+        }
+        .av-head .l { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; font-weight: 500; }
+        .av-head .s { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+        /* -------------------------------------------------- mobile nav --- */
+        .av-mobnav {
+          position: fixed; left: 0; right: 0; z-index: 70;
+          bottom: 0; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+          background: rgba(14,42,71,.96); backdrop-filter: blur(10px);
+          border-top: 1px solid rgba(255,255,255,.08);
+          display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+        }
+        @media (min-width: 768px) { .av-mobnav { display: none; } }
+        .av-mobtab {
+          display: flex; flex-direction: column; align-items: center; gap: 3px;
+          padding: 7px 2px; border-radius: var(--r-tight);
+          font-size: 10.5px; font-weight: 450; color: #93B4D8; line-height: 1.2;
+        }
+        .av-mobtab[data-on='1'] { background: rgba(91,155,213,.18); color: #fff; font-weight: 550; }
+        .av-mobtab .g { font-size: 15px; line-height: 1; }
+        .av-mobtab .b {
+          position: absolute; transform: translate(16px, -4px);
+          min-width: 15px; height: 15px; padding: 0 4px; border-radius: var(--r-pill);
+          background: #B45309; color: #fff; font-size: 9.5px; font-weight: 600;
+          display: flex; align-items: center; justify-content: center;
+        }
+        /* Espasyo para sa bottom bar, at itago ang lumang floating dock. */
+        @media (max-width: 767px) {
+          .av-dock { display: none !important; }
+          .av-page { padding-bottom: 74px; }
+          .av-title { font-size: 15px; }
+          .av-fig { font-size: 30px; }
+        }
+
+        /* Ang daloy ay iginuguhit bilang daloy — sunod-sunod nga naman. */
+        .av-step { flex: 1 1 140px; min-width: 128px; }
+        .av-step .l { font-size: 12px; color: var(--ink-2); margin-top: 5px; font-weight: 500; }
+        .av-step .w { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+
+        .av-sec-h { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+        .av-sec-p { font-size: 12.5px; color: var(--ink-3); }
+        .av-label { font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+
+        .av-btn {
+          background: var(--signal); color: #fff; font-size: 13px; font-weight: 500;
+          padding: 8px 16px; border-radius: var(--r-pill); transition: background .15s;
+        }
+        .av-btn:hover { background: #1740B0; }
+        .av-btn-ghost {
+          border: 1px solid var(--rule); color: var(--ink-2); font-size: 13px;
+          padding: 7px 15px; border-radius: var(--r-pill); background: var(--card);
+          transition: border-color .15s, color .15s;
+        }
+        .av-btn-ghost:hover { border-color: #C2CEDC; color: var(--ink); }
+
+        .av-float { box-shadow: var(--lift-float); border-radius: var(--r-float); }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #232326; border-radius: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #33333a; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #C6D0DC; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #A3B2C4; }
+
         @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
         @keyframes riseup { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
         @keyframes slidein { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
         @keyframes kioskbar { from { width: 0 } to { width: 100% } }
         @keyframes kioskticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
         .kiosk-ticker { animation: kioskticker 45s linear infinite; }
-        .kiosk-cal { filter: invert(0.92) hue-rotate(180deg); }
         .animate-fadein { animation: fadein .2s ease-out }
         .animate-riseup { animation: riseup .18s cubic-bezier(.16,1,.3,1) }
         .animate-slidein { animation: slidein .28s cubic-bezier(.16,1,.3,1) }
         @media (prefers-reduced-motion: reduce) {
           *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
         }
-        :focus-visible { outline: 1px solid ${CYAN}; outline-offset: 2px; }
-        ::selection { background: rgba(0,174,239,0.25); }
+        :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+        ::selection { background: rgba(29,78,216,0.14); }
 
         @media print {
           .no-print { display: none !important; }
