@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
    AV NEXUS — Broadcast & Digital Media Section (DOST-STII)
    Master Control Room for coverage, DMC monitoring, and AV systems.
 
-   UI: light mode. Slate ground, white panels, DOST blue accent.
+   UI: light mode. Cool neutral ground, white cards, DOST blue accent.
+   Shell: left sidebar, sticky top bar, blue hero band with overlapping KPIs.
    COA: turnaround time is measured from the date the request was RECEIVED.
    TRIAGE: every request lands in AV evaluation first. The team writes the
    recommendation, then pushes it to the Division Chief.
@@ -1507,20 +1508,266 @@ function useCountUp(target: number, duration = 900) {
 
 /* ------------------------------------------------------ SMALL COMPONENTS -- */
 
+/*
+ * PRESENTATION LAYER (v2) — pang-itsura lamang. Walang ginagalaw na datos.
+ * Ang mga constant (STATUS_META, SLA_META, APPROVAL_META…) ay eksakto pa rin;
+ * ang `tidy()` ay nag-aayos lang ng pagpapakita ng kanilang ALL-CAPS na label.
+ */
+const KEEP_CAPS = new Set(['DMC', 'SLA', 'N/A', 'CSM', 'SRS', 'DC', 'AV', 'IPCR', 'WD']);
+
+/** 'DMC TRANSFERRED' → 'DMC transferred'. Display only. */
+function tidy(label: string): string {
+  return String(label || '')
+    .split(' ')
+    .map((w, i) => {
+      if (KEEP_CAPS.has(w)) return w;
+      const low = w.toLowerCase();
+      return i === 0 ? low.charAt(0).toUpperCase() + low.slice(1) : low;
+    })
+    .join(' ');
+}
+
+/** Pang-hero lamang. */
+function greetingFor(d: Date): string {
+  const h = d.getHours();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+type IconName =
+  | 'events' | 'production' | 'archive' | 'compliance' | 'register' | 'reports'
+  | 'services' | 'gatepass' | 'search' | 'plus' | 'kiosk' | 'print' | 'output'
+  | 'triage' | 'refresh' | 'logout' | 'close' | 'sheet' | 'menu';
+
+/** Stroke icons sa 24-unit grid. Iginuhit dito para walang bagong dependency. */
+const ICON_PATHS: Record<IconName, React.ReactNode> = {
+  events: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+      <path d="M8 3v4M16 3v4M3.5 10h17" />
+      <path d="m9 15 2 2 4-4" />
+    </>
+  ),
+  production: (
+    <>
+      <rect x="2.5" y="6" width="13.5" height="12" rx="2.5" />
+      <path d="m16 10.2 5.5-3.2v10l-5.5-3.2" />
+    </>
+  ),
+  archive: (
+    <>
+      <rect x="3" y="4" width="18" height="5" rx="1.5" />
+      <path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4" />
+    </>
+  ),
+  compliance: (
+    <>
+      <path d="M12 3 5 6v5.5c0 4.3 2.9 7.9 7 9.5 4.1-1.6 7-5.2 7-9.5V6Z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  register: (
+    <>
+      <rect x="5" y="4.5" width="14" height="16.5" rx="2.2" />
+      <rect x="9" y="2.8" width="6" height="3.4" rx="1" />
+      <path d="M9 11h6M9 15h4" />
+    </>
+  ),
+  reports: (
+    <>
+      <path d="M3.5 20.5h17" />
+      <rect x="5" y="11" width="3.2" height="6.5" rx="1" />
+      <rect x="10.4" y="5.5" width="3.2" height="12" rx="1" />
+      <rect x="15.8" y="13.5" width="3.2" height="4" rx="1" />
+    </>
+  ),
+  services: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z" />
+    </>
+  ),
+  gatepass: (
+    <>
+      <path d="M21 8.2 12 3.5 3 8.2v7.6l9 4.7 9-4.7Z" />
+      <path d="m3.3 8.4 8.7 4.5 8.7-4.5M12 12.9v7.5" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m20 20-4.2-4.2" />
+    </>
+  ),
+  plus: <path d="M12 5v14M5 12h14" />,
+  kiosk: (
+    <>
+      <rect x="3" y="4" width="18" height="12.5" rx="2" />
+      <path d="M8.5 20.5h7M12 16.5v4" />
+    </>
+  ),
+  print: (
+    <>
+      <path d="M7 9V3.5h10V9" />
+      <rect x="3" y="9" width="18" height="8" rx="2" />
+      <path d="M7 14h10v6.5H7Z" />
+    </>
+  ),
+  output: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="m10 9.2 4.8 2.8-4.8 2.8Z" />
+    </>
+  ),
+  triage: (
+    <>
+      <path d="M3 13h5l1.5 3h5l1.5-3h5" />
+      <path d="M5.6 5h12.8L21 13v5.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5V13Z" />
+    </>
+  ),
+  refresh: <path d="M20 11a8 8 0 0 0-14.6-4.5M4 4.5v4h4M4 13a8 8 0 0 0 14.6 4.5M20 19.5v-4h-4" />,
+  logout: <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15M10 16l4-4-4-4M14 12H4" />,
+  close: <path d="m6 6 12 12M18 6 6 18" />,
+  sheet: (
+    <>
+      <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
+      <path d="M3.5 9.5h17M3.5 15h17M9.5 9.5v11" />
+    </>
+  ),
+  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+};
+
+function Icon({
+  name,
+  size = 18,
+  stroke = 1.75,
+  className,
+}: {
+  name: IconName;
+  size?: number;
+  stroke?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={stroke}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {ICON_PATHS[name]}
+    </svg>
+  );
+}
+
+/** Manipis na progress ring — ang KPI ring ng unang reference. */
+function Ring({
+  pct,
+  hex,
+  size = 60,
+  stroke = 5,
+  children,
+}: {
+  pct: number;
+  hex: string;
+  size?: number;
+  stroke?: number;
+  children?: React.ReactNode;
+}) {
+  const r = size / 2 - stroke / 2 - 1;
+  const C = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+  return (
+    <span
+      className="relative inline-flex shrink-0 items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      <svg
+        viewBox={`0 0 ${size} ${size}`}
+        width={size}
+        height={size}
+        className="absolute inset-0 -rotate-90"
+        aria-hidden="true"
+      >
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#EDF1F7" strokeWidth={stroke} />
+        {p > 0 && (
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={hex}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={`${(p / 100) * C} ${C}`}
+            style={{ transition: 'stroke-dasharray 1s cubic-bezier(.16,1,.3,1)' }}
+          />
+        )}
+      </svg>
+      <span className="relative inline-flex items-center justify-center">{children}</span>
+    </span>
+  );
+}
+
+/** Ang KPI card na nakapatong sa hero band. Clickable kapag may onClick. */
+function HeroStat({
+  label,
+  value,
+  suffix = '',
+  sub,
+  pct,
+  hex,
+  icon,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  suffix?: string;
+  sub: string;
+  pct: number;
+  hex: string;
+  icon: IconName;
+  onClick?: () => void;
+}) {
+  const shown = useCountUp(value);
+  const body = (
+    <>
+      <Ring pct={pct} hex={hex} size={62} stroke={5}>
+        <span style={{ color: hex }}>
+          <Icon name={icon} size={20} />
+        </span>
+      </Ring>
+      <span className="min-w-0 flex-1">
+        <span className="l block truncate">{label}</span>
+        <span className="v block">
+          {shown}
+          {suffix}
+        </span>
+        <span className="s block">{sub}</span>
+      </span>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className="av-kpi link">
+      {body}
+    </button>
+  ) : (
+    <div className="av-kpi">{body}</div>
+  );
+}
+
 function StatusBadge({ status, dense = false }: { status: string; dense?: boolean }) {
   const meta = STATUS_META[classifyStatus(status)];
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-slate-500 ${
-        dense ? 'text-[10px]' : 'text-[11px]'
-      }`}
-    >
-      <span
-        className="h-1.5 w-1.5 shrink-0 rounded-full"
-        style={{ background: meta.hex }}
-        aria-hidden
-      />
-      {meta.label}
+    <span className={`av-pill ${dense ? 'sm' : ''} ${meta.chip}`}>
+      <span className="d" style={{ background: meta.hex }} aria-hidden />
+      {tidy(meta.label)}
     </span>
   );
 }
@@ -1531,13 +1778,11 @@ function PriorityBadge({ priority, dense = false }: { priority: string; dense?: 
   if (key !== 'High') return null;
   return (
     <span
-      className={`inline-flex animate-pulse items-center gap-1.5 rounded-full border border-red-200 bg-red-100 font-semibold tracking-wide text-red-700 ${
-        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
-      }`}
+      className={`av-pill ${dense ? 'sm' : ''} bg-red-50 text-red-700`}
       title="Marked high priority by the requesting section"
     >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-hidden />
-      HIGH PRIORITY
+      <span className="d av-ping" style={{ background: '#E5484D' }} aria-hidden />
+      High priority
     </span>
   );
 }
@@ -1612,7 +1857,7 @@ function SystemFrame({ app }: { app: SystemApp }) {
                   className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200"
                   style={{ borderTopColor: app.accent }}
                 />
-                <p className="font-mono text-[11px] text-slate-9000">Loading {app.name}</p>
+                <p className="font-mono text-[11px] text-slate-900">Loading {app.name}</p>
               </div>
             )}
           </>
@@ -1623,7 +1868,7 @@ function SystemFrame({ app }: { app: SystemApp }) {
             <h3 className="text-[15px] font-medium text-slate-800">
               {app.name} cannot be displayed here
             </h3>
-            <p className="max-w-lg text-[13px] leading-relaxed text-slate-9000">
+            <p className="max-w-lg text-[13px] leading-relaxed text-slate-900">
               The site sends a header that prevents it from being embedded in another
               page. Open it in a new tab instead — or, if you own the site, allow this
               dashboard to frame it (see the note below).
@@ -1913,7 +2158,7 @@ function ConnectionPanel({
         <button
           onClick={onRetry}
           disabled={busy}
-          className="text-[11px] text-slate-9000 underline transition-colors hover:text-slate-600 disabled:opacity-50"
+          className="text-[11px] text-slate-900 underline transition-colors hover:text-slate-600 disabled:opacity-50"
         >
           {busy ? 'Testing…' : 'Test again'}
         </button>
@@ -1940,7 +2185,7 @@ function ConnectionPanel({
                 {shortUrl(pr.url)}
               </p>
               {pr.hint && (
-                <p className="mt-1 text-[11px] leading-relaxed text-slate-9000">{pr.hint}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-900">{pr.hint}</p>
               )}
             </div>
           </div>
@@ -1974,7 +2219,7 @@ function SignInGate({
       >
         <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
         <h1 className="text-[17px] font-semibold tracking-tight text-slate-800">AV Nexus</h1>
-        <p className="mt-1 text-[12px] text-slate-9000">Broadcast &amp; Digital Media Section</p>
+        <p className="mt-1 text-[12px] text-slate-900">Broadcast &amp; Digital Media Section</p>
 
         <p className="mt-6 text-[13px] leading-relaxed text-slate-500">
           Sign in with your DOST-STII Google account to continue. Records can only be
@@ -2043,10 +2288,10 @@ function SectionHead({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-4">
-      <div>
-        <h2 className="av-sec-h">{title}</h2>
-        {hint && <p className="av-sec-p mt-1">{hint}</p>}
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+      <div className="min-w-0">
+        <h2 className="av-h2">{title}</h2>
+        {hint && <p className="av-sec-p mt-1 max-w-3xl">{hint}</p>}
       </div>
       {right}
     </div>
@@ -2067,74 +2312,97 @@ function StatTile({
   bar: number;
 }) {
   const shown = useCountUp(value);
+  const pct = Math.max(0, Math.min(100, bar));
   return (
-    <div className="av-card" style={{ padding: '16px 18px' }}>
-      <div className="font-mono" style={{ fontSize: 28, fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.1, color: accent }}>
-        {shown}
+    <div className="av-kpi flat">
+      <div className="min-w-0 flex-1">
+        <p className="l truncate">{label}</p>
+        <p className="v">{shown}</p>
+        <p className="s">{sub}</p>
       </div>
-      <p className="av-label mt-1 truncate">{label}</p>
-      <p className="av-note av-dim mt-0.5 truncate">{sub}</p>
-      <div className="av-track mt-3">
-        <div className="av-fill" style={{ width: `${Math.max(2, Math.min(100, bar))}%`, background: accent }} />
-      </div>
+      <Ring pct={pct} hex={accent} size={58} stroke={5}>
+        <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
+          {Math.round(pct)}%
+        </span>
+      </Ring>
     </div>
   );
 }
 
 function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; total: number }) {
-  const R = 52;
-  const C = 2 * Math.PI * R;
-  let offset = 0;
   const cleared = counts.transferred + counts.archived;
   const pct = total ? Math.round((cleared / total) * 100) : 0;
   const shown = useCountUp(pct);
 
+  // Donut na may porsiyento sa loob ng bawat segment; 3px na puwang sa pagitan.
+  const R = 50;
+  const W = 18;
+  const C = 2 * Math.PI * R;
+  const segs = useMemo(() => {
+    let acc = 0;
+    return STATUS_ORDER.filter((k) => counts[k] > 0 && total > 0).map((k) => {
+      const frac = counts[k] / total;
+      const start = acc;
+      acc += frac;
+      const mid = (start + frac / 2) * 2 * Math.PI - Math.PI / 2;
+      return { k, frac, start, x: 70 + 50 * Math.cos(mid), y: 70 + 50 * Math.sin(mid) };
+    });
+  }, [counts, total]);
+  const gap = segs.length > 1 ? 3 : 0;
+
   return (
-    <div className="flex items-center gap-6">
-      <div className="relative h-[132px] w-[132px] shrink-0">
-        <svg viewBox="0 0 132 132" className="h-full w-full -rotate-90">
-          <circle cx="66" cy="66" r={R} fill="none" stroke="#e2e8f0" strokeWidth="13" />
-          {STATUS_ORDER.map((key) => {
-            const n = counts[key];
-            if (!n || !total) return null;
-            const len = (n / total) * C;
-            const el = (
-              <circle
-                key={key}
-                cx="66"
-                cy="66"
-                r={R}
-                fill="none"
-                stroke={STATUS_META[key].hex}
-                strokeWidth="13"
-                strokeDasharray={`${Math.max(0, len - 2)} ${C}`}
-                strokeDashoffset={-offset}
-                strokeLinecap="butt"
-              />
-            );
-            offset += len;
-            return el;
-          })}
-        </svg>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">{shown}%</span>
-          <span className="av-note av-dim">
-            cleared
-          </span>
-        </div>
-      </div>
-      <div className="min-w-0 flex-1 space-y-2">
+    <div className="flex flex-col-reverse items-center gap-5 sm:flex-row">
+      <ul className="w-full min-w-0 flex-1 space-y-2.5">
         {STATUS_ORDER.map((key) => (
-          <div key={key} className="flex items-center gap-2 text-xs">
+          <li key={key} className="flex items-center gap-2.5 text-[12.5px]">
             <span
-              className="h-2 w-2 shrink-0 rounded-sm"
+              className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
               style={{ background: STATUS_META[key].hex }}
             />
-            <span className="flex-1 truncate text-slate-500">{STATUS_META[key].label}</span>
-            <span className="font-mono font-bold text-slate-700 tabular-nums">{counts[key]}</span>
-          </div>
+            <span className="flex-1 truncate text-[var(--ink-2)]">{tidy(STATUS_META[key].label)}</span>
+            <span className="font-semibold tabular-nums text-[var(--ink)]">{counts[key]}</span>
+          </li>
         ))}
-      </div>
+      </ul>
+      <svg viewBox="0 0 140 140" className="h-[140px] w-[140px] shrink-0" role="img" aria-label="DMC status mix">
+        <circle cx="70" cy="70" r={R} fill="none" stroke="#EEF1F6" strokeWidth={W} />
+        {segs.map((s) => (
+          <circle
+            key={s.k}
+            cx="70"
+            cy="70"
+            r={R}
+            fill="none"
+            stroke={STATUS_META[s.k].hex}
+            strokeWidth={W}
+            strokeDasharray={`${Math.max(0.01, s.frac * C - gap)} ${C}`}
+            strokeDashoffset={-(s.start * C)}
+            transform="rotate(-90 70 70)"
+          />
+        ))}
+        {segs
+          .filter((s) => s.frac >= 0.1)
+          .map((s) => (
+            <text
+              key={`t-${s.k}`}
+              x={s.x}
+              y={s.y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize="8.5"
+              fontWeight="700"
+              fill="#FFFFFF"
+            >
+              {Math.round(s.frac * 100)}%
+            </text>
+          ))}
+        <text x="70" y="68" textAnchor="middle" fontSize="20" fontWeight="700" fill="#172033">
+          {shown}%
+        </text>
+        <text x="70" y="84" textAnchor="middle" fontSize="10" fill="#64748B">
+          cleared
+        </text>
+      </svg>
     </div>
   );
 }
@@ -2146,31 +2414,31 @@ function WorkloadBars({
 }) {
   const max = Math.max(1, ...data.map((d) => d.count));
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {data.map((d) => (
         <div key={d.name}>
-          <div className="mb-1 flex items-baseline justify-between">
-            <span className="text-xs font-semibold tracking-wide text-slate-600">
-              {d.name}
-            </span>
-            <span className="font-mono text-xs text-slate-500 tabular-nums">
-              {d.count}
-              <span className="text-slate-400"> · {d.cov}c / {d.out}v</span>
+          <div className="mb-1.5 flex items-baseline justify-between gap-3">
+            <span className="text-[13px] font-semibold text-[var(--ink)]">{d.name}</span>
+            <span className="text-[12px] text-[var(--ink-3)]">
+              <b className="font-semibold tabular-nums text-[var(--ink)]">{d.count}</b>
+              <span className="ml-1.5 tabular-nums">
+                {d.cov} cov, {d.out} vid
+              </span>
             </span>
           </div>
-          <div className="flex h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className="flex h-2 gap-[2px] overflow-hidden rounded-full bg-[var(--tint-slate)]">
             <div
-              className="h-full bg-blue-600 transition-all duration-1000"
-              style={{ width: `${(d.cov / max) * 100}%` }}
+              className="h-full rounded-full transition-all duration-1000"
+              style={{ width: `${(d.cov / max) * 100}%`, background: '#2563EB' }}
             />
             <div
-              className="h-full bg-amber-500 transition-all duration-1000"
-              style={{ width: `${(d.out / max) * 100}%` }}
+              className="h-full rounded-full transition-all duration-1000"
+              style={{ width: `${(d.out / max) * 100}%`, background: '#F59E0B' }}
             />
           </div>
         </div>
       ))}
-      {data.length === 0 && <p className="text-xs italic text-slate-400">No data yet.</p>}
+      {data.length === 0 && <p className="av-note av-dim">No data yet.</p>}
     </div>
   );
 }
@@ -2212,50 +2480,69 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
 
   const CELL = 13;
   const GAP = 3;
-  const width = weeks.length * (CELL + GAP);
+  const LEFT = 26;
+  const TOP = 18;
+  const width = LEFT + weeks.length * (CELL + GAP);
 
+  // Limang antas, gaya ng heatmap sa reference — hindi tuloy-tuloy na opacity.
+  const LEVELS = ['#EEF2F8', '#D6E3FD', '#A8C4FA', '#5E8FF2', '#1D4ED8'];
   const shade = (n: number) => {
-    if (!n) return '#f1f5f9';
-    const t = Math.min(1, n / maxCount);
-    return `rgba(37,99,235,${0.22 + t * 0.78})`;
+    if (!n) return LEVELS[0];
+    return LEVELS[Math.min(4, Math.max(1, Math.ceil((n / maxCount) * 4)))];
   };
+  const DAYS = [
+    { l: 'Mon', r: 1 },
+    { l: 'Wed', r: 3 },
+    { l: 'Fri', r: 5 },
+  ];
 
   return (
-    <div className="overflow-x-auto pb-1 custom-scrollbar">
-      <svg width={width} height={7 * (CELL + GAP) + 18} className="block">
-        {months.map((m) => (
-          <text
-            key={`${m.index}-${m.label}`}
-            x={m.index * (CELL + GAP)}
-            y={10}
-            fill="#94a3b8"
-            fontSize="9"
-            fontFamily="ui-monospace, monospace"
-            letterSpacing="1"
-          >
-            {m.label.toUpperCase()}
-          </text>
-        ))}
-        {weeks.map((col, x) =>
-          col.map((cell, y) => (
-            <rect
-              key={`${x}-${y}`}
-              x={x * (CELL + GAP)}
-              y={18 + y * (CELL + GAP)}
-              width={CELL}
-              height={CELL}
-              rx={3}
-              fill={shade(cell.count)}
-              stroke={cell.count ? 'rgba(37,99,235,0.35)' : '#e2e8f0'}
-              strokeWidth="0.6"
+    <div>
+      <div className="custom-scrollbar overflow-x-auto pb-1">
+        <svg width={width} height={TOP + 7 * (CELL + GAP)} className="block">
+          {months.map((m) => (
+            <text
+              key={`${m.index}-${m.label}`}
+              x={LEFT + m.index * (CELL + GAP)}
+              y={10}
+              fill="#94A3B8"
+              fontSize="10"
+              fontWeight="500"
             >
-              <title>{`${fmtDate(cell.date)} — ${cell.count} coverage${
-                cell.count === 1 ? '' : 's'
-              }`}</title>
-            </rect>
-          ))
-        )}
-      </svg>
+              {m.label}
+            </text>
+          ))}
+          {DAYS.map((d) => (
+            <text key={d.l} x={0} y={TOP + d.r * (CELL + GAP) + CELL - 3} fill="#94A3B8" fontSize="9.5">
+              {d.l}
+            </text>
+          ))}
+          {weeks.map((col, x) =>
+            col.map((cell, y) => (
+              <rect
+                key={`${x}-${y}`}
+                x={LEFT + x * (CELL + GAP)}
+                y={TOP + y * (CELL + GAP)}
+                width={CELL}
+                height={CELL}
+                rx={3.5}
+                fill={shade(cell.count)}
+              >
+                <title>{`${fmtDate(cell.date)} — ${cell.count} coverage${
+                  cell.count === 1 ? '' : 's'
+                }`}</title>
+              </rect>
+            ))
+          )}
+        </svg>
+      </div>
+      <div className="mt-3 flex items-center justify-end gap-1.5 text-[11.5px] text-[var(--ink-3)]">
+        <span className="mr-1">Less</span>
+        {LEVELS.map((c) => (
+          <span key={c} className="h-[11px] w-[11px] rounded-[3px]" style={{ background: c }} />
+        ))}
+        <span className="ml-1">More</span>
+      </div>
     </div>
   );
 }
@@ -2265,8 +2552,8 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
 function StageBadge({ stage }: { stage: StageKey }) {
   const m = STAGE_META[stage];
   return (
-    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide text-slate-500">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
+    <span className={`av-pill sm ${m.chip}`}>
+      <span className="d" style={{ background: m.hex }} aria-hidden />
       {m.label}
     </span>
   );
@@ -2297,9 +2584,9 @@ function OutputCard({
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600">
           {o.personnel || '—'}
         </span>
-        {o.type && <span className="text-[9px] text-slate-9000">{o.type}</span>}
+        {o.type && <span className="text-[9px] text-slate-900">{o.type}</span>}
         {o.seconds > 0 && (
-          <span className="font-mono text-[9px] text-slate-9000">{fmtRuntime(o.seconds)}</span>
+          <span className="font-mono text-[9px] text-slate-900">{fmtRuntime(o.seconds)}</span>
         )}
       </div>
 
@@ -2331,7 +2618,7 @@ function OutputCard({
               onClick={() => onAdvance(o)}
               disabled={busy}
               title={`Move to ${STAGE_META[STAGE_ORDER[STAGE_ORDER.indexOf(o.stage) + 1]].label}`}
-              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-9000 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
+              className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-900 opacity-0 transition-all hover:border-blue-400 hover:text-blue-600 group-hover:opacity-100 disabled:opacity-40"
             >
               {busy ? '…' : '→'}
             </button>
@@ -2482,7 +2769,7 @@ function QuickLogModal({
 
   const field =
     'w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-900';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
@@ -2491,11 +2778,11 @@ function QuickLogModal({
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h3 className="text-base font-semibold tracking-tight text-slate-900">Log a video output</h3>
-            <p className="text-[11px] text-slate-9000">
+            <p className="text-[11px] text-slate-900">
               For work that does not pass through DMC — shoot, edit, reel, livestream.
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
+          <button onClick={onClose} className="text-slate-900 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -2652,12 +2939,8 @@ function QuickLogModal({
 function ReqBadge({ status, dense = false }: { status: ReqStatus; dense?: boolean }) {
   const m = REQ_META[status];
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 font-medium tracking-wide text-slate-500 ${
-        dense ? 'text-[10px]' : 'text-[11px]'
-      }`}
-    >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
+    <span className={`av-pill ${dense ? 'sm' : ''} ${m.chip}`}>
+      <span className="d" style={{ background: m.hex }} aria-hidden />
       {m.label}
     </span>
   );
@@ -2667,11 +2950,11 @@ function SLABadge({ state }: { state: SLAState }) {
   const m = SLA_META[state];
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-[10px] font-medium tracking-wide"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap text-[12px] font-medium"
       style={{ color: state === 'overdue' ? m.hex : undefined }}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.hex }} aria-hidden />
-      <span className={state === 'overdue' ? '' : 'text-slate-500'}>{m.label}</span>
+      <span className={state === 'overdue' ? 'font-semibold' : 'text-[var(--ink-3)]'}>{tidy(m.label)}</span>
     </span>
   );
 }
@@ -2691,55 +2974,73 @@ function KPIRing({
   size?: number;
 }) {
   const shown = useCountUp(value ?? 0);
-  const r = size / 2 - 10;
-  const C = 2 * Math.PI * r;
   const pass = value !== null && value >= target;
   const hex = value === null ? '#cbd5e1' : pass ? '#16a34a' : '#dc2626';
-  const pct = Math.max(0, Math.min(100, value ?? 0));
+
+  // Tuldok-tuldok na arko (220°), tatlong hanay — ang "Health Score" ng
+  // pangalawang reference. Ang itim na guhit ang target.
+  const N = 34;
+  const litPct = value === null ? 0 : Math.max(0, Math.min(100, shown));
+  const lit = Math.round((litPct / 100) * N);
+  const cx = 110;
+  const cy = 104;
+  const A0 = -200;
+  const A1 = 20;
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const dots: { x: number; y: number; i: number; row: number }[] = [];
+  for (let i = 0; i < N; i++) {
+    const t = rad(A0 + ((A1 - A0) * i) / (N - 1));
+    [86, 77, 68].forEach((r, row) =>
+      dots.push({ x: cx + r * Math.cos(t), y: cy + r * Math.sin(t), i, row })
+    );
+  }
+  const ta = rad(A0 + (A1 - A0) * (Math.max(0, Math.min(100, target)) / 100));
+  const scale = size / 128;
 
   return (
-    <div className="flex items-center gap-5">
-      <div className="relative shrink-0" style={{ width: size, height: size }}>
-        <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="11" />
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke={hex}
-            strokeWidth="11"
-            strokeLinecap="round"
-            strokeDasharray={`${(pct / 100) * C} ${C}`}
-            className="transition-all duration-1000"
-          />
-          {/* target marker */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke="#64748b"
-            strokeWidth="11"
-            strokeDasharray={`1.5 ${C}`}
-            strokeDashoffset={-((target / 100) * C)}
-          />
-        </svg>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-2xl font-black text-slate-900 tabular-nums">
-            {value === null ? '—' : `${shown}%`}
-          </span>
-          <span className="av-note av-dim">
-            target {target}%
-          </span>
-        </div>
-      </div>
-      <div className="min-w-0">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+      <svg
+        viewBox="0 0 220 150"
+        width={Math.round(220 * scale)}
+        height={Math.round(150 * scale)}
+        className="shrink-0"
+        role="img"
+        aria-label={`${label}: ${value === null ? 'no data' : `${value}%`}, target ${target}%`}
+      >
+        {dots.map((d) => (
+          <circle key={`${d.i}-${d.row}`} cx={d.x} cy={d.y} r={2.8} fill={d.i < lit ? hex : '#E4E9F0'} />
+        ))}
+        <line
+          x1={cx + 60 * Math.cos(ta)}
+          y1={cy + 60 * Math.sin(ta)}
+          x2={cx + 94 * Math.cos(ta)}
+          y2={cy + 94 * Math.sin(ta)}
+          stroke="#172033"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+        />
+        <text x={cx} y="100" textAnchor="middle" fontSize="32" fontWeight="700" fill="#172033">
+          {value === null ? '—' : `${shown}%`}
+        </text>
+        <text x={cx} y="121" textAnchor="middle" fontSize="11" fill="#64748B">
+          target {target}%
+        </text>
+      </svg>
+      <div className="min-w-0 flex-1">
         <p className="av-sec-h">{label}</p>
         <p className="av-note av-dim mt-1">{sub}</p>
-        <p className="av-note mt-2" style={{ color: hex, fontWeight: 550 }}>
+        <span
+          className={`av-pill mt-3 ${
+            value === null
+              ? 'bg-slate-100 text-slate-600'
+              : pass
+              ? 'bg-emerald-50 text-emerald-700'
+              : 'bg-red-50 text-red-700'
+          }`}
+        >
+          <span className="d" aria-hidden />
           {value === null ? 'No data yet' : pass ? 'On target' : 'Below target'}
-        </p>
+        </span>
       </div>
     </div>
   );
@@ -2902,17 +3203,17 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
       )}
 
       <div className="flex flex-wrap items-center gap-5 border-t border-slate-200 pt-3">
-        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+        <span className="flex items-center gap-2 text-[10px] text-slate-900">
           <span className="h-2 w-4 rounded-sm bg-blue-300" /> Demand (received)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+        <span className="flex items-center gap-2 text-[10px] text-slate-900">
           <span className="h-2 w-4 rounded-sm bg-green-500" /> Capacity (rendered)
         </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-9000">
+        <span className="flex items-center gap-2 text-[10px] text-slate-900">
           <span className="font-mono font-bold text-red-600">−n</span> Unserved gap
         </span>
         {capacityPct !== null && (
-          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-9000">
+          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-900">
             Service fulfilment {capacityPct}%
             {totals.excluded > 0 && (
               <span className="text-slate-400">
@@ -3003,7 +3304,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                 <p className="font-mono text-4xl font-black leading-none text-slate-900 tabular-nums">
                   {x.avg === null ? '—' : x.avg.toFixed(1)}
                 </p>
-                <p className="pb-1 text-xs text-slate-9000">avg working days from receipt</p>
+                <p className="pb-1 text-xs text-slate-900">avg working days from receipt</p>
               </div>
 
               {/* SLA bar: 100% = SLA limit */}
@@ -3018,14 +3319,14 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                 <div className="absolute inset-y-0 right-0 w-px bg-slate-400" />
               </div>
               <div className="mt-2 flex items-center justify-between text-[10px]">
-                <span className={over ? 'font-bold text-red-600' : 'text-slate-9000'}>
+                <span className={over ? 'font-bold text-red-600' : 'text-slate-900'}>
                   {x.avg === null
                     ? 'Nothing served yet'
                     : over
                     ? `${(x.avg - x.sla).toFixed(1)} WD over standard`
                     : `${(x.sla - x.avg).toFixed(1)} WD within standard`}
                 </span>
-                <span className="font-mono text-slate-9000">
+                <span className="font-mono text-slate-900">
                   {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
                 </span>
               </div>
@@ -3055,7 +3356,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-9000">
+                    <span className="font-mono text-[10px] text-slate-900">
                       {left === null ? '—' : left < 0 ? `${Math.abs(left)} WD over` : `${left} WD left`}
                     </span>
                     <SLABadge state={slaState(r)} />
@@ -3125,7 +3426,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
                   <p className="font-mono text-[10px] text-slate-400">{r.id}</p>
                 </td>
                 <td className="py-3 pr-3 text-slate-500">{r.client || '—'}</td>
-                <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                <td className="py-3 pr-3 font-mono text-[10px] text-slate-900">
                   {fmtDate(r.dateRequested)}
                 </td>
                 <td className="py-3 pr-3">
@@ -3260,7 +3561,7 @@ function ComplianceScorecard({
           <p className="text-sm font-semibold tracking-tight text-slate-900">
             Audit readiness
           </p>
-          <p className="text-[11px] text-slate-9000">
+          <p className="text-[11px] text-slate-900">
             PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025
           </p>
         </div>
@@ -3269,7 +3570,7 @@ function ComplianceScorecard({
             {metCount}
             <span className="text-lg text-slate-400">/{rows.length}</span>
           </p>
-          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">criteria met</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-900">criteria met</p>
         </div>
       </div>
 
@@ -3372,10 +3673,10 @@ function RequestTable({
                 <td className="p-3 font-mono text-[10px] uppercase text-slate-600">
                   {r.personnel || '—'}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-slate-9000">
+                <td className="p-3 font-mono text-[10px] text-slate-900">
                   {fmtDate(r.dateRequested)}
                 </td>
-                <td className="p-3 font-mono text-[10px] text-slate-9000">
+                <td className="p-3 font-mono text-[10px] text-slate-900">
                   {fmtDate(effectiveTarget(r))}
                 </td>
                 <td className="p-3 font-mono text-[10px] tabular-nums">
@@ -3401,7 +3702,7 @@ function RequestTable({
                 <td className="p-3 text-right">
                   <button
                     onClick={() => onEdit(r)}
-                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
+                    className="rounded border border-slate-200 px-2 py-1 text-[10px] font-bold text-slate-900 transition-colors hover:border-blue-400 hover:text-blue-600"
                   >
                     Update
                   </button>
@@ -3484,7 +3785,7 @@ function RequestModal({
 
   const field =
     'w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15';
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-900';
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-4 py-[6vh]">
@@ -3495,11 +3796,11 @@ function RequestModal({
             <h3 className="text-base font-semibold tracking-tight text-slate-900">
               {existing ? `Update request · ${existing.id}` : 'Log a service request'}
             </h3>
-            <p className="text-[11px] text-slate-9000">
+            <p className="text-[11px] text-slate-900">
               Request Register — PM-CRPD-AV-08-04 Rev 7 · Form FR-CRPD-AV No. 001
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-9000 hover:text-slate-900">
+          <button onClick={onClose} className="text-slate-900 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -3741,12 +4042,9 @@ function RequestModal({
 function ApprovalChip({ k, dense = false }: { k: ApprovalKey; dense?: boolean }) {
   const m = APPROVAL_META[k];
   return (
-    <span
-      className={`inline-flex items-center rounded-full border font-bold tracking-wider ${
-        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
-      } ${m.chip}`}
-    >
-      {m.short}
+    <span className={`av-pill ${dense ? 'sm' : ''} ${m.chip}`} title={m.label}>
+      <span className="d" aria-hidden />
+      {tidy(m.short)}
     </span>
   );
 }
@@ -3754,11 +4052,8 @@ function ApprovalChip({ k, dense = false }: { k: ApprovalKey; dense?: boolean })
 function FulfilChip({ f, dense = false }: { f: Fulfilment; dense?: boolean }) {
   const m = FULFIL_META[f];
   return (
-    <span
-      className={`inline-flex items-center rounded-full border font-bold tracking-wider ${
-        dense ? 'px-2 py-0.5 text-[9px]' : 'px-2.5 py-1 text-[10px]'
-      } ${m.chip}`}
-    >
+    <span className={`av-pill ${dense ? 'sm' : ''} ${m.chip}`}>
+      <span className="d" aria-hidden />
       {m.label}
     </span>
   );
@@ -3945,7 +4240,7 @@ function PipelineTrack({
           />
         </div>
         <span className="shrink-0 font-mono text-[10px] text-slate-400">{pct}%</span>
-        <span className="truncate text-[10px] text-slate-9000">
+        <span className="truncate text-[10px] text-slate-900">
           {locked ? 'awaiting approval' : nxt ? nxt.label : 'complete'}
         </span>
       </div>
@@ -4611,7 +4906,7 @@ existing?.pipeline ?? {
     `w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15${
       readOnly || approvalOnly || frozen ? ' pointer-events-none opacity-50' : ''
     }`;
-  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
+  const lab = 'mb-1.5 block text-[11px] font-medium text-slate-900';
 
   const submit = () =>
     onSubmit(
@@ -4651,12 +4946,12 @@ existing?.pipeline ?? {
               {f.urgentNote.trim() && <PriorityBadge priority="High" dense />}
               {approvalKey === 'for-evaluation' && <ApprovalChip k="for-evaluation" dense />}
             </div>
-            <p className="text-[11px] text-slate-9000">
+            <p className="text-[11px] text-slate-900">
               {existing ? `${existing.id} · ` : ''}Request Form FR-CRPD-AV No. 001 ·
               PM-CRPD-AV-08-04 Rev 7
             </p>
           </div>
-          <button onClick={onClose} className="shrink-0 text-slate-9000 hover:text-slate-900">
+          <button onClick={onClose} className="shrink-0 text-slate-900 hover:text-slate-900">
             ✕
           </button>
         </div>
@@ -4830,7 +5125,7 @@ existing?.pipeline ?? {
                   accept="image/jpeg"
                   disabled={readOnly || approvalOnly || frozen}
                   onChange={(e) => pickLetter(e.target.files?.[0] ?? null)}
-                  className="av-note file:av-btn-ghost file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
+                  className="av-note av-file file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
                 />
                 {letter && (
                   <span className="av-chip ok">
@@ -5127,7 +5422,7 @@ existing?.pipeline ?? {
                               className={`rounded border px-2 py-1 text-[11px] transition-colors ${
                                 on
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:border-slate-300 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-900 hover:border-slate-300 hover:text-slate-600'
                               }`}
                             >
                               {role}
@@ -5453,7 +5748,7 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
           <div key={r.svc}>
             <div className="mb-1 flex items-baseline justify-between gap-3">
               <span className="truncate text-xs font-semibold text-slate-600">{r.svc}</span>
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-9000">
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-900">
                 {r.given}/{r.asked} served
                 {r.missed > 0 && (
                   <span className="ml-2 font-bold text-red-600">−{r.missed}</span>
@@ -5629,13 +5924,13 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
                     <p className="font-mono text-[10px] text-slate-400">{e.id}</p>
                   </td>
                   <td className="py-3 pr-3 text-slate-500">{e.client || '—'}</td>
-                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-900">
                     {fmtDate(e.eventDate)}
                   </td>
                   <td className="py-3 pr-3">
                     <FulfilChip f={fulfilment(e)} dense />
                   </td>
-                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-9000">
+                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-900">
                     {e.requested.length}
                   </td>
                   <td className="py-3">
@@ -6100,7 +6395,7 @@ function ImportModal({
                 fr.onload = () => read(String(fr.result || ''));
                 fr.readAsText(f);
               }}
-              className="av-note file:av-btn-ghost file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
+              className="av-note av-file file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
             />
           </div>
 
@@ -6328,7 +6623,7 @@ function KioskMode({
             <p className="font-mono text-2xl font-black text-slate-900 tabular-nums md:text-3xl">
               {now.toLocaleTimeString('en-PH', { hour12: false })}
             </p>
-            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-9000">
+            <p className="text-[10px] uppercase tracking-[0.14em] text-slate-900">
               {now.toLocaleDateString('en-PH', {
                 weekday: 'long',
                 day: 'numeric',
@@ -6339,7 +6634,7 @@ function KioskMode({
           </div>
           <button
             onClick={onClose}
-            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-9000 transition-colors hover:text-slate-900"
+            className="rounded-md border border-slate-200 px-3 py-2 text-xs font-bold text-slate-900 transition-colors hover:text-slate-900"
           >
             ✕ Exit
           </button>
@@ -6366,7 +6661,7 @@ function KioskMode({
                       <p className="text-3xl font-black uppercase tracking-wider text-slate-900">
                         {m.name}
                       </p>
-                      <p className="font-mono text-xs text-slate-9000">
+                      <p className="font-mono text-xs text-slate-900">
                         {w?.cov ?? 0} cov · {w?.out ?? 0} vid
                       </p>
                     </div>
@@ -6382,7 +6677,7 @@ function KioskMode({
                         ) : (
                           <StageBadge stage={act.out.stage} />
                         )}
-                        <span className="font-mono text-xs text-slate-9000">{fmtDate(act.when)}</span>
+                        <span className="font-mono text-xs text-slate-900">{fmtDate(act.when)}</span>
                       </div>
                     </>
                   ) : (
@@ -6476,7 +6771,7 @@ function KioskMode({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-xl font-bold text-slate-800">{o.title}</p>
-                    <p className="font-mono text-xs text-slate-9000">
+                    <p className="font-mono text-xs text-slate-900">
                       {o.personnel} · {o.role || o.type}
                       {o.target ? ` · due ${fmtDate(o.target)}` : ''}
                     </p>
@@ -6558,7 +6853,7 @@ function KioskMode({
                         style={{ left: `${x.t}%` }}
                       />
                     </div>
-                    <p className="mt-3 text-xs text-slate-9000">{x.sub}</p>
+                    <p className="mt-3 text-xs text-slate-900">{x.sub}</p>
                   </div>
                 );
               })}
@@ -6744,7 +7039,7 @@ function AppWindow({
                     className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200"
                     style={{ borderTopColor: app.accent }}
                   />
-                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-9000">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-900">
                     Connecting to {app.name}
                   </p>
                 </div>
@@ -6857,7 +7152,7 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
             placeholder="Search systems, people, records and actions…"
             className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
           />
-          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-9000">
+          <kbd className="rounded border border-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-900">
             ESC
           </kbd>
         </div>
@@ -6953,7 +7248,7 @@ function PersonnelDrawer({
             <h3 className="truncate text-lg font-semibold tracking-tight text-slate-900">
               {OFFICIAL[name]?.fullName || name}
             </h3>
-            <p className="truncate text-xs text-slate-9000">{OFFICIAL[name]?.designation}</p>
+            <p className="truncate text-xs text-slate-900">{OFFICIAL[name]?.designation}</p>
           </div>
           <button
             onClick={onClose}
@@ -6971,7 +7266,7 @@ function PersonnelDrawer({
           ].map((s) => (
             <div key={s.k} className="bg-white p-4 text-center">
               <p className="font-mono text-2xl font-black text-slate-900 tabular-nums">{s.v}</p>
-              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-9000">{s.k}</p>
+              <p className="text-[10px] uppercase tracking-[0.1em] text-slate-900">{s.k}</p>
             </div>
           ))}
         </div>
@@ -7024,6 +7319,44 @@ const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'requests',   label: 'Register',   hint: 'Legacy request register' },
 ];
 
+/* ------------------------------------------------------------ APP SHELL -- */
+
+/** Sidebar grouping. Ang VIEWS pa rin ang pinagmumulan ng label at hint. */
+const NAV_GROUPS: { title: string; items: { key: ViewKey; icon: IconName }[] }[] = [
+  {
+    title: 'Operations',
+    items: [
+      { key: 'events', icon: 'events' },
+      { key: 'production', icon: 'production' },
+      { key: 'pulse', icon: 'archive' },
+    ],
+  },
+  {
+    title: 'Assurance',
+    items: [
+      { key: 'compliance', icon: 'compliance' },
+      { key: 'requests', icon: 'register' },
+      { key: 'reports', icon: 'reports' },
+    ],
+  },
+  {
+    title: 'Systems',
+    items: [
+      { key: 'portfolio', icon: 'services' },
+      { key: 'gatepass', icon: 'gatepass' },
+    ],
+  },
+];
+
+/** Pang-display lamang sa top bar. Ang roleOf() at ang server pa rin ang hukom. */
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Admin',
+  staff: 'AV staff',
+  dc: 'Division Chief',
+  srs: 'Supervising SRS',
+  none: 'Signed out',
+};
+
 /* ============================================================== MAIN APP == */
 
 export default function App() {
@@ -7070,6 +7403,8 @@ export default function App() {
   const [reqStatusFilter, setReqStatusFilter] = useState<'ALL' | ReqStatus>('ALL');
   const [reqStreamFilter, setReqStreamFilter] = useState<'ALL' | Stream>('ALL');
   const [view, setView] = useState<ViewKey>('events');
+  // UI lamang: ang sidebar drawer sa maliliit na screen.
+  const [navOpen, setNavOpen] = useState(false);
 
   /**
    * Sino ang nagpapatakbo ng dashboard ngayon.
@@ -8688,6 +9023,8 @@ export default function App() {
   // hangga't hindi ito nag-e-expire.
   if (AUTH_ENABLED && !user && !session) {
     return (
+      <>
+      <style dangerouslySetInnerHTML={{ __html: AV_CSS }} />
       <SignInGate
         onMount={(el) => {
           gateRef.current = el;
@@ -8698,104 +9035,321 @@ export default function App() {
         health={health}
         onRetry={checkHealth}
       />
+      </>
     );
   }
 
   return (
     <div className="av-page relative min-h-screen text-[13px] antialiased">
-      <div className="relative z-10 px-4 pb-28 pt-5 md:px-8">
+      {/* ------------------------------------------------------ SIDEBAR -- */}
+      <aside className={`av-side no-print ${navOpen ? 'open' : ''}`} aria-label="Main navigation">
+        <div className="av-side-brand">
+          <img src="/stii.png" alt="DOST-STII" className="h-8 w-auto shrink-0" />
+          <div className="av-wordmark">
+            AV Nexus
+            <small>Broadcast &amp; Digital Media</small>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNavOpen(false)}
+            aria-label="Close menu"
+            className="av-iconbtn sm ml-auto inline-flex lg:hidden"
+          >
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+
+        <nav className="av-side-scroll custom-scrollbar">
+          {NAV_GROUPS.map((g) => (
+            <div key={g.title} className="mb-1">
+              <p className="av-nav-sec">{g.title}</p>
+              {g.items.map((it) => {
+                const v = VIEWS.find((x) => x.key === it.key);
+                if (!v) return null;
+                const active = view === v.key;
+                const badge =
+                  v.key === 'events' ? events.length
+                  : v.key === 'requests' ? requests.length
+                  : v.key === 'production' ? outputs.length
+                  : 0;
+                const alert =
+                  v.key === 'events' ? approvalQueue.length + triageQueue.length : 0;
+                return (
+                  <button
+                    key={v.key}
+                    type="button"
+                    title={v.hint}
+                    data-on={active ? '1' : '0'}
+                    className="av-nav"
+                    onClick={() => {
+                      setView(v.key);
+                      setNavOpen(false);
+                    }}
+                  >
+                    <Icon name={it.icon} size={19} />
+                    <span className="truncate">{v.label}</span>
+                    {badge > 0 && <span className="ct">{badge}</span>}
+                    {alert > 0 && <span className="av-nav-dot" aria-label={`${alert} awaiting action`} />}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+
+          <div className="av-nav-rule" />
+          <p className="av-nav-sec">Quick actions</p>
+          <button
+            type="button"
+            className="av-nav"
+            title="Log a video output"
+            onClick={() => {
+              setLogOpen(true);
+              setNavOpen(false);
+            }}
+          >
+            <Icon name="output" size={19} />
+            <span className="truncate">Log video output</span>
+          </button>
+          <button
+            type="button"
+            className="av-nav"
+            title="AV evaluation queue"
+            onClick={() => {
+              setView('events');
+              setEvApproval('for-evaluation');
+              setNavOpen(false);
+            }}
+          >
+            <Icon name="triage" size={19} />
+            <span className="truncate">Triage queue</span>
+            {triageQueue.length > 0 && <span className="ct violet">{triageQueue.length}</span>}
+          </button>
+          <button
+            type="button"
+            className="av-nav"
+            title="Kiosk mode — for the office monitor"
+            onClick={() => {
+              setKioskOn(true);
+              setNavOpen(false);
+            }}
+          >
+            <Icon name="kiosk" size={19} />
+            <span className="truncate">Kiosk mode</span>
+          </button>
+          <button type="button" className="av-nav" title="Print IPCR" onClick={printSheet}>
+            <Icon name="print" size={19} />
+            <span className="truncate">Print IPCR</span>
+          </button>
+        </nav>
+
+        <div className="av-side-foot">
+          DOST-STII Broadcast &amp; Digital Media Section
+          <br />
+          PM-CRPD-AV-08-04 Rev 7
+        </div>
+      </aside>
+      {navOpen && <div className="av-scrim no-print lg:hidden" onClick={() => setNavOpen(false)} />}
+
+      <div className="av-shell">
+        {/* ------------------------------------------------------ TOP BAR -- */}
+        <header className="av-top no-print">
+          <div className="av-top-in">
+            <button
+              type="button"
+              onClick={() => setNavOpen(true)}
+              aria-label="Open menu"
+              className="av-iconbtn inline-flex lg:hidden"
+            >
+              <Icon name="menu" size={18} />
+            </button>
+            <div className="av-wordmark lg:hidden">AV Nexus</div>
+
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="av-search hidden sm:inline-flex"
+            >
+              <Icon name="search" size={17} />
+              <span>Search events, records, people…</span>
+              <kbd className="av-kbd">⌘K</kbd>
+            </button>
+
+            <div className="ml-auto flex items-center gap-2 md:gap-3">
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                aria-label="Search"
+                className="av-iconbtn inline-flex sm:hidden"
+              >
+                <Icon name="search" size={17} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { fetchTasks(true); fetchProduction(); }}
+                title={connMeta.label}
+                className="av-sync hidden md:inline-flex"
+              >
+                <span className={`h-2 w-2 rounded-full ${connMeta.dot}`} />
+                <span>{refreshing ? 'Syncing' : connMeta.short}</span>
+                <Icon name="refresh" size={14} className={refreshing ? 'animate-spin' : ''} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setView('events');
+                  setEvModal({ open: true, editing: null });
+                }}
+                title="New event request"
+                className="av-btn relative hidden items-center gap-2 sm:inline-flex"
+              >
+                <Icon name="plus" size={16} stroke={2.2} />
+                New event
+                {approvalQueue.length > 0 && (
+                  <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white" />
+                )}
+              </button>
+
+              {AUTH_ENABLED && (user || session) ? (
+                <div className="av-user">
+                  {user?.picture ? (
+                    <img src={user.picture} alt="" className="av-avatar" referrerPolicy="no-referrer" />
+                  ) : (
+                    <span className="av-avatar">{(myName || '?').slice(0, 1)}</span>
+                  )}
+                  <div className="hidden min-w-0 md:block">
+                    <p className="n">{myName}</p>
+                    <p className="r">{ROLE_LABEL[myRole] || myRole}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={signOut}
+                    title="Sign out"
+                    aria-label="Sign out"
+                    className="av-iconbtn sm inline-flex"
+                  >
+                    <Icon name="logout" size={15} />
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={actor}
+                  onChange={(e) => chooseActor(e.target.value)}
+                  title="Changes are recorded under this name. Not a security control."
+                  className="av-btn-ghost av-select"
+                  style={{ color: actor ? undefined : '#B42318' }}
+                >
+                  <option value="">Working as…</option>
+                  {Object.keys(OFFICIAL).map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* --------------------------------------------------------- HERO -- */}
+        <section
+          className={`av-band av-hero no-print ${
+            view === 'portfolio' || view === 'gatepass' ? 'slim' : ''
+          }`}
+        >
+          <div className="mx-auto flex max-w-[1400px] flex-wrap items-end justify-between gap-x-6 gap-y-4">
+            <div className="min-w-0">
+              <p className="av-hero-k">
+                {greetingFor(new Date())}
+                {myName ? `, ${String(myName).split(' ')[0]}` : ''}
+                <span className="ml-2 opacity-75">
+                  {new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric' })}
+                </span>
+              </p>
+              <h1 className="av-hero-h">{VIEWS.find((v) => v.key === view)?.label}</h1>
+              <p className="av-hero-p">{VIEWS.find((v) => v.key === view)?.hint}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
+                <Icon name="sheet" size={16} />
+                Pre-archival
+              </a>
+              <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
+                <Icon name="sheet" size={16} />
+                DMC sheet
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* ---------------------------------------------------- KPI STRIP -- */}
+        {view !== 'portfolio' && view !== 'gatepass' && (
+          <div className="av-kpis no-print">
+            <HeroStat
+              label="Awaiting action"
+              value={triageQueue.length + approvalQueue.length}
+              pct={events.length ? ((triageQueue.length + approvalQueue.length) / events.length) * 100 : 0}
+              hex="#D97706"
+              icon="triage"
+              sub={`${triageQueue.length} in triage, ${approvalQueue.length} for sign-off`}
+              onClick={() => setView('events')}
+            />
+            <HeroStat
+              label="In production"
+              value={prodSummary.live}
+              pct={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
+              hex="#2563EB"
+              icon="production"
+              sub={`${prodSummary.overdue} overdue of ${prodSummary.total} outputs`}
+              onClick={() => setView('production')}
+            />
+            <HeroStat
+              label="DMC cleared"
+              value={
+                stats.total
+                  ? Math.round(((stats.counts.transferred + stats.counts.archived) / stats.total) * 100)
+                  : 0
+              }
+              suffix="%"
+              pct={
+                stats.total
+                  ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100
+                  : 0
+              }
+              hex="#0E9F9A"
+              icon="archive"
+              sub={`${stats.counts.transferred + stats.counts.archived} of ${stats.total} coverages`}
+              onClick={() => setView('pulse')}
+            />
+            <HeroStat
+              label="Approved requests executed"
+              value={kpi.execution ?? 0}
+              suffix={kpi.execution === null ? '' : '%'}
+              pct={kpi.execution ?? 0}
+              hex={
+                kpi.execution === null
+                  ? '#94A3B8'
+                  : kpi.execution >= KPI_EXECUTION_TARGET
+                  ? '#16A34A'
+                  : '#DC2626'
+              }
+              icon="compliance"
+              sub={
+                kpi.execution === null
+                  ? 'No approved requests yet'
+                  : `Target ${KPI_EXECUTION_TARGET}%, PM 2.1`
+              }
+              onClick={() => setView('compliance')}
+            />
+          </div>
+        )}
+
+        <div
+          className={`relative z-10 px-4 pb-28 md:px-8 ${
+            view === 'portfolio' || view === 'gatepass' ? 'pt-6' : 'pt-8'
+          }`}
+        >
         {/* ================================================ DASHBOARD ==== */}
         <div className="no-print space-y-6">
-          {/* ---------------------------------------------- APP BAR -- */}
-          <header className="av-bar -mx-4 -mt-5 mb-6 px-4 pt-4 md:-mx-8 md:px-8">
-            <div className="mx-auto max-w-[1400px]">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3">
-                <img src="/stii.png" alt="DOST-STII" className="h-6 w-auto shrink-0 brightness-0 invert md:h-7" />
-                <div className="av-mark">
-                  AV Nexus{' '}
-                  <span className="hidden sm:inline">· Broadcast &amp; Digital Media Section</span>
-                </div>
-
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                  <button onClick={() => setPaletteOpen(true)} className="av-bar-btn hidden md:inline-flex">
-                    Search <kbd className="ml-1 opacity-60">⌘K</kbd>
-                  </button>
-                  <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="av-bar-btn hidden lg:inline-flex">
-                    Pre-archival
-                  </a>
-                  <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="av-bar-btn hidden lg:inline-flex">
-                    DMC sheet
-                  </a>
-
-                  {AUTH_ENABLED && (user || session) ? (
-                    <span className="av-bar-btn flex items-center gap-2">
-                      {user?.picture ? (
-                        <img src={user.picture} alt="" className="h-5 w-5 rounded-full" referrerPolicy="no-referrer" />
-                      ) : (
-                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/15">
-                          {(myName || '?').slice(0, 1)}
-                        </span>
-                      )}
-                      <span className="max-w-[120px] truncate">{myName}</span>
-                      <button onClick={signOut} title="Sign out" className="opacity-60 hover:opacity-100">
-                        Sign out
-                      </button>
-                    </span>
-                  ) : (
-                    <select
-                      value={actor}
-                      onChange={(e) => chooseActor(e.target.value)}
-                      title="Changes are recorded under this name. Not a security control."
-                      className="av-bar-btn bg-transparent"
-                      style={{ color: actor ? '#A8C2DE' : '#FCA5A5' }}
-                    >
-                      <option value="" style={{ color: '#0E2A47' }}>Working as…</option>
-                      {Object.keys(OFFICIAL).map((n) => (
-                        <option key={n} value={n} style={{ color: '#0E2A47' }}>{n}</option>
-                      ))}
-                    </select>
-                  )}
-
-                  <button
-                    onClick={() => { fetchTasks(true); fetchProduction(); }}
-                    title={connMeta.label}
-                    className="av-bar-meta flex items-center gap-2 px-1"
-                  >
-                    <span className={`h-1.5 w-1.5 rounded-full ${connMeta.dot}`} />
-                    <span className="font-mono">{refreshing ? 'Syncing' : connMeta.short}</span>
-                  </button>
-                </div>
-              </div>
-
-              <nav className="custom-scrollbar hidden gap-0.5 overflow-x-auto md:flex">
-                {VIEWS.map((v) => {
-                  const active = view === v.key;
-                  const badge =
-                    v.key === 'events' ? events.length
-                    : v.key === 'requests' ? requests.length
-                    : v.key === 'production' ? outputs.length
-                    : 0;
-                  const alert =
-                    v.key === 'events' ? approvalQueue.length + triageQueue.length : 0;
-                  return (
-                    <button
-                      key={v.key}
-                      onClick={() => setView(v.key)}
-                      title={v.hint}
-                      data-on={active ? '1' : '0'}
-                      className="av-tab relative shrink-0"
-                    >
-                      {v.label}
-                      {badge > 0 && <b>{badge}</b>}
-                      {alert > 0 && (
-                        <span className="absolute right-0 top-1.5 h-1.5 w-1.5 rounded-full bg-amber-400" />
-                      )}
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-          </header>
 
           <main className="mx-auto max-w-[1400px] space-y-9">
             {healthChecked && health && health.problems.length > 0 && (
@@ -8978,11 +9532,11 @@ export default function App() {
                   </p>
                   <WorkloadBars data={workload} />
                   <div className="mt-4 flex gap-4 border-t border-slate-200 pt-3">
-                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-900">
                       <span className="h-1.5 w-3 rounded-full bg-blue-600 hover:bg-blue-700" />
                       Field coverage (DMC)
                     </span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-slate-9000">
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-900">
                       <span className="h-1.5 w-3 rounded-full bg-amber-400" />
                       Video output
                     </span>
@@ -9069,7 +9623,7 @@ export default function App() {
                             ) : (
                               <StageBadge stage={act.out.stage} />
                             )}
-                            <span className="font-mono text-[10px] text-slate-9000">
+                            <span className="font-mono text-[10px] text-slate-900">
                               {fmtDate(act.when)}
                             </span>
                           </div>
@@ -9103,7 +9657,7 @@ export default function App() {
                           className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                             prodPerson === n
                               ? 'border-blue-300 bg-blue-50 text-blue-600'
-                              : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                              : 'border-slate-200 text-slate-900 hover:text-slate-600'
                           }`}
                         >
                           {n === 'ALL' ? 'All' : n}
@@ -9123,7 +9677,7 @@ export default function App() {
               {prodReady === 'missing' ? (
                 <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-8 text-center">
                   <p className="mb-2 text-sm font-bold text-slate-900">Production Log is not set up yet</p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-900">
                     In the AV Production Log spreadsheet, open Extensions → Apps Script, paste{' '}
                     <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
                     <span className="font-mono text-blue-600">authorize()</span> then{' '}
@@ -9228,7 +9782,7 @@ export default function App() {
                       className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none"
                     />
                     {query && (
-                      <button onClick={() => setQuery('')} className="text-xs text-slate-9000 hover:text-slate-900">
+                      <button onClick={() => setQuery('')} className="text-xs text-slate-900 hover:text-slate-900">
                         ✕
                       </button>
                     )}
@@ -9241,7 +9795,7 @@ export default function App() {
                         className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                           filterPerson === p
                             ? 'border-blue-300 bg-blue-50 text-blue-600'
-                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                            : 'border-slate-200 text-slate-900 hover:text-slate-600'
                         }`}
                       >
                         {p === 'ALL' ? 'All personnel' : p}
@@ -9255,7 +9809,7 @@ export default function App() {
                         className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                           filterStatus === s
                             ? 'border-red-300 bg-red-100 text-red-600'
-                            : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                            : 'border-slate-200 text-slate-900 hover:text-slate-600'
                         }`}
                       >
                         {s === 'ALL' ? 'All status' : STATUS_META[s as StatusKey].label}
@@ -9292,7 +9846,7 @@ export default function App() {
                             {relativeDay(cov.dateObj) && (
                               <>
                                 <span className="text-slate-400">•</span>
-                                <span className="text-slate-9000">{relativeDay(cov.dateObj)}</span>
+                                <span className="text-slate-900">{relativeDay(cov.dateObj)}</span>
                               </>
                             )}
                           </div>
@@ -9392,7 +9946,7 @@ export default function App() {
                         <kbd className="rounded border border-slate-200 bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500">
                           {k}
                         </kbd>
-                        <span className="text-xs text-slate-9000">{v}</span>
+                        <span className="text-xs text-slate-900">{v}</span>
                       </div>
                     ))}
                   </div>
@@ -9430,7 +9984,7 @@ export default function App() {
                       <p className="mb-2 text-sm font-bold text-slate-900">
                         Events sheet is not connected
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-900">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
                         paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
@@ -9513,7 +10067,7 @@ export default function App() {
                             <p className="av-label" style={{ color: 'var(--waiting)' }}>
                               Awaiting approver · {approvalQueue.length}
                             </p>
-                            <span className="font-mono text-[10px] text-slate-9000">
+                            <span className="font-mono text-[10px] text-slate-900">
                               Supervising SRS → Division Chief
                             </span>
                           </div>
@@ -9543,7 +10097,7 @@ export default function App() {
                                   <button
                                     onClick={() => notifyApprover(ev.id)}
                                     title="Resend approval email"
-                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-9000 transition-colors hover:border-blue-400 hover:text-blue-600"
+                                    className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-900 transition-colors hover:border-blue-400 hover:text-blue-600"
                                   >
                                     Email
                                   </button>
@@ -9566,7 +10120,7 @@ export default function App() {
                           {evQuery && (
                             <button
                               onClick={() => setEvQuery('')}
-                              className="text-xs text-slate-9000 hover:text-slate-900"
+                              className="text-xs text-slate-900 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -9649,7 +10203,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                                 evApproval === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-900 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All approval' : APPROVAL_META[k as ApprovalKey].label}
@@ -9665,7 +10219,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                                 evFulfil === k
                                   ? 'border-red-300 bg-red-100 text-red-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-900 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All service' : FULFIL_META[k as Fulfilment].label}
@@ -9679,7 +10233,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                                 evPriority === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-900 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All priority' : `${k} priority`}
@@ -9757,7 +10311,7 @@ export default function App() {
                       <p className="mb-2 text-sm font-bold text-slate-900">
                         Request Register is not set up
                       </p>
-                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                      <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-900">
                         In the AV Production Log spreadsheet, open Extensions → Apps Script,
                         paste <span className="font-mono text-slate-600">AVNexus.gs</span>, fill in
                         EMAIL_SRS and EMAIL_DC, run{' '}
@@ -9780,7 +10334,7 @@ export default function App() {
                           {reqQuery && (
                             <button
                               onClick={() => setReqQuery('')}
-                              className="text-xs text-slate-9000 hover:text-slate-900"
+                              className="text-xs text-slate-900 hover:text-slate-900"
                             >
                               ✕
                             </button>
@@ -9794,7 +10348,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                                 reqStatusFilter === k
                                   ? 'border-blue-300 bg-blue-50 text-blue-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-900 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL'
@@ -9810,7 +10364,7 @@ export default function App() {
                               className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
                                 reqStreamFilter === k
                                   ? 'border-red-300 bg-red-100 text-red-600'
-                                  : 'border-slate-200 text-slate-9000 hover:text-slate-600'
+                                  : 'border-slate-200 text-slate-900 hover:text-slate-600'
                               }`}
                             >
                               {k === 'ALL' ? 'All streams' : STREAM_META[k as Stream].short}
@@ -9850,7 +10404,7 @@ export default function App() {
                   <p className="mb-2 text-sm font-bold text-slate-900">
                     Register is not connected
                   </p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-9000">
+                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-900">
                     No compliance data can be shown until requests are recorded. Paste{' '}
                     <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
                     <span className="font-mono text-blue-600">authorize()</span> then{' '}
@@ -9963,7 +10517,7 @@ export default function App() {
                             <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
                               {r.roleCount}
                             </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-9000 tabular-nums">
+                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
                               {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
                             </td>
                             <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums">
@@ -9975,7 +10529,7 @@ export default function App() {
                                 <span className="av-dim">0</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-[12px] text-slate-9000">
+                            <td className="px-4 py-3 text-[12px] text-slate-900">
                               {r.top.length
                                 ? r.top.map(([role, n]) => `${role} (${n})`).join(', ')
                                 : '—'}
@@ -10514,66 +11068,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* ------------------------------------------------------- DOCK ---- */}
-      <div className="av-dock no-print fixed bottom-5 left-1/2 z-[70] -translate-x-1/2">
-        <div className="av-float flex items-center gap-0.5 border border-[var(--rule)] bg-white p-1.5">
-          <button
-            onClick={() => setPaletteOpen(true)}
-            title="Quick jump"
-            className="flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-          >
-            Search
-          </button>
-          <button
-            onClick={() => setLogOpen(true)}
-            title="Log a video output"
-            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-          >
-            Output
-          </button>
-          <button
-            onClick={() => {
-              setView('events');
-              setEvApproval('for-evaluation');
-            }}
-            title="AV evaluation queue"
-            className="relative flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-          >
-            Triage
-            {triageQueue.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-purple-100 px-1.5 font-mono text-[10px] font-bold text-purple-700">
-                {triageQueue.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => {
-              setView('events');
-              setEvModal({ open: true, editing: null });
-            }}
-            title="New event request"
-            className="relative flex h-9 items-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-          >
-            New event
-            {approvalQueue.length > 0 && (
-              <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-amber-500" />
-            )}
-          </button>
-          <button
-            onClick={() => setKioskOn(true)}
-            title="Kiosk mode — for the office monitor"
-            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-          >
-            Kiosk
-          </button>
-          <button
-            onClick={printSheet}
-            title="Print IPCR"
-            className="flex h-9 items-center justify-center rounded-md px-3 text-[11px] font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-          >
-            Print
-          </button>
-        </div>
       </div>
 
       {/* ------------------------------------------------- MOBILE NAV ---- */}
@@ -10582,12 +11076,12 @@ export default function App() {
       <nav className="av-mobnav no-print">
         {(
           [
-            { k: 'events', label: 'Events', g: '◼', badge: triageQueue.length + approvalQueue.length },
-            { k: 'production', label: 'Production', g: '▶', badge: 0 },
-            { k: 'compliance', label: 'Compliance', g: '◈', badge: 0 },
-            { k: 'pulse', label: 'Archive', g: '▤', badge: 0 },
-            { k: 'reports', label: 'Reports', g: '▦', badge: 0 },
-          ] as { k: ViewKey; label: string; g: string; badge: number }[]
+            { k: 'events', label: 'Events', g: 'events', badge: triageQueue.length + approvalQueue.length },
+            { k: 'production', label: 'Production', g: 'production', badge: 0 },
+            { k: 'compliance', label: 'Compliance', g: 'compliance', badge: 0 },
+            { k: 'pulse', label: 'Archive', g: 'archive', badge: 0 },
+            { k: 'reports', label: 'Reports', g: 'reports', badge: 0 },
+          ] as { k: ViewKey; label: string; g: IconName; badge: number }[]
         ).map((m) => (
           <button
             key={m.k}
@@ -10598,11 +11092,9 @@ export default function App() {
             data-on={view === m.k ? '1' : '0'}
             className="av-mobtab relative"
           >
-            <span className="g" aria-hidden>
-              {m.g}
-            </span>
+            <Icon name={m.g} size={20} />
             {m.label}
-            {m.badge > 0 && <span className="b font-mono">{m.badge}</span>}
+            {m.badge > 0 && <span className="b">{m.badge}</span>}
           </button>
         ))}
       </nav>
@@ -10614,30 +11106,31 @@ export default function App() {
           setEvModal({ open: true, editing: null });
         }}
         aria-label="New event request"
-        className="av-float no-print fixed right-4 z-[71] flex h-12 w-12 items-center justify-center text-[22px] font-light text-white md:hidden"
+        className="av-fab no-print"
         style={{
           bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))',
           background: 'var(--signal)',
           borderRadius: 'var(--r-pill)',
         }}
       >
-        +
+        <Icon name="plus" size={22} stroke={2} />
       </button>
 
       {/* ----------------------------------------------------- TOASTS ---- */}
-      <div className="no-print fixed right-5 top-5 z-[100] flex w-72 flex-col gap-2">
+      <div className="no-print fixed right-4 top-[84px] z-[100] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`animate-slidein rounded-lg border px-4 py-3 text-xs shadow-md ${
+            className={`av-toast animate-slidein ${
               t.tone === 'err'
-                ? 'border-red-200 bg-red-50 text-red-800'
+                ? 'err'
                 : t.tone === 'new'
-                ? 'border-blue-300 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-600'
+                ? 'new'
+                : ''
             }`}
           >
-            {t.text}
+            <span className="d" aria-hidden />
+            <span>{t.text}</span>
           </div>
         ))}
       </div>
@@ -10718,239 +11211,410 @@ export default function App() {
         />
       )}
 
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;450;500;600;700&display=swap');
-
-        /* ====================================================================
-           AV NEXUS — design tokens
-           Ang asul ng DOST, hinila papalalim para kayanin nitong maging
-           GROUND at hindi lang link colour. Doon nanggagaling ang timbang.
-           IBM Plex: ginawa para sa technical documentation, may totoong
-           tabular figures, at open source — walang lisensyang sasagutin.
-           ==================================================================== */
-        :root {
-          --ink: #0E2A47;
-          --ink-2: #37506B;
-          --ink-3: #6B7F95;
-          --signal: #1D4ED8;
-          --paper: #EDF2F9;
-          --card: #FFFFFF;
-          --rule: #E2E9F2;
-          --rule-soft: #F0F4F9;
-          /* Malambot na tint para sa maliliit na stat box — ang paraan ng
-             pangatlong peg para paghiwalayin ang numero nang walang border. */
-          --tint-blue: #EAF0FC;
-          --tint-green: #E7F4EF;
-          --tint-amber: #FCF3E4;
-          --tint-violet: #F1ECFD;
-          --tint-slate: #EDF1F7;
-          /* Mga estado, pinalalim. Ang Tailwind 500s ay parang kendi katabi ng ink. */
-          --triage: #6D28D9;
-          --waiting: #B45309;
-          --cleared: #0F766E;
-          --served: #047857;
-          --refused: #B42318;
-          --standby: #64748B;
-          --moved: #A16207;
-          --lift: 0 1px 3px rgba(14,42,71,.05), 0 1px 2px rgba(14,42,71,.03);
-          --lift-raise: 0 6px 18px -6px rgba(14,42,71,.12), 0 2px 5px rgba(14,42,71,.04);
-          --lift-float: 0 18px 44px -12px rgba(14,42,71,.22), 0 3px 8px rgba(14,42,71,.06);
-          /* Malalaking radius — ito ang unang bagay na nagpapalambot ng
-             interface sa tatlong peg. Iba-iba pa rin ayon sa lalim. */
-          --r-tight: 9px;
-          --r-card: 16px;
-          --r-float: 22px;
-          --r-pill: 999px;
-        }
-
-        html {
-          font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
-        }
-        body { background: var(--paper); }
-        .font-display { font-family: inherit; letter-spacing: -0.015em; }
-        /* Mono LAMANG kung talagang code ang bagay: reference, petsa, bilang. */
-        .font-mono, code, kbd {
-          font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-          font-variant-numeric: tabular-nums;
-        }
-
-        /* ---------------------------------------------------- app shell --- */
-        .av-page { background: var(--paper); color: var(--ink); }
-        .av-bar { background: var(--ink); color: #fff; }
-        .av-mark { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: #fff; }
-        .av-mark span { font-weight: 400; color: #93B4D8; }
-        .av-bar-meta { font-size: 12px; color: #93B4D8; }
-        .av-bar-btn {
-          font-size: 12px; color: #A8C2DE; padding: 6px 13px; border-radius: var(--r-pill);
-          border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.05);
-          transition: background .15s, color .15s;
-        }
-        .av-bar-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
-        .av-tab {
-          padding: 9px 13px; font-size: 13px; font-weight: 450; color: #A8C2DE;
-          border-bottom: 2px solid transparent; white-space: nowrap;
-          transition: color .15s, border-color .15s;
-        }
-        .av-tab:hover { color: #D6E4F3; }
-        .av-tab[data-on='1'] { color: #fff; border-bottom-color: #5B9BD5; font-weight: 500; }
-        .av-track { border-radius: var(--r-pill); }
-        .av-fill { border-radius: var(--r-pill); }
-        .av-tab b { font-weight: 400; opacity: .6; margin-left: 5px; }
-
-        /* -------------------------------------------------------- cards --- */
-        .av-card {
-          background: var(--card); border: 1px solid var(--rule);
-          border-radius: var(--r-card); box-shadow: var(--lift);
-        }
-        .av-pill { border-radius: var(--r-pill); }
-        /* Number-first: ang bilang ang bida, maliit ang label sa ilalim. */
-        .av-fig { font-size: 34px; font-weight: 600; letter-spacing: -0.025em; line-height: 1; }
-        .av-fig-sm { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
-        .av-unit { font-size: 15px; font-weight: 500; color: var(--ink-3); margin-left: 2px; }
-        .av-tintbox { border-radius: var(--r-tight); padding: 12px 14px; }
-        .av-dot {
-          width: 34px; height: 34px; border-radius: var(--r-pill);
-          display: flex; align-items: center; justify-content: center;
-          font-size: 13px; font-weight: 600; flex-shrink: 0;
-        }
-        /* Channel strip: ang kaliwang rail ang may dala ng estado. */
-        .av-strip {
-          display: grid; grid-template-columns: 4px 1fr; overflow: hidden;
-          background: var(--card); border: 1px solid var(--rule);
-          border-radius: var(--r-card); box-shadow: var(--lift);
-          transition: box-shadow .18s, border-color .18s;
-        }
-        .av-strip:hover { border-color: #CBD8E8; box-shadow: var(--lift-raise); }
-        .av-title { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; color: var(--ink); }
-        .av-state-k { font-size: 12.5px; font-weight: 550; }
-        .av-state-s { font-size: 11.5px; color: var(--ink-3); }
-
-        /* Labelled values — hindi na hanay ng tuldok. */
-        .av-idl { display: flex; flex-wrap: wrap; gap: 3px 18px; font-size: 12px; color: var(--ink-3); }
-        .av-idl i { font-style: normal; opacity: .72; }
-        .av-idl b { font-weight: 450; color: var(--ink-2); }
-
-        .av-chip {
-          display: inline-flex; align-items: center; gap: 5px;
-          font-size: 12px; padding: 4px 11px; border-radius: var(--r-pill);
-          border: 1px solid var(--rule); color: var(--ink-2); background: var(--rule-soft);
-        }
-        .av-chip.ok    { border-color: #A7D9C8; background: #EAF7F2; color: var(--served); }
-        .av-chip.gap   { border-color: #F2C9C4; background: #FDF0EE; color: var(--refused); }
-        .av-chip.nocap { border-color: #EED9A8; background: #FCF6E8; color: var(--waiting); }
-        .av-chip.lock  { border-style: dashed; background: transparent; color: var(--ink-3); }
-        .av-chip.add   { border-color: #B9CDEA; background: #EEF4FD; color: var(--signal); }
-
-        .av-track { height: 5px; border-radius: 3px; background: var(--rule-soft); overflow: hidden; }
-        .av-fill  { height: 100%; border-radius: 3px; background: var(--signal); transition: width .6s cubic-bezier(.16,1,.3,1); }
-
-        .av-note { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
-        .av-note b { font-weight: 550; }
-        .av-dim { color: var(--ink-3); }
-        .av-hair { border-top: 1px solid var(--rule-soft); }
-
-        /* -------------------------------------------------- headline nos -- */
-        /* BENTO — magkakaibang laki ang card ayon sa bigat ng laman.
-           Ang "waiting on someone" ang pinakamalaki dahil 'yon ang
-           kinikilos mo ngayon. Sa mobile, dalawang hanay lang. */
-        .av-bento { display: grid; gap: 10px; grid-template-columns: repeat(2, 1fr); }
-        @media (min-width: 900px) { .av-bento { grid-template-columns: repeat(4, 1fr); } }
-        .av-bento > .wide { grid-column: span 2; }
-        .av-bento > .full { grid-column: 1 / -1; }
-        .av-head {
-          background: var(--card); border: 1px solid var(--rule);
-          border-radius: var(--r-card); box-shadow: var(--lift);
-          padding: 16px 18px; min-width: 0;
-        }
-        .av-head .l { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; font-weight: 500; }
-        .av-head .s { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
-
-        /* -------------------------------------------------- mobile nav --- */
-        .av-mobnav {
-          position: fixed; left: 0; right: 0; z-index: 70;
-          bottom: 0; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-          background: rgba(14,42,71,.96); backdrop-filter: blur(10px);
-          border-top: 1px solid rgba(255,255,255,.08);
-          display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
-        }
-        @media (min-width: 768px) { .av-mobnav { display: none; } }
-        .av-mobtab {
-          display: flex; flex-direction: column; align-items: center; gap: 3px;
-          padding: 7px 2px; border-radius: var(--r-tight);
-          font-size: 10.5px; font-weight: 450; color: #93B4D8; line-height: 1.2;
-        }
-        .av-mobtab[data-on='1'] { background: rgba(91,155,213,.18); color: #fff; font-weight: 550; }
-        .av-mobtab .g { font-size: 15px; line-height: 1; }
-        .av-mobtab .b {
-          position: absolute; transform: translate(16px, -4px);
-          min-width: 15px; height: 15px; padding: 0 4px; border-radius: var(--r-pill);
-          background: #B45309; color: #fff; font-size: 9.5px; font-weight: 600;
-          display: flex; align-items: center; justify-content: center;
-        }
-        /* Espasyo para sa bottom bar, at itago ang lumang floating dock. */
-        @media (max-width: 767px) {
-          .av-dock { display: none !important; }
-          .av-page { padding-bottom: 74px; }
-          .av-title { font-size: 15px; }
-          .av-fig { font-size: 30px; }
-        }
-
-        /* Ang daloy ay iginuguhit bilang daloy — sunod-sunod nga naman. */
-        .av-step { flex: 1 1 140px; min-width: 128px; }
-        .av-step .l { font-size: 12px; color: var(--ink-2); margin-top: 5px; font-weight: 500; }
-        .av-step .w { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
-
-        .av-sec-h { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
-        .av-sec-p { font-size: 12.5px; color: var(--ink-3); }
-        .av-label { font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
-
-        .av-btn {
-          background: var(--signal); color: #fff; font-size: 13px; font-weight: 500;
-          padding: 8px 16px; border-radius: var(--r-pill); transition: background .15s;
-        }
-        .av-btn:hover { background: #1740B0; }
-        .av-btn-ghost {
-          border: 1px solid var(--rule); color: var(--ink-2); font-size: 13px;
-          padding: 7px 15px; border-radius: var(--r-pill); background: var(--card);
-          transition: border-color .15s, color .15s;
-        }
-        .av-btn-ghost:hover { border-color: #C2CEDC; color: var(--ink); }
-
-        .av-float { box-shadow: var(--lift-float); border-radius: var(--r-float); }
-
-        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #C6D0DC; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #A3B2C4; }
-
-        @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes riseup { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
-        @keyframes slidein { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
-        @keyframes kioskbar { from { width: 0 } to { width: 100% } }
-        @keyframes kioskticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
-        .kiosk-ticker { animation: kioskticker 45s linear infinite; }
-        .animate-fadein { animation: fadein .2s ease-out }
-        .animate-riseup { animation: riseup .18s cubic-bezier(.16,1,.3,1) }
-        .animate-slidein { animation: slidein .28s cubic-bezier(.16,1,.3,1) }
-        @media (prefers-reduced-motion: reduce) {
-          *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
-        }
-        :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
-        ::selection { background: rgba(29,78,216,0.14); }
-
-        @media print {
-          .no-print { display: none !important; }
-          .print-only { display: block !important; }
-          html, body { background: white !important; color: black !important; font-family: 'Times New Roman', Times, serif !important; }
-          thead { display: table-header-group; }
-          tr, .avoid-break { break-inside: avoid; page-break-inside: avoid; }
-          @page { size: A4; margin: 18mm 14mm; }
-        }
-      `,
-        }}
-      />
+      <style dangerouslySetInnerHTML={{ __html: AV_CSS }} />
     </div>
   );
 }
+
+/* ==================================================== DESIGN SYSTEM ===== */
+
+/*
+ * Ang buong visual system, nasa isang constant para magamit ng main shell
+ * AT ng SignInGate (na nagre-render bago ang shell).
+ *
+ * Neutral na ground, puting card, DOST blue bilang accent. Ang shell ay
+ * sidebar + top bar + asul na hero band na may KPI cards na nakapatong.
+ * Public Sans: ang typeface ng U.S. Web Design System — neutral, may totoong
+ * tabular figures, open source. IBM Plex Mono para sa ID at reference lamang.
+ *
+ * TANDAAN: walang `display` sa .av-btn, .av-iconbtn, .av-search at .av-sync —
+ * sadya. Kapag mayroon, natatalo nito ang `hidden` / `md:inline-flex` ng
+ * Tailwind (mas huling stylesheet ito), at hindi na nagtatago ang button.
+ */
+const AV_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --ink: #172033;
+  --ink-2: #475569;
+  --ink-3: #64748B;
+  --ink-4: #94A3B8;
+  --signal: #2563EB;
+  --signal-strong: #1D4ED8;
+  --signal-soft: #EEF3FF;
+  --paper: #F3F5FA;
+  --card: #FFFFFF;
+  --surface-2: #F7F9FC;
+  --rule: #E3E8F0;
+  --rule-soft: #EEF2F7;
+  --rule-strong: #D3DBE6;
+  --tint-blue: #EEF3FF;
+  --tint-green: #E8F6F0;
+  --tint-amber: #FDF4E6;
+  --tint-violet: #F3EEFE;
+  --tint-slate: #EEF1F6;
+  --tint-teal: #E6F6F5;
+  --tint-red: #FDEFED;
+  --triage: #6D28D9;
+  --waiting: #B45309;
+  --cleared: #0F766E;
+  --served: #047857;
+  --refused: #B42318;
+  --standby: #64748B;
+  --moved: #A16207;
+  --lift: 0 1px 2px rgba(23,32,51,.04), 0 1px 3px rgba(23,32,51,.03);
+  --lift-raise: 0 12px 28px -14px rgba(23,32,51,.18), 0 2px 6px rgba(23,32,51,.05);
+  --lift-float: 0 24px 60px -18px rgba(23,32,51,.30), 0 4px 12px rgba(23,32,51,.06);
+  --lift-brand: 0 8px 20px -8px rgba(37,99,235,.55);
+  --r-tight: 8px;
+  --r-ctl: 10px;
+  --r-card: 16px;
+  --r-float: 20px;
+  --r-pill: 999px;
+  --side-w: 264px;
+}
+
+html {
+  font-family: 'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+body { background: var(--paper); color: var(--ink); }
+.font-display { font-family: inherit; letter-spacing: -0.015em; }
+.font-mono, code, kbd {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+/* Ang lumang mono eyebrow — maliit na sans label na lang, mas tahimik. */
+.av-page .font-mono.uppercase { font-family: inherit; letter-spacing: .06em; font-weight: 600; }
+.av-page input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),
+.av-page select,
+.av-page textarea { border-radius: var(--r-ctl); }
+
+/* ------------------------------------------------------------- shell --- */
+.av-page { background: var(--paper); color: var(--ink); }
+
+.av-side {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 90;
+  width: var(--side-w); display: flex; flex-direction: column;
+  background: #fff; border-right: 1px solid var(--rule);
+  transform: translateX(-100%); transition: transform .22s cubic-bezier(.16,1,.3,1);
+}
+.av-side.open { transform: none; box-shadow: var(--lift-float); }
+@media (min-width: 1024px) {
+  .av-side { transform: none; z-index: 60; }
+  .av-side.open { box-shadow: none; }
+}
+.av-scrim { position: fixed; inset: 0; z-index: 85; background: rgba(15,23,42,.38); }
+.av-side-brand {
+  height: 72px; flex-shrink: 0; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px 0 22px; border-bottom: 1px solid var(--rule-soft);
+}
+.av-wordmark { font-size: 16.5px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; color: var(--ink); white-space: nowrap; }
+.av-wordmark small { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 500; letter-spacing: 0; color: var(--ink-3); }
+.av-side-scroll { flex: 1; overflow-y: auto; padding: 12px 14px 16px; }
+.av-nav-sec { padding: 12px 12px 6px; font-size: 12px; font-weight: 600; color: var(--ink-4); }
+.av-nav {
+  position: relative; width: 100%; margin: 1px 0; padding: 10px 12px;
+  display: flex; align-items: center; gap: 12px; text-align: left;
+  border-radius: var(--r-ctl); font-size: 14px; font-weight: 500; color: var(--ink-2);
+  transition: background-color .15s, color .15s, box-shadow .15s;
+}
+.av-nav svg { flex-shrink: 0; color: var(--ink-4); transition: color .15s; }
+.av-nav:hover { background-color: var(--surface-2); color: var(--ink); }
+.av-nav:hover svg { color: var(--ink-2); }
+.av-nav[data-on='1'] { background-color: var(--signal); color: #fff; box-shadow: var(--lift-brand); }
+.av-nav[data-on='1'] svg { color: #fff; }
+.av-nav .ct {
+  margin-left: auto; min-width: 24px; height: 20px; padding: 0 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-pill); background: var(--tint-slate); color: var(--ink-3);
+  font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.av-nav .ct.violet { background: var(--tint-violet); color: var(--triage); }
+.av-nav[data-on='1'] .ct { background: rgba(255,255,255,.22); color: #fff; }
+.av-nav-dot {
+  position: absolute; left: 27px; top: 8px; width: 8px; height: 8px;
+  border-radius: 99px; background: #F59E0B; box-shadow: 0 0 0 2px #fff;
+}
+.av-nav[data-on='1'] .av-nav-dot { box-shadow: 0 0 0 2px var(--signal); }
+.av-nav-rule { height: 1px; margin: 12px 12px 4px; background: var(--rule-soft); }
+.av-side-foot {
+  flex-shrink: 0; padding: 14px 22px 18px; border-top: 1px solid var(--rule-soft);
+  font-size: 11.5px; line-height: 1.55; color: var(--ink-4);
+}
+
+.av-shell { min-height: 100vh; }
+@media (min-width: 1024px) { .av-shell { padding-left: var(--side-w); } }
+.av-top {
+  position: sticky; top: 0; z-index: 50; height: 72px;
+  background: rgba(255,255,255,.9); border-bottom: 1px solid var(--rule);
+  backdrop-filter: saturate(1.4) blur(12px); -webkit-backdrop-filter: saturate(1.4) blur(12px);
+}
+.av-top-in { height: 100%; display: flex; align-items: center; gap: 12px; padding: 0 16px; }
+@media (min-width: 768px) { .av-top-in { padding: 0 32px; } }
+.av-search {
+  align-items: center; gap: 10px; height: 42px; width: 100%; max-width: 400px;
+  padding: 0 8px 0 14px; border-radius: var(--r-ctl); text-align: left;
+  border: 1px solid var(--rule); background-color: var(--surface-2);
+  color: var(--ink-4); font-size: 13.5px; transition: border-color .15s, background-color .15s;
+}
+.av-search:hover { border-color: var(--rule-strong); background-color: #fff; }
+.av-search span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av-kbd {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 7px;
+  border-radius: 6px; border: 1px solid var(--rule); background: #fff;
+  box-shadow: 0 1px 0 var(--rule); font-size: 11px; color: var(--ink-3);
+}
+.av-sync {
+  align-items: center; gap: 8px; height: 36px; padding: 0 12px;
+  border-radius: var(--r-pill); border: 1px solid var(--rule); background-color: #fff;
+  font-size: 12.5px; font-weight: 500; color: var(--ink-2); transition: border-color .15s;
+}
+.av-sync:hover { border-color: var(--rule-strong); }
+.av-sync svg { color: var(--ink-4); }
+.av-user { display: flex; align-items: center; gap: 10px; margin-left: 2px; padding-left: 12px; border-left: 1px solid var(--rule); }
+.av-user .n { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 600; line-height: 1.25; color: var(--ink); }
+.av-user .r { font-size: 12px; line-height: 1.3; color: var(--ink-3); }
+.av-avatar {
+  width: 38px; height: 38px; flex-shrink: 0; object-fit: cover;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 99px; background: var(--signal-soft); color: var(--signal);
+  font-size: 14px; font-weight: 700; box-shadow: 0 0 0 2px #fff, 0 0 0 3px var(--rule);
+}
+.av-iconbtn {
+  width: 38px; height: 38px; flex-shrink: 0; align-items: center; justify-content: center;
+  border-radius: var(--r-pill); border: 1px solid var(--rule); background-color: #fff;
+  color: var(--ink-3); transition: color .15s, border-color .15s, background-color .15s;
+}
+.av-iconbtn:hover { color: var(--ink); border-color: var(--rule-strong); background-color: var(--surface-2); }
+.av-iconbtn.sm { width: 32px; height: 32px; }
+
+/* Hero band — ang isang matapang na elemento sa buong screen. */
+.av-band {
+  position: relative; overflow: hidden; color: #fff;
+  background: linear-gradient(112deg, #1B3FB0 0%, #2459E0 46%, #2F6DF2 100%);
+}
+.av-band::before {
+  content: ''; position: absolute; pointer-events: none; border-radius: 50%;
+  width: 920px; height: 920px; right: -300px; top: -610px; background: rgba(255,255,255,.08);
+}
+.av-band::after {
+  content: ''; position: absolute; pointer-events: none; border-radius: 50%;
+  width: 760px; height: 760px; left: 30%; top: 70px; background: rgba(8,22,84,.16);
+}
+.av-band > * { position: relative; z-index: 1; }
+.av-hero { padding: 34px 16px 104px; border-radius: 0 0 26px 26px; }
+@media (min-width: 768px) { .av-hero { padding: 40px 32px 108px; } }
+.av-hero.slim { padding-bottom: 34px; }
+.av-hero-k { font-size: 13.5px; font-weight: 500; color: rgba(255,255,255,.82); }
+.av-hero-h { margin-top: 6px; font-size: 30px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.12; }
+@media (min-width: 768px) { .av-hero-h { font-size: 36px; } }
+.av-hero-p { margin-top: 6px; max-width: 640px; font-size: 14.5px; color: rgba(255,255,255,.84); }
+.av-hero-btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+  border-radius: var(--r-ctl); border: 1px solid rgba(255,255,255,.24);
+  background-color: rgba(255,255,255,.14); color: #fff; font-size: 13.5px; font-weight: 500;
+  backdrop-filter: blur(6px); transition: background-color .15s;
+}
+.av-hero-btn:hover { background-color: rgba(255,255,255,.24); }
+
+.av-kpis {
+  position: relative; z-index: 2; max-width: 1464px; margin: -66px auto 0; padding: 0 16px;
+  display: grid; gap: 16px; grid-template-columns: minmax(0,1fr);
+}
+@media (min-width: 640px) { .av-kpis { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (min-width: 768px) { .av-kpis { padding: 0 32px; } }
+@media (min-width: 1280px) { .av-kpis { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+.av-kpi {
+  width: 100%; min-width: 0; display: flex; align-items: center; gap: 16px;
+  padding: 20px 22px; text-align: left; background: #fff;
+  border: 1px solid var(--rule); border-radius: var(--r-card); box-shadow: var(--lift-raise);
+}
+.av-kpi.flat { box-shadow: var(--lift); }
+.av-kpi.link { cursor: pointer; transition: transform .18s, box-shadow .18s, border-color .18s; }
+.av-kpi.link:hover { transform: translateY(-2px); border-color: var(--rule-strong); box-shadow: var(--lift-float); }
+.av-kpi .l { font-size: 13.5px; font-weight: 500; color: var(--ink-3); }
+.av-kpi .v { margin-top: 2px; font-size: 28px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.15; color: var(--ink); font-variant-numeric: tabular-nums; }
+.av-kpi .s { margin-top: 3px; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------------- cards --- */
+.av-card { background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-card); box-shadow: var(--lift); }
+.av-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
+  border-radius: var(--r-pill); border-width: 0; white-space: nowrap;
+  font-size: 12px; font-weight: 600; line-height: 1;
+}
+.av-pill.sm { height: 21px; padding: 0 8px; gap: 5px; font-size: 11px; }
+.av-pill .d { width: 6px; height: 6px; flex-shrink: 0; border-radius: 99px; background: currentColor; }
+.av-h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; color: var(--ink); }
+/* Number-first: ang bilang ang bida, maliit ang label. */
+.av-fig { font-size: 32px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.av-fig-sm { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.av-unit { margin-left: 2px; font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--ink-3); }
+.av-tintbox { border-radius: var(--r-ctl); padding: 12px 14px; }
+.av-dot {
+  width: 36px; height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-pill); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+/* Channel strip: ang kaliwang rail ang may dala ng estado. */
+.av-strip {
+  display: grid; grid-template-columns: 3px minmax(0,1fr); overflow: hidden;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-card);
+  box-shadow: var(--lift); transition: box-shadow .18s, border-color .18s;
+}
+.av-strip:hover { border-color: var(--rule-strong); box-shadow: var(--lift-raise); }
+.av-title { font-size: 15.5px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.35; color: var(--ink); transition: color .15s; }
+.av-strip:hover .av-title { color: var(--signal-strong); }
+.av-state-k { font-size: 12.5px; font-weight: 600; }
+.av-state-s { font-size: 11.5px; color: var(--ink-3); }
+.av-idl { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12.5px; color: var(--ink-3); }
+.av-idl i { font-style: normal; color: var(--ink-4); }
+.av-idl b { font-weight: 500; color: var(--ink-2); }
+
+.av-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px;
+  border-radius: var(--r-pill); border: 1px solid transparent;
+  background: var(--tint-slate); color: var(--ink-2); font-size: 12px; font-weight: 500;
+}
+.av-chip.ok    { background: var(--tint-green); color: var(--served); }
+.av-chip.gap   { background: var(--tint-red); color: var(--refused); }
+.av-chip.nocap { background: var(--tint-amber); color: var(--waiting); }
+.av-chip.lock  { background: transparent; border: 1px dashed var(--rule-strong); color: var(--ink-3); }
+.av-chip.add   { background: var(--tint-blue); color: var(--signal-strong); }
+
+.av-track { height: 6px; border-radius: var(--r-pill); background: var(--tint-slate); overflow: hidden; }
+.av-fill  { height: 100%; border-radius: var(--r-pill); background: var(--signal); transition: width .7s cubic-bezier(.16,1,.3,1); }
+
+.av-note { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.av-note b { font-weight: 600; }
+.av-dim { color: var(--ink-3); }
+.av-hair { border-top: 1px solid var(--rule-soft); }
+
+/* Bento — magkakaibang laki ayon sa bigat ng laman. */
+.av-bento { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0,1fr)); }
+@media (min-width: 900px) { .av-bento { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+.av-bento > .wide { grid-column: span 2; }
+.av-bento > .full { grid-column: 1 / -1; }
+.av-head {
+  min-width: 0; padding: 18px 20px; background: var(--card);
+  border: 1px solid var(--rule); border-radius: var(--r-card); box-shadow: var(--lift);
+}
+.av-head .l { margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.av-head .s { margin-top: 2px; font-size: 12px; color: var(--ink-3); }
+
+.av-step { flex: 1 1 150px; min-width: 132px; }
+.av-step .l { margin-top: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.av-step .w { margin-top: 2px; font-size: 11.5px; color: var(--ink-3); }
+
+.av-sec-h { font-size: 15.5px; font-weight: 600; letter-spacing: -0.012em; color: var(--ink); }
+.av-sec-p { font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+.av-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+
+.av-btn {
+  padding: 9px 16px; border-radius: var(--r-ctl); background-color: var(--signal); color: #fff;
+  font-size: 13.5px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(29,78,216,.25), inset 0 1px 0 rgba(255,255,255,.12);
+  transition: background-color .15s, box-shadow .15s;
+}
+.av-btn:hover { background-color: var(--signal-strong); }
+.av-btn-ghost {
+  padding: 8px 14px; border-radius: var(--r-ctl); border: 1px solid var(--rule);
+  background-color: #fff; color: var(--ink-2); font-size: 13.5px; font-weight: 500;
+  transition: border-color .15s, color .15s, background-color .15s;
+}
+.av-btn-ghost:hover { border-color: var(--rule-strong); color: var(--ink); background-color: var(--surface-2); }
+.av-select {
+  appearance: none; -webkit-appearance: none; padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2364748B' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 14px;
+}
+.av-file { font-size: 12.5px; color: var(--ink-2); }
+.av-file::file-selector-button {
+  margin-right: 12px; height: 34px; padding: 0 14px; cursor: pointer;
+  border-radius: var(--r-ctl); border: 1px solid var(--rule); background-color: #fff;
+  color: var(--ink-2); font: inherit; font-weight: 500; transition: border-color .15s, background-color .15s;
+}
+.av-file::file-selector-button:hover { border-color: var(--rule-strong); background-color: var(--surface-2); }
+
+.av-float { box-shadow: var(--lift-float); border-radius: var(--r-float); }
+.av-toast {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
+  border-radius: var(--r-ctl); border: 1px solid var(--rule); background: #fff;
+  box-shadow: var(--lift-float); font-size: 13px; line-height: 1.45; color: var(--ink-2);
+}
+.av-toast .d { width: 8px; height: 8px; margin-top: 5px; flex-shrink: 0; border-radius: 99px; background: var(--ink-4); }
+.av-toast.err { border-color: #F6CBC6; color: #9B1C14; }
+.av-toast.err .d { background: #E5484D; }
+.av-toast.new { border-color: #C7D7FB; }
+.av-toast.new .d { background: var(--signal); }
+@keyframes avping {
+  0% { box-shadow: 0 0 0 0 rgba(229,72,77,.45); }
+  70% { box-shadow: 0 0 0 6px rgba(229,72,77,0); }
+  100% { box-shadow: 0 0 0 0 rgba(229,72,77,0); }
+}
+.av-ping { animation: avping 1.8s ease-out infinite; }
+
+/* -------------------------------------------------------- mobile nav --- */
+/* Sa ilalim ng 1024px, wala ang sidebar — ang bottom bar at drawer ang daan. */
+.av-mobnav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+  display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 2px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255,255,255,.96); border-top: 1px solid var(--rule);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 -10px 30px -22px rgba(23,32,51,.35);
+}
+@media (min-width: 1024px) { .av-mobnav { display: none; } }
+.av-mobtab {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 2px 6px;
+  border-radius: var(--r-tight); font-size: 10.5px; font-weight: 500; line-height: 1.2; color: var(--ink-3);
+}
+.av-mobtab[data-on='1'] { background: var(--signal-soft); color: var(--signal); font-weight: 600; }
+.av-mobtab .b {
+  position: absolute; top: 2px; left: calc(50% + 5px); min-width: 16px; height: 16px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center; border-radius: var(--r-pill);
+  background: #D97706; color: #fff; font-size: 9.5px; font-weight: 700; box-shadow: 0 0 0 2px #fff;
+}
+.av-fab {
+  position: fixed; right: 16px; z-index: 71; width: 52px; height: 52px;
+  display: flex; align-items: center; justify-content: center; color: #fff;
+  box-shadow: var(--lift-brand), 0 14px 30px -12px rgba(37,99,235,.6);
+}
+@media (min-width: 1024px) { .av-fab { display: none; } }
+@media (max-width: 1023px) { .av-page { padding-bottom: 74px; } }
+@media (max-width: 767px) {
+  .av-title { font-size: 15px; }
+  .av-fig { font-size: 28px; }
+}
+
+.custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+@keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
+@keyframes riseup { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+@keyframes slidein { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: none } }
+@keyframes kioskbar { from { width: 0 } to { width: 100% } }
+@keyframes kioskticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+.kiosk-ticker { animation: kioskticker 45s linear infinite; }
+.animate-fadein { animation: fadein .2s ease-out }
+.animate-riseup { animation: riseup .18s cubic-bezier(.16,1,.3,1) }
+.animate-slidein { animation: slidein .28s cubic-bezier(.16,1,.3,1) }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+::selection { background: rgba(37,99,235,.16); }
+
+@media print {
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  .av-shell { padding-left: 0 !important; }
+  .av-page { padding-bottom: 0 !important; background: white !important; }
+  html, body { background: white !important; color: black !important; font-family: 'Times New Roman', Times, serif !important; }
+  thead { display: table-header-group; }
+  tr, .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+  @page { size: A4; margin: 18mm 14mm; }
+}
+`;
