@@ -143,7 +143,7 @@ const SYSTEMS: SystemApp[] = [
     id: 'gatepass',
     name: 'Equipment Gate Pass',
     role: 'Releasing & inventory control',
-    url: 'https://bdmsgatekeeper.vercel.app',
+    url: 'https://bdms-gpass.vercel.app',
     tag: 'OPERATIONS',
     accent: CYAN,
     glyph: 'GP',
@@ -652,7 +652,7 @@ type ApprovalKey =
  *   rescheduled → inilipat sa ibang petsa. Hindi sa atin.
  */
 type Fulfilment =
-  | 'full' | 'partial' | 'none'
+  | 'full' | 'partial' | 'inprogress' | 'none'
   | 'declined' | 'cancelled' | 'rescheduled' | 'pending';
 
 /**
@@ -697,6 +697,8 @@ interface AVEvent {
   clientTier: string;
   /** "Urgent requests may override with notice." Ang paunawa mismo. */
   urgentNote: string;
+  /** Drive file ID ng sulat ng kliyente. Blangko kung walang naka-attach. */
+  requestLetter: string;
   pipeline: Record<PipelineKey, PipelineState>;
   targetDate: Date | null;
   dateDelivered: Date | null;
@@ -795,10 +797,9 @@ function streamOfServices(list: string[]): Stream {
  */
 const CLIENT_TIERS = [
   'Office of the Secretary',
-  'Office of the Undersecretary / Assistant Secretary',
   'DOST Flagship Programs',
-  'DOST Attached Agencies',
-  'Regional Offices',
+  'Office of the USEC / ASEC',
+  'DOST Attached Agencies and Regional Offices',
   'Other / External',
 ] as const;
 
@@ -890,32 +891,41 @@ const FULFIL_META: Record<
   Fulfilment,
   { label: string; hex: string; chip: string }
 > = {
+  /**
+   * ANG DATING MALI: "Fully served" agad pagkatapos maaprubahan, gayong
+   * wala pang nakukunan. Ang paghahatid ang nagtatakda nito ngayon, hindi
+   * ang aprubasyon — at ang pipeline ang nagsasabi kung naihatid na.
+   */
   full: {
-    label: 'FULLY SERVED', hex: '#16a34a',
+    label: 'Served in full', hex: '#047857',
     chip: 'bg-green-100 text-green-800 border-green-200',
   },
   partial: {
-    label: 'LIMITED SERVICE', hex: '#d97706',
+    label: 'Served in part', hex: '#B45309',
     chip: 'bg-amber-100 text-amber-800 border-amber-200',
   },
+  inprogress: {
+    label: 'In production', hex: '#0F766E',
+    chip: 'bg-teal-100 text-teal-800 border-teal-200',
+  },
   none: {
-    label: 'NOT SERVED', hex: '#dc2626',
+    label: 'Not delivered', hex: '#B42318',
     chip: 'bg-red-100 text-red-800 border-red-200',
   },
   declined: {
-    label: 'DECLINED BY DC', hex: '#dc2626',
+    label: 'Declined by the Division Chief', hex: '#B42318',
     chip: 'bg-red-100 text-red-800 border-red-200',
   },
   cancelled: {
-    label: 'CANCELLED BY CLIENT', hex: '#64748b',
+    label: 'Cancelled by the client', hex: '#64748B',
     chip: 'bg-slate-100 text-slate-600 border-slate-200',
   },
   rescheduled: {
-    label: 'MOVED BY CLIENT', hex: '#ca8a04',
+    label: 'Moved by the client', hex: '#A16207',
     chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   },
   pending: {
-    label: 'AWAITING APPROVAL', hex: '#94a3b8',
+    label: 'Awaiting decision', hex: '#6B7F95',
     chip: 'bg-slate-100 text-slate-600 border-slate-200',
   },
 };
@@ -1153,10 +1163,14 @@ function capacityGap(ev: AVEvent): string[] {
   return ev.requested.filter((x) => !promised.has(x.toLowerCase()));
 }
 
-/** PINANGAKO PERO HINDI NATUPAD. Ibang usapan ito sa capacity gap. */
+/**
+ * PINANGAKO PERO HINDI NATUPAD.
+ * Kapag naihatid na ang pakete sa kliyente, walang kulang — ang pinangako
+ * ang naihatid. Ang kulang ay lumalabas lamang habang bukas pa ang trabaho.
+ */
 function deliveryGap(ev: AVEvent): string[] {
-  const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
-  return agreedVolume(ev).filter((x) => !got.has(x.toLowerCase()));
+  if (!isAuthorised(ev) || isDelivered(ev)) return [];
+  return agreedVolume(ev);
 }
 
 /** Naibigay pero hindi orihinal na hiniling — dagdag na serbisyo. */
@@ -1165,21 +1179,30 @@ function serviceExtra(ev: AVEvent): string[] {
   return ev.delivered.filter((x) => !asked.has(x.toLowerCase()));
 }
 
+/**
+ * Naihatid na ba sa kliyente? Ang PIPELINE ang sumasagot nito, hindi ang
+ * hiwalay na checkbox. Dati'y dalawang beses sinasagot ang parehong tanong
+ * at kayang maghiwalay ang dalawang sagot; ngayon, isa lang.
+ */
+function isDelivered(ev: AVEvent): boolean {
+  return ev.pipeline.delivery === 'done';
+}
+
 function fulfilment(ev: AVEvent): Fulfilment {
   if (ev.approval === 'declined') return 'declined';
   if (ev.approval === 'cancelled') return 'cancelled';
   if (ev.approval === 'rescheduled') return 'rescheduled';
   if (!isAuthorised(ev)) return 'pending';
-  // Sinusukat laban sa PINANGAKO, hindi sa hiniling. Kung tatlo ang hiniling,
-  // dalawa ang kayang ibigay at dalawa ang naibigay — natupad ang pangako.
-  // Ang kulang na isa ay hindi pagkukulang sa paghahatid; kakulangan 'yon
-  // sa tao, at hiwalay itong iniuulat sa capacity gap.
+
   const promised = agreedVolume(ev);
   if (promised.length === 0) return 'pending';
-  const gap = deliveryGap(ev);
-  if (gap.length === 0) return 'full';
-  if (ev.delivered.length === 0) return 'none';
-  return 'partial';
+
+  // Naaprubahan pero hindi pa naihahatid — nasa produksiyon pa.
+  if (!isDelivered(ev)) return 'inprogress';
+
+  // Naihatid na. Buo ba ang naibigay laban sa HINILING, o may kulang
+  // dahil hindi lahat ay napangako?
+  return capacityGap(ev).length === 0 ? 'full' : 'partial';
 }
 
 function slaForEvent(ev: AVEvent): number {
@@ -1251,7 +1274,23 @@ function eventSLA(ev: AVEvent): SLAState {
   return 'open';
 }
 
-/** 0–100, batay sa apat na hakbang ng pipeline. N/A ay binibilang na tapos. */
+/**
+ * TAPOS NA ANG RECORD.
+ *
+ * Naaprubahan, at tapos na ang LAHAT ng hakbang na may kinalaman dito —
+ * kasama ang CSM. Wala nang dapat baguhin. Ang bukas na record na 100% na
+ * ay imbitasyon sa tahimik na pagbabago pagkatapos ng katotohanan, at 'yon
+ * mismo ang sisira sa audit trail.
+ */
+function isClosed(ev: AVEvent): boolean {
+  if (!isAuthorised(ev)) return false;
+  return stepsFor(streamOfServices(ev.requested)).every((st) => {
+    const v = ev.pipeline[st.key];
+    return v === 'done' || v === 'na';
+  });
+}
+
+/** 0–100, batay sa mga hakbang ng pipeline. N/A ay binibilang na tapos. */
 function pipelineProgress(ev: AVEvent): number {
   // Ang hindi applicable na hakbang ay hindi binibilang, hindi ibinibilang
   // na tapos — kung hindi, laging mas mataas ang coverage kaysa production.
@@ -1438,8 +1477,8 @@ function relativeDay(d: Date | null): string {
       86400000
   );
   if (diff === 0) return 'Today';
-  if (diff === 1) return 'Bukas';
-  if (diff === -1) return 'Kahapon';
+  if (diff === 1) return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
   if (diff > 1 && diff <= 14) return `In ${diff} days`;
   if (diff < -1 && diff >= -14) return `${Math.abs(diff)} days ago`;
   return '';
@@ -3166,7 +3205,7 @@ function ComplianceScorecard({
         evidence:
           withTat === 0
             ? 'No served requests yet to measure.'
-            : `${withTat} completed request ang may aktwal na TAT, bilang mula sa petsa ng pagtanggap hanggang sa petsa ng paghatid, laban sa SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
+            : `${withTat} completed request(s) have an actual turnaround, counted from the date received to the date served, measured against the SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
       },
       {
         item: 'Item 44',
@@ -3197,7 +3236,7 @@ function ComplianceScorecard({
         evidence:
           kpi.execution === null
             ? 'No approved requests yet.'
-            : `${kpi.execution}% ng approved requests ay completed.`,
+            : `${kpi.execution}% of approved requests have been completed.`,
       },
       {
         item: 'PM 2.2',
@@ -3207,7 +3246,7 @@ function ComplianceScorecard({
         evidence:
           kpi.csm === null
             ? 'No CSM ratings recorded yet.'
-            : `${kpi.csm}% ng ${kpi.rated} rated request ay Very Satisfactory pataas.`,
+            : `${kpi.csm}% of ${kpi.rated} rated request(s) are Very Satisfactory or higher.`,
       },
     ];
   }, [requests, kpi, events]);
@@ -3639,7 +3678,7 @@ function RequestModal({
               <div>
                 <label className={lab}>CSM rating</label>
                 <select className={field} value={f.csm} onChange={(e) => set('csm', e.target.value)}>
-                  <option value="">Wala pa</option>
+                  <option value="">Not yet rated</option>
                   {[5, 4, 3, 2, 1].map((n) => (
                     <option key={n} value={String(n)}>
                       {n} — {CSM_LABELS[n]}
@@ -3860,8 +3899,9 @@ function PipelineTrack({
   compact?: boolean;
   readOnly?: boolean;
 }) {
-  // Naka-lock hangga't walang aprubasyon, o kapag hindi ikaw ang may-ari.
-  const locked = !isAuthorised(ev) || readOnly;
+  // Naka-lock hangga't walang aprubasyon, kapag hindi ikaw ang may-ari,
+  // o kapag tapos na ang buong record.
+  const locked = !isAuthorised(ev) || readOnly || isClosed(ev);
   const cycle: PipelineState[] = ['not-started', 'in-progress', 'done', 'na'];
 
   const steps = stepsFor(streamOfServices(ev.requested));
@@ -3875,12 +3915,19 @@ function PipelineTrack({
     // Ang hindi naipagpatuloy ay walang progreso — hindi 0%, wala talaga.
     if (!APPROVAL_META[ev.approval].live) {
       return (
-        <span className="text-[10px] text-slate-400">
+        <span className="av-note av-dim">
           {ev.approval === 'declined'
             ? 'Declined — pipeline closed'
             : ev.approval === 'cancelled'
             ? 'Cancelled — pipeline closed'
             : 'Moved — pipeline closed'}
+        </span>
+      );
+    }
+    if (isClosed(ev)) {
+      return (
+        <span className="av-note" style={{ color: 'var(--served)', fontWeight: 550 }}>
+          Complete — record closed
         </span>
       );
     }
@@ -4337,7 +4384,11 @@ function EventModal({
   const [agreed, setAgreed] = useState<string[]>(
     existing ? (existing.agreed.length ? existing.agreed : existing.requested) : []
   );
-  const [delivered, setDelivered] = useState<string[]>(existing?.delivered ?? []);
+  /**
+   * Hindi na ito ini-edit. Ang paghahatid ay nasa pipeline; ang halagang
+   * ito ay sinusundan lang ang pinangako kapag Done na ang Client delivery.
+   */
+  const delivered = existing && existing.pipeline.delivery === 'done' ? agreed : [];
   const [pipeline, setPipeline] = useState<Record<PipelineKey, PipelineState>>(
 existing?.pipeline ?? {
       coordination: 'not-started',
@@ -4396,9 +4447,9 @@ existing?.pipeline ?? {
 
   /** Hiniling pero hindi pinangako — kulang sa tao. Ebidensiya ng Item 44. */
   const capGap = requested.filter((x) => !agreedEff.includes(x));
-  /** Pinangako pero hindi natupad — ebidensiya ng PM 2.1. */
-  const delGap = agreedEff.filter((x) => !delivered.includes(x));
-  const extra = delivered.filter((x) => !requested.includes(x));
+  /** Pinangako pero hindi pa naihahatid — bukas pa ang trabaho. */
+  const delGap = pipeline.delivery === 'done' ? [] : agreedEff;
+  const extra: string[] = [];
 
   /**
    * ANG DATING BUG: `approvalKey === 'approved'` lang ang tinitingnan.
@@ -4415,6 +4466,41 @@ existing?.pipeline ?? {
   const reasonRequired =
     notApproved || capGap.length > 0 || (authorisedNow && delGap.length > 0);
   const reasonMissing = reasonRequired && !f.reason.trim();
+
+  /**
+   * ANG SULAT NG KAHILINGAN — isang JPG, hanggang 100 KB.
+   * Sinusuri dito ang uri at laki para agad makita ng tao ang problema,
+   * pero sinusuri rin ito sa server — malalampasan ng curl ang browser.
+   * Ang larawan ay ikinakabit sa endorsement at sa approval email, kaya
+   * nakikita ng SRS at ng DC ang hinihiling bago sila magdesisyon.
+   */
+  const [letter, setLetter] = useState<{ data: string; name: string; mime: string } | null>(null);
+  const [letterErr, setLetterErr] = useState('');
+
+  const pickLetter = useCallback((file: File | null) => {
+    setLetterErr('');
+    setLetter(null);
+    if (!file) return;
+    const mime = file.type.toLowerCase();
+    if (mime !== 'image/jpeg' && mime !== 'image/jpg') {
+      setLetterErr('The request letter must be a JPG image.');
+      return;
+    }
+    if (file.size > 100 * 1024) {
+      setLetterErr(
+        `That file is ${Math.round(file.size / 1024)} KB. The limit is 100 KB — export the JPG at a lower quality.`
+      );
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => setLetterErr('That file could not be read.');
+    reader.onload = () => {
+      const out = String(reader.result || '');
+      const comma = out.indexOf(',');
+      setLetter({ data: comma > -1 ? out.slice(comma + 1) : out, name: file.name, mime: 'image/jpeg' });
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
   /** Ilang araw tumatakbo ang event — pang-ipakita lang, isa pa rin ang bilang. */
   const spanDays = useMemo(() => {
@@ -4467,8 +4553,17 @@ existing?.pipeline ?? {
    * DC at SRS na lang ang makakagalaw. Kapareho ito ng ipinapatupad ng
    * server, kaya walang button na tatanggihan pagkatapos pindutin.
    */
+  /**
+   * Naka-lock ang tapos na record. Ang section lead lamang ang makakabukas
+   * muli, at kailangan niyang hayagang sabihin — hindi ito nangyayari dahil
+   * lang sa nag-save siya. Naitatala rin ito sa Action Log.
+   */
+  const closed = !!existing && isClosed(existing);
+  const [reopen, setReopen] = useState(false);
+  const frozen = closed && !reopen;
+
   const inTriage = canTriage(role, existing);
-  const canChangeApproval = canDecide(role) || inTriage;
+  const canChangeApproval = (canDecide(role) || inTriage) && !frozen;
 
   /** Hindi maaaring lagdaan ng AV team ang sarili nilang request. */
   const approvalOptions = useMemo<ApprovalKey[]>(
@@ -4502,21 +4597,19 @@ existing?.pipeline ?? {
     return out;
   }, [f.title, f.client, f.eventDate, f.dateRequested, requested]);
 
-  // Hindi maaaring maihatid ang hindi naman ipinangako.
-  const strayDelivered = useMemo(
-    () => delivered.filter((d) => !agreedEff.includes(d)),
-    [delivered, agreedEff]
-  );
+  // Wala nang manu-manong delivered list, kaya wala nang maaaring maligaw.
+  const strayDelivered: string[] = [];
 
   const canSave =
     !reasonMissing &&
     !submitting &&
+    !frozen &&
     strayDelivered.length === 0 &&
     (approvalOnly || (canEdit && missingFields.length === 0));
 
   const field =
     `w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15${
-      readOnly || approvalOnly ? ' pointer-events-none opacity-50' : ''
+      readOnly || approvalOnly || frozen ? ' pointer-events-none opacity-50' : ''
     }`;
   const lab = 'mb-1.5 block text-[11px] font-medium text-slate-9000';
 
@@ -4528,7 +4621,8 @@ existing?.pipeline ?? {
         team: crew.map((c) => c.personnel).filter(Boolean).join(', '),
         requestedServices: requested.join(', '),
         agreedServices: agreedEff.join(', '),
-        deliveredServices: delivered.join(', '),
+        reopen: reopen ? 'yes' : '',
+        requestLetter: letter ? JSON.stringify(letter) : '',
         ...Object.fromEntries(
           PIPELINE_STEPS.map((st) => [
             stepField(st.key),
@@ -4568,6 +4662,40 @@ existing?.pipeline ?? {
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {closed && (
+            <div
+              className="mx-6 mt-5 rounded-[12px] border px-4 py-3"
+              style={{
+                borderColor: frozen ? '#A7D9C8' : '#F0C9A8',
+                background: frozen ? 'var(--tint-green)' : 'var(--tint-amber)',
+              }}
+            >
+              <p className="av-note" style={{ color: frozen ? '#065F46' : '#7C4409' }}>
+                <b>
+                  {frozen
+                    ? 'This request is complete and the record is closed.'
+                    : 'Reopening a closed record.'}
+                </b>{' '}
+                {frozen
+                  ? 'Every stage including the CSM form is done. The record is locked so a finished audit trail cannot be quietly altered after the fact.'
+                  : 'Your change will be written to the Action Log as a reopening, with your name against it. Close the dialog without saving if you did not mean to.'}
+              </p>
+              {role === 'admin' && (
+                <button
+                  onClick={() => setReopen((r) => !r)}
+                  className="av-btn-ghost mt-2.5"
+                  style={frozen ? undefined : { borderColor: '#D97706', color: '#7C4409' }}
+                >
+                  {frozen ? 'Reopen this record' : 'Cancel reopening'}
+                </button>
+              )}
+              {role !== 'admin' && frozen && (
+                <p className="av-note av-dim mt-1.5">
+                  Only the section lead can reopen it.
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
             <div className="md:col-span-2">
               <label className={lab}>Event title *</label>
@@ -4682,56 +4810,90 @@ existing?.pipeline ?? {
               </p>
             </div>
 
-            {/* ----------- ang service ledger ----------- */}
+            {/* ----------- service ledger ----------- */}
             {/*
-                TATLONG HANAY, HINDI DALAWA.
-                  Hiniling   = demand ng kliyente
-                  Pinangako  = kayang ibigay ng AV team (AGREED VOLUME)
-                  Naibigay   = aktwal na naihatid
-                Dalawang magkaibang kulang ang lumalabas dito, at magkaiba
-                rin ang ibig sabihin nila sa auditor: ang una ay kulang na
-                TAO, ang pangalawa ay hindi natupad na PANGAKO.
+                DALAWANG HANAY LAMANG.
+                  Requested = what the client asked for
+                  Agreed    = what the AV team committed to deliver
+                Ang pangatlong hanay ("actual na naibigay") ay tinanggal —
+                inuulit lang nito ang sagot na nasa pipeline na. Kapag ang
+                Client delivery ay Done, ang naihatid ay ang PINANGAKO.
+                Isang pinagmumulan ng katotohanan.
             */}
+            <div className="md:col-span-2">
+              <label className={lab}>
+                Request letter <span className="av-dim">— JPG, up to 100 KB</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="file"
+                  accept="image/jpeg"
+                  disabled={readOnly || approvalOnly || frozen}
+                  onChange={(e) => pickLetter(e.target.files?.[0] ?? null)}
+                  className="av-note file:av-btn-ghost file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
+                />
+                {letter && (
+                  <span className="av-chip ok">
+                    {letter.name} · {Math.round(letter.data.length * 0.75 / 1024)} KB
+                  </span>
+                )}
+                {!letter && existing?.requestLetter && (
+                  <a
+                    href={`https://drive.google.com/file/d/${existing.requestLetter}/view`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="av-chip"
+                  >
+                    Letter on file — open
+                  </a>
+                )}
+              </div>
+              {letterErr ? (
+                <p className="av-note mt-1.5" style={{ color: 'var(--refused)' }}>
+                  {letterErr}
+                </p>
+              ) : (
+                <p className="av-note av-dim mt-1.5">
+                  The letter is attached to the endorsement and approval emails, so the
+                  Supervising SRS and the Division Chief see what was asked for before they
+                  decide.
+                </p>
+              )}
+            </div>
+
             <div className="md:col-span-2 rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
               <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-                <p className="av-label">
-                  Serbisyo — hiniling, pinangako, naibigay
-                </p>
-                <span className="font-mono text-[10px] text-slate-400">
+                <p className="av-label">Services — requested against agreed</p>
+                <span className="font-mono av-note av-dim">
                   SLA {sla} WD
-                  {spanDays > 1 && ` · ${spanDays}-day event, counted as 1 service`}
+                  {spanDays > 1 && ` · ${spanDays}-day event, counted as one service`}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <p className={lab}>Hiniling ng kliyente</p>
+                  <p className="av-label mb-1.5">Requested by the client</p>
                   {legacyServices.length > 0 && (
-                    <p className="mb-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-relaxed text-amber-800">
-                      Naka-tala sa record ang mga lumang pangalan ng serbisyo:{' '}
-                      <b>{legacyServices.join(', ')}</b>. Wala na ang mga ito sa PM
-                      catalogue pero ipinapakita pa rin para hindi mawala ang datos.
+                    <p className="mb-1.5 rounded-[9px] border border-amber-200 bg-amber-50 px-2 py-1.5 av-note" style={{ color: '#7C4409' }}>
+                      This record uses service names that are no longer in the PM
+                      catalogue: <b>{legacyServices.join(', ')}</b>. They are still shown so
+                      nothing is lost.
                     </p>
                   )}
                   <div className="space-y-1">
                     {catalogue.map((svc) => (
                       <label
                         key={svc}
-                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs text-slate-600 hover:bg-white"
+                        className="flex cursor-pointer items-center gap-2 rounded-[9px] px-2 py-1.5 text-xs text-[var(--ink-2)] hover:bg-white"
                       >
                         <input
                           type="checkbox"
-                          className="accent-blue-600"
+                          className="accent-blue-700"
                           checked={requested.includes(svc)}
                           onChange={() => {
                             const on = requested.includes(svc);
                             toggle(requested, setRequested, svc);
-                            // Kapag tinanggal sa hiniling, hindi na ito
-                            // pwedeng manatiling pinangako o naibigay.
-                            if (on) {
-                              setAgreed((p) => p.filter((x) => x !== svc));
-                              setDelivered((p) => p.filter((x) => x !== svc));
-                            }
+                            if (on) setAgreed((prev) => prev.filter((x) => x !== svc));
                           }}
                         />
                         {svc}
@@ -4742,22 +4904,25 @@ existing?.pipeline ?? {
 
                 <div>
                   <div className="mb-1.5 flex items-baseline justify-between gap-2">
-                    <p className="text-[11px] font-medium text-slate-9000">
-                      Pinangako <span className="text-purple-600">(agreed volume)</span>
+                    <p className="av-label" style={{ color: 'var(--triage)' }}>
+                      Agreed volume
                     </p>
                     {!notApproved && requested.length > 0 && (
                       <button
                         onClick={() => setAgreed(requested)}
-                        className="text-[10px] text-purple-600 underline transition-colors hover:text-purple-800"
+                        className="av-note underline"
+                        style={{ color: 'var(--triage)' }}
                       >
-                        Lahat
+                        Agree to all
                       </button>
                     )}
                   </div>
                   {notApproved ? (
-                    <p className="rounded border border-dashed border-slate-300 px-3 py-6 text-center text-[11px] leading-relaxed text-slate-400">
-                      Walang agreed volume.<br />
-                      {APPROVAL_META[approvalKey].label} ang request — walang ipinangako.
+                    <p className="rounded-[9px] border border-dashed border-[var(--rule)] px-3 py-6 text-center av-note av-dim">
+                      No agreed volume.
+                      <br />
+                      This request is {APPROVAL_META[approvalKey].label.toLowerCase()} — nothing
+                      was committed.
                     </p>
                   ) : (
                     <div className="space-y-1">
@@ -4767,98 +4932,52 @@ existing?.pipeline ?? {
                         return (
                           <label
                             key={svc}
-                            className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
+                            className={`flex items-center gap-2 rounded-[9px] px-2 py-1.5 text-xs ${
                               asked ? 'cursor-pointer hover:bg-white' : 'opacity-30'
-                            } ${
-                              asked && !promised
-                                ? 'font-medium text-amber-700'
-                                : promised
-                                ? 'text-purple-700'
-                                : 'text-slate-400'
                             }`}
+                            style={{
+                              color: asked && !promised
+                                ? 'var(--waiting)'
+                                : promised
+                                ? 'var(--triage)'
+                                : 'var(--ink-3)',
+                              fontWeight: asked && !promised ? 500 : 400,
+                            }}
                           >
                             <input
                               type="checkbox"
-                              className="accent-purple-600"
+                              className="accent-purple-700"
                               disabled={!asked}
                               checked={promised}
-                              onChange={() => {
-                                const on = agreed.includes(svc);
-                                toggle(agreed, setAgreed, svc);
-                                if (on) setDelivered((p) => p.filter((x) => x !== svc));
-                              }}
+                              onChange={() => toggle(agreed, setAgreed, svc)}
                             />
                             {svc}
                             {asked && !promised && (
-                              <span className="ml-auto text-[9px] font-bold">HINDI KAYA</span>
+                              <span className="ml-auto text-[10px] font-semibold">NO CAPACITY</span>
                             )}
                           </label>
                         );
                       })}
                     </div>
                   )}
-                </div>
-
-                <div>
-                  <p className={lab}>Aktwal na naibigay</p>
-                  {notApproved ? (
-                    <p className="rounded border border-dashed border-slate-300 px-3 py-6 text-center text-[11px] text-slate-400">
-                      Walang naihatid.
-                    </p>
-                  ) : (
-                    <div className="space-y-1">
-                      {catalogue.map((svc) => {
-                        const promised = agreed.includes(svc);
-                        const got = delivered.includes(svc);
-                        const missing = promised && !got;
-                        return (
-                          <label
-                            key={svc}
-                            className={`flex items-center gap-2 rounded px-2 py-1 text-xs ${
-                              promised ? 'cursor-pointer hover:bg-white' : 'opacity-30'
-                            } ${missing ? 'text-red-600' : got ? 'text-green-600' : 'text-slate-400'}`}
-                          >
-                            <input
-                              type="checkbox"
-                              className="accent-green-600"
-                              disabled={!promised}
-                              checked={got}
-                              onChange={() => toggle(delivered, setDelivered, svc)}
-                            />
-                            {svc}
-                            {missing && <span className="ml-auto text-[9px] font-bold">KULANG</span>}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <p className="av-note av-dim mt-2">
+                    Delivery is recorded in the execution pipeline below, not here. When
+                    Client delivery is marked Done, what was agreed is what was delivered.
+                  </p>
                 </div>
               </div>
 
-              {(capGap.length > 0 || delGap.length > 0 || extra.length > 0) && (
-                <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-[11px]">
-                  {capGap.length > 0 && (
-                    <p className="text-amber-700">
-                      <b>{capGap.length} hiniling na hindi napangako:</b> {capGap.join(', ')}
-                      <span className="text-slate-500">
-                        {' '}— kulang sa tao o kagamitan. Ito ang ebidensiya para sa
-                        personnel augmentation (Audit Item 44).
-                      </span>
-                    </p>
-                  )}
-                  {delGap.length > 0 && (
-                    <p className="text-red-600">
-                      <b>{delGap.length} pinangako na hindi naihatid:</b> {delGap.join(', ')}
-                      <span className="text-slate-500">
-                        {' '}— hindi natupad na pangako (PM 2.1).
-                      </span>
-                    </p>
-                  )}
-                  {extra.length > 0 && (
-                    <p className="text-blue-600">
-                      <b>Dagdag na naibigay:</b> {extra.join(', ')}
-                    </p>
-                  )}
+              {capGap.length > 0 && (
+                <div className="av-hair mt-3 pt-3">
+                  <p className="av-note" style={{ color: 'var(--waiting)' }}>
+                    <b>
+                      {capGap.length} requested but not agreed: {capGap.join(', ')}.
+                    </b>{' '}
+                    <span className="av-dim">
+                      This is the service-level evidence for personnel augmentation under
+                      Audit Item 44.
+                    </span>
+                  </p>
                 </div>
               )}
             </div>
@@ -5077,7 +5196,7 @@ existing?.pipeline ?? {
                     placeholder="For example: Hybrid livestream not provided — no available personnel, team deployed to another DOST event."
                   />
                   <p className="mt-1 text-[10px] text-slate-400">
-                    Audit Item 40 at 44: ito ang ebidensiya para sa personnel augmentation.
+                    Audit Items 40 and 44 — this is the evidence for personnel augmentation.
                   </p>
                 </div>
               )}
@@ -5157,7 +5276,7 @@ existing?.pipeline ?? {
             <div>
               <label className={lab}>CSM rating</label>
               <select className={field} value={f.csm} onChange={(e) => set('csm', e.target.value)}>
-                <option value="">Wala pa</option>
+                <option value="">Not yet rated</option>
                 {[5, 4, 3, 2, 1].map((n) => (
                   <option key={n} value={String(n)}>
                     {n} — {CSM_LABELS[n]}
@@ -5189,7 +5308,9 @@ existing?.pipeline ?? {
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
           <p className="max-w-md text-[10px] leading-relaxed text-slate-400">
-            {readOnly
+            {frozen
+              ? 'Complete and closed. Nothing can be changed unless the section lead reopens it.'
+              : readOnly
               ? `View only — this event belongs to ${existing?.createdBy || 'someone else'}.`
               : approvalOnly
               ? 'You may approve or decline. Editing the record is done by its owner.'
@@ -5528,6 +5649,576 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
               ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * SCHEDULE CONFLICT & STAFFING CASE — COA: "Address scheduling conflict."
+ *
+ * Kapag dalawa o higit pang buhay na event ang magkasabay sa iisang araw,
+ * ang apat na tao ng seksyon ay pinaghahati-hati. Dito nakikita kung ilang
+ * beses 'yon nangyari, ilang tao ang kailangan laban sa meron, at ilang
+ * serbisyo ang hindi napangako dahil doon.
+ *
+ * Ito rin ang numerong hinahanap kapag hinihingi ang dagdag na plantilya:
+ * hindi opinyon, kundi bilang ng araw na kulang ang tao.
+ */
+const CREW_ON_HAND = TEAM.length;
+/** Karaniwang kailangan kada event: cam op, photographer, at coordinator. */
+const CREW_PER_EVENT = 3;
+
+function ScheduleConflictPanel({ events }: { events: AVEvent[] }) {
+  const data = useMemo(() => {
+    const byDay = new Map<string, AVEvent[]>();
+    events.forEach((ev) => {
+      if (!ev.eventDate) return;
+      if (!APPROVAL_META[ev.approval].live) return;
+      if (ev.approval === 'for-evaluation') return;
+      // Ang multi-day ay tumatabi sa bawat araw na tumatakbo ito.
+      const start = ev.eventDate;
+      const end = ev.endDate || ev.eventDate;
+      const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      let guard = 0;
+      while (cur.getTime() <= end.getTime() && guard < 60) {
+        const k = dayKey(cur);
+        byDay.set(k, [...(byDay.get(k) || []), ev]);
+        cur.setDate(cur.getDate() + 1);
+        guard++;
+      }
+    });
+
+    const clashes = Array.from(byDay.entries())
+      .filter(([, list]) => list.length > 1)
+      .map(([day, list]) => ({
+        day,
+        list,
+        needed: list.length * CREW_PER_EVENT,
+        shortfall: Math.max(0, list.length * CREW_PER_EVENT - CREW_ON_HAND),
+        unmetServices: list.reduce((a, e) => a + capacityGap(e).length, 0),
+      }))
+      .sort((a, b) => (a.day < b.day ? 1 : -1));
+
+    const daysWithWork = byDay.size;
+    const worst = clashes.reduce((m, c) => Math.max(m, c.list.length), 0);
+    return {
+      clashes,
+      daysWithWork,
+      worst,
+      overloaded: clashes.filter((c) => c.shortfall > 0).length,
+      unmet: clashes.reduce((a, c) => a + c.unmetServices, 0),
+    };
+  }, [events]);
+
+  if (data.daysWithWork === 0) {
+    return (
+      <p className="av-note av-dim py-8 text-center">
+        No scheduled events yet, so there is nothing to compare for conflicts.
+      </p>
+    );
+  }
+
+  const clashPct = Math.round((data.clashes.length / data.daysWithWork) * 100);
+
+  return (
+    <div className="space-y-5">
+      <div className="av-bento">
+        <div className="av-head">
+          <div className="av-fig font-mono" style={{ color: data.clashes.length ? 'var(--waiting)' : 'var(--served)' }}>
+            {data.clashes.length}
+          </div>
+          <p className="l">Days with a conflict</p>
+          <p className="s">{clashPct}% of scheduled days</p>
+        </div>
+        <div className="av-head">
+          <div className="av-fig font-mono" style={{ color: data.overloaded ? 'var(--refused)' : 'var(--served)' }}>
+            {data.overloaded}
+          </div>
+          <p className="l">Days beyond crew size</p>
+          <p className="s">More than {CREW_ON_HAND} people needed</p>
+        </div>
+        <div className="av-head">
+          <div className="av-fig font-mono">{data.worst}</div>
+          <p className="l">Worst single day</p>
+          <p className="s">Concurrent events</p>
+        </div>
+        <div className="av-head">
+          <div className="av-fig font-mono" style={{ color: 'var(--waiting)' }}>
+            {data.unmet}
+          </div>
+          <p className="l">Services not agreed</p>
+          <p className="s">On conflicted days</p>
+        </div>
+      </div>
+
+      <div className="av-card px-4 py-3">
+        <p className="av-note">
+          <b>The staffing case in one line.</b> The section has{' '}
+          <b>{CREW_ON_HAND} AV personnel</b>. A single event typically needs{' '}
+          <b>{CREW_PER_EVENT}</b> — a camera operator, a photographer and a coordinator. On{' '}
+          <b>{data.overloaded}</b> day{data.overloaded === 1 ? '' : 's'} the schedule required
+          more people than the section has, and <b>{data.unmet}</b> requested service
+          {data.unmet === 1 ? '' : 's'} could not be agreed as a result.{' '}
+          <span className="av-dim">
+            This is the quantified basis for requesting additional plantilla positions.
+          </span>
+        </p>
+      </div>
+
+      {data.clashes.length > 0 && (
+        <div className="overflow-x-auto custom-scrollbar">
+          <table className="w-full min-w-[640px] text-left text-xs">
+            <thead>
+              <tr className="border-b border-[var(--rule)] av-note av-dim">
+                <th className="pb-2 pr-3 font-medium">Date</th>
+                <th className="pb-2 pr-3 font-medium">Concurrent events</th>
+                <th className="pb-2 pr-3 font-medium">Crew needed</th>
+                <th className="pb-2 pr-3 font-medium">Shortfall</th>
+                <th className="pb-2 font-medium">Services not agreed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.clashes.slice(0, 14).map((c) => (
+                <tr key={c.day} className="border-b border-[var(--rule-soft)] align-top last:border-0">
+                  <td className="py-3 pr-3 font-mono av-note">{c.day}</td>
+                  <td className="py-3 pr-3">
+                    {c.list.map((e) => (
+                      <p key={e.id} className="av-note">
+                        {e.title}
+                        <span className="av-dim"> · {e.client || 'no client'}</span>
+                      </p>
+                    ))}
+                  </td>
+                  <td className="py-3 pr-3 font-mono av-note">
+                    {c.needed} of {CREW_ON_HAND}
+                  </td>
+                  <td className="py-3 pr-3 font-mono av-note">
+                    {c.shortfall > 0 ? (
+                      <span style={{ color: 'var(--refused)', fontWeight: 550 }}>
+                        −{c.shortfall}
+                      </span>
+                    ) : (
+                      <span className="av-dim">covered</span>
+                    )}
+                  </td>
+                  <td className="py-3 font-mono av-note">
+                    {c.unmetServices > 0 ? (
+                      <span style={{ color: 'var(--waiting)' }}>{c.unmetServices}</span>
+                    ) : (
+                      <span className="av-dim">0</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ==========================================================================
+   CSV IMPORT — backfilling past coverage
+   COA: "Input previous date/event as of after the AOM."
+   Ang isa-isahin ang dalawang taong record sa dashboard ay araw-araw na
+   trabaho. Ang i-paste ang isang CSV ay ilang minuto.
+   ========================================================================== */
+
+/** Ang eksaktong hanay na inaasahan, sa pagkakasunod-sunod na ito. */
+const CSV_COLUMNS = [
+  'Event Title',
+  'Client',
+  'Client Tier',
+  'Event Date',
+  'End Date',
+  'Venue',
+  'Requested Services',
+  'Agreed Services',
+  'Date Requested',
+  'Date Delivered',
+  'Approval Status',
+  'Reason',
+  'Lead Personnel',
+  'CSM Rating',
+  'Output Link',
+  'Remarks',
+] as const;
+
+interface ImportRow {
+  line: number;
+  payload: Record<string, string>;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Tunay na CSV parser — hinahawakan ang mga naka-quote na field, ang
+ * kuwit sa loob ng quote, at ang dobleng quote bilang literal. Ang
+ * naive na split(',') ay basag agad sa unang venue na may kuwit.
+ */
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  const src = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quoted) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { cell += '"'; i++; }
+        else quoted = false;
+      } else cell += c;
+      continue;
+    }
+    if (c === '"') { quoted = true; continue; }
+    if (c === ',') { row.push(cell); cell = ''; continue; }
+    if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+    cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((x) => x.trim() !== ''));
+}
+
+/** yyyy-MM-dd lamang. Walang hulaan sa 03/04 — marami nang nasira niyan. */
+function strictDate(v: string): string | null {
+  const t = v.trim();
+  if (!t) return '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  const d = parseDate(t);
+  return d ? dayKey(d) : null;
+}
+
+function splitMulti(v: string): string[] {
+  return String(v || '')
+    .split(/[;|]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/** Tinitingnan ang bawat hilera bago pa man ito maipadala. */
+function validateImport(rows: string[][]): { rows: ImportRow[]; headerError: string } {
+  if (!rows.length) return { rows: [], headerError: 'The file is empty.' };
+
+  const head = rows[0].map((h) => h.trim().toLowerCase());
+  const want = CSV_COLUMNS.map((h) => h.toLowerCase());
+  const missing = want.filter((w) => head.indexOf(w) === -1);
+  if (missing.length) {
+    return {
+      rows: [],
+      headerError:
+        'The header row is missing these columns: ' +
+        missing.join(', ') +
+        '. Download the template and paste your data under its headings.',
+    };
+  }
+  const idx: Record<string, number> = {};
+  want.forEach((w, k) => (idx[CSV_COLUMNS[k]] = head.indexOf(w)));
+
+  const known = new Set(SERVICE_CATALOG.map((x) => x.toLowerCase()));
+  const tiers = new Set((CLIENT_TIERS as readonly string[]).map((x) => x.toLowerCase()));
+
+  return {
+    headerError: '',
+    rows: rows.slice(1).map((r, i) => {
+      const g = (c: string) => String(r[idx[c]] ?? '').trim();
+      const errors: string[] = [];
+      const warnings: string[] = [];
+
+      const title = g('Event Title');
+      const client = g('Client');
+      if (!title) errors.push('Event title is required');
+      if (!client) errors.push('Client is required');
+
+      const ev = strictDate(g('Event Date'));
+      if (ev === null) errors.push('Event date must be yyyy-mm-dd');
+      else if (!ev) errors.push('Event date is required');
+
+      const end = strictDate(g('End Date'));
+      if (end === null) errors.push('End date must be yyyy-mm-dd');
+      const req = strictDate(g('Date Requested'));
+      if (req === null) errors.push('Date requested must be yyyy-mm-dd');
+      const del = strictDate(g('Date Delivered'));
+      if (del === null) errors.push('Date delivered must be yyyy-mm-dd');
+
+      const services = splitMulti(g('Requested Services'));
+      if (!services.length) errors.push('At least one requested service is required');
+      const unknown = services.filter((x) => !known.has(x.toLowerCase()));
+      if (unknown.length) {
+        warnings.push('Not in the PM catalogue: ' + unknown.join(', '));
+      }
+
+      const agreed = splitMulti(g('Agreed Services'));
+      const overPromised = agreed.filter(
+        (a) => !services.some((x) => x.toLowerCase() === a.toLowerCase())
+      );
+      if (overPromised.length) {
+        errors.push('Agreed but not requested: ' + overPromised.join(', '));
+      }
+
+      const status = g('Approval Status') || 'Approved';
+      const key = classifyApproval(status);
+      const reason = g('Reason');
+      if (!APPROVAL_META[key].live && !reason) {
+        errors.push(`A reason is required when the status is ${APPROVAL_META[key].label}`);
+      }
+
+      const tier = g('Client Tier');
+      if (tier && !tiers.has(tier.toLowerCase())) {
+        warnings.push('Client tier not recognised, will fall back to Other / External');
+      }
+
+      return {
+        line: i + 2,
+        errors,
+        warnings,
+        payload: {
+          _line: String(i + 2),
+          title,
+          client,
+          clientTier: tier,
+          clientType: /dost|stii/i.test(client) ? 'Internal' : 'External',
+          eventDate: ev || '',
+          endDate: end || '',
+          venue: g('Venue'),
+          requestedServices: services.join(', '),
+          agreedServices: agreed.join(', '),
+          dateRequested: req || '',
+          dateDelivered: del || '',
+          approvalStatus: SERVER_STATUS[key],
+          reason,
+          leadPersonnel: g('Lead Personnel'),
+          csm: g('CSM Rating'),
+          link: g('Output Link'),
+          remarks: g('Remarks'),
+        },
+      };
+    }),
+  };
+}
+
+function ImportModal({
+  onClose,
+  onImport,
+  submitting,
+}: {
+  onClose: () => void;
+  onImport: (rows: Record<string, string>[]) => void;
+  submitting: boolean;
+}) {
+  const [raw, setRaw] = useState('');
+  const [parsed, setParsed] = useState<ImportRow[]>([]);
+  const [headerError, setHeaderError] = useState('');
+  const [touched, setTouched] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const read = useCallback((text: string) => {
+    setRaw(text);
+    setTouched(true);
+    const out = validateImport(parseCSV(text));
+    setHeaderError(out.headerError);
+    setParsed(out.rows);
+  }, []);
+
+  const good = parsed.filter((r) => r.errors.length === 0);
+  const bad = parsed.filter((r) => r.errors.length > 0);
+  const warned = good.filter((r) => r.warnings.length > 0);
+
+  const template = () => {
+    const rows = [
+      CSV_COLUMNS.join(','),
+      [
+        '"NSTW 2025 Day 1"',
+        '"DOST-STII"',
+        `"${CLIENT_TIERS[1]}"`,
+        '2025-07-21',
+        '2025-07-23',
+        '"PICC, Pasay City"',
+        '"Photo Coverage; Video Coverage"',
+        '"Photo Coverage"',
+        '2025-07-02',
+        '2025-07-28',
+        'Approved',
+        '"Video coverage not agreed — no available camera operator."',
+        'Xyrus',
+        '4',
+        '',
+        '"Backfilled after the AOM"',
+      ].join(','),
+    ].join('\r\n');
+    const blob = new Blob(['\uFEFF' + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'av-nexus-import-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-3 py-[3vh] md:px-4 md:py-[5vh]">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div
+        className="av-float animate-riseup relative w-full max-w-4xl bg-white"
+        style={{ border: '1px solid var(--rule)' }}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--rule)] px-6 py-4">
+          <div>
+            <h3 className="av-sec-h">Import past coverage</h3>
+            <p className="av-sec-p">
+              Backfill events that already happened. No approval emails are sent and the
+              pipeline is marked complete where a delivery date is given.
+            </p>
+          </div>
+          <button onClick={onClose} className="av-dim text-lg">
+            ✕
+          </button>
+        </div>
+
+        <div className="max-h-[68vh] space-y-4 overflow-y-auto custom-scrollbar p-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <button onClick={template} className="av-btn-ghost">
+              Download template
+            </button>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                const fr = new FileReader();
+                fr.onload = () => read(String(fr.result || ''));
+                fr.readAsText(f);
+              }}
+              className="av-note file:av-btn-ghost file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
+            />
+          </div>
+
+          <div>
+            <label className="av-label mb-1.5 block">
+              Or paste the rows here, including the header line
+            </label>
+            <textarea
+              value={raw}
+              onChange={(e) => read(e.target.value)}
+              spellCheck={false}
+              className="font-mono w-full min-h-[150px] resize-y rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-[12px] text-[var(--ink)] focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15"
+              placeholder={CSV_COLUMNS.join(',')}
+            />
+            <p className="av-note av-dim mt-1.5">
+              Dates must be <b>yyyy-mm-dd</b>. Multiple services are separated by a
+              semicolon, so a comma inside a field will not break the row. Rows already on
+              record with the same title and event date are skipped, so it is safe to run
+              the same file twice.
+            </p>
+          </div>
+
+          {headerError && (
+            <p className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-3 av-note" style={{ color: 'var(--refused)' }}>
+              {headerError}
+            </p>
+          )}
+
+          {touched && !headerError && parsed.length > 0 && (
+            <>
+              <div className="av-bento">
+                <div className="av-head">
+                  <div className="av-fig-sm font-mono" style={{ color: 'var(--served)' }}>
+                    {good.length}
+                  </div>
+                  <p className="l">Ready to import</p>
+                </div>
+                <div className="av-head">
+                  <div className="av-fig-sm font-mono" style={{ color: bad.length ? 'var(--refused)' : 'var(--ink-3)' }}>
+                    {bad.length}
+                  </div>
+                  <p className="l">Will be skipped</p>
+                </div>
+                <div className="av-head">
+                  <div className="av-fig-sm font-mono" style={{ color: warned.length ? 'var(--waiting)' : 'var(--ink-3)' }}>
+                    {warned.length}
+                  </div>
+                  <p className="l">Import with a warning</p>
+                </div>
+                <div className="av-head">
+                  <div className="av-fig-sm font-mono">{parsed.length}</div>
+                  <p className="l">Rows read</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full min-w-[720px] text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[var(--rule)] av-note av-dim">
+                      <th className="pb-2 pr-3 font-medium">Line</th>
+                      <th className="pb-2 pr-3 font-medium">Event</th>
+                      <th className="pb-2 pr-3 font-medium">Date</th>
+                      <th className="pb-2 font-medium">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsed.slice(0, 40).map((r) => (
+                      <tr key={r.line} className="border-b border-[var(--rule-soft)] align-top last:border-0">
+                        <td className="py-2.5 pr-3 font-mono av-note av-dim">{r.line}</td>
+                        <td className="py-2.5 pr-3 av-note">
+                          {r.payload.title || <span className="av-dim">(no title)</span>}
+                          <span className="av-dim block">{r.payload.client}</span>
+                        </td>
+                        <td className="py-2.5 pr-3 font-mono av-note av-dim">
+                          {r.payload.eventDate || '—'}
+                        </td>
+                        <td className="py-2.5 av-note">
+                          {r.errors.length > 0 ? (
+                            <span style={{ color: 'var(--refused)' }}>{r.errors.join(' · ')}</span>
+                          ) : r.warnings.length > 0 ? (
+                            <span style={{ color: 'var(--waiting)' }}>{r.warnings.join(' · ')}</span>
+                          ) : (
+                            <span style={{ color: 'var(--served)' }}>Ready</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {parsed.length > 40 && (
+                  <p className="av-note av-dim mt-2">
+                    Showing the first 40 of {parsed.length} rows. All of them are imported.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-[var(--rule)] px-6 py-4">
+          <p className="av-note av-dim max-w-md">
+            {good.length
+              ? `${good.length} row${good.length === 1 ? '' : 's'} will be written to the Events sheet. Nothing is emailed.`
+              : 'Paste or upload a CSV to begin.'}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="av-btn-ghost">
+              Cancel
+            </button>
+            <button
+              disabled={!good.length || submitting}
+              onClick={() => onImport(good.map((r) => r.payload))}
+              className="av-btn disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {submitting ? 'Importing…' : `Import ${good.length}`}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -6362,6 +7053,13 @@ export default function App() {
   const [evApproval, setEvApproval] = useState<'ALL' | ApprovalKey>('ALL');
   const [evFulfil, setEvFulfil] = useState<'ALL' | Fulfilment>('ALL');
   const [evPriority, setEvPriority] = useState<'ALL' | PriorityKey>('ALL');
+  const [evYear, setEvYear] = useState('ALL');
+  const [evMonth, setEvMonth] = useState('ALL');
+  const [evClient, setEvClient] = useState('ALL');
+  const [evSort, setEvSort] = useState<
+    'queue' | 'event-desc' | 'event-asc' | 'received-desc' | 'client' | 'title'
+  >('queue');
+  const [importOpen, setImportOpen] = useState(false);
 
   const [requests, setRequests] = useState<ServiceRequest[]>([]);
   const [reqModal, setReqModal] = useState<{ open: boolean; editing: ServiceRequest | null }>({
@@ -6725,8 +7423,8 @@ export default function App() {
 
         if (bootedRef.current) {
           const fresh = formatted.filter((c) => c.id && !seenIds.current.has(c.id));
-          if (fresh.length === 1) toast(`Bagong record: ${fresh[0].details.slice(0, 60)}`, 'new');
-          else if (fresh.length > 1) toast(`${fresh.length} bagong records ang pumasok`, 'new');
+          if (fresh.length === 1) toast(`New record: ${fresh[0].details.slice(0, 60)}`, 'new');
+          else if (fresh.length > 1) toast(`${fresh.length} new records came in`, 'new');
         }
         formatted.forEach((c) => c.id && seenIds.current.add(c.id));
 
@@ -6825,6 +7523,7 @@ export default function App() {
               priority: String(r['Priority'] || 'Normal'),
               clientTier: String(r['Client Tier'] || ''),
               urgentNote: String(r['Urgent Note'] || ''),
+              requestLetter: String(r['Request Letter'] || ''),
               pipeline: {
                 coordination: classifyPipeline(String(r['Coordination'] || '')),
                 documents: classifyPipeline(String(r['Documents'] || '')),
@@ -6985,6 +7684,8 @@ export default function App() {
         endDate: form.endDate,
         requestedServices: form.requestedServices,
         agreedServices: form.agreedServices || '',
+        reopen: form.reopen === 'yes',
+        requestLetter: form.requestLetter ? JSON.parse(form.requestLetter) : undefined,
         deliveredServices: form.deliveredServices,
         reason: form.reason,
         approvalStatus: normalisedStatus,
@@ -7061,6 +7762,14 @@ export default function App() {
               });
             }
           }
+        }
+        // Ang sulat ay maaaring hindi maisave kahit na-save ang event —
+        // kapag wala pang Drive permission ang script. Dapat malaman agad.
+        if (out?.letterWarning) {
+          setLastError({ what: 'Request letter', detail: String(out.letterWarning) });
+        }
+        if (id) {
+          /* nasa itaas na ang mensahe para sa update */
         } else if (out?.emailed) {
           toast(`Event created — approval email sent to ${out.emailTo || 'the Division Chief'}`, 'ok');
         } else {
@@ -7089,6 +7798,46 @@ export default function App() {
       }
     },
     [fetchProduction, toast, actor, myRole, authedPost]
+  );
+
+  const importEvents = useCallback(
+    async (rows: Record<string, string>[]) => {
+      if (!PROD_CONFIGURED) {
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const out = await authedPost({ action: 'importEvents', rows });
+        const made = Number(out?.created || 0);
+        const skipped = Number(out?.skipped || 0);
+        toast(
+          `Imported ${made} event${made === 1 ? '' : 's'}` +
+            (skipped ? ` · ${skipped} skipped` : ''),
+          'ok'
+        );
+        if (skipped && Array.isArray(out?.problems)) {
+          setLastError({
+            what: 'Import',
+            detail: out.problems
+              .slice(0, 12)
+              .map((x: { line: number; title: string; reason: string }) =>
+                `Line ${x.line}${x.title ? ` (${x.title})` : ''}: ${x.reason}`
+              )
+              .join('\n'),
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not import.';
+        toast(msg, 'err');
+        setLastError({ what: 'Import', detail: msg });
+      } finally {
+        setSubmitting(false);
+        setImportOpen(false);
+        setTimeout(() => fetchProduction(), 1600);
+      }
+    },
+    [fetchProduction, toast, authedPost]
   );
 
   const notifyApprover = useCallback(
@@ -7261,14 +8010,38 @@ export default function App() {
       mine.forEach((a) =>
         a.roles.forEach((r) => byRole.set(r, (byRole.get(r) || 0) + 1))
       );
+      /**
+       * Ilang araw siya nakatalaga sa DALAWA o higit pang event nang sabay.
+       * Ito ang totoong hitsura ng pagkakahati ng tao — hindi bilang ng
+       * event, kundi bilang ng araw na hinati siya.
+       */
+      const byDay = new Map<string, Set<string>>();
+      mine.forEach((a) => {
+        const ev = events.find((e) => e.id === a.eventId);
+        if (!ev?.eventDate) return;
+        const end = ev.endDate || ev.eventDate;
+        const cur = new Date(
+          ev.eventDate.getFullYear(), ev.eventDate.getMonth(), ev.eventDate.getDate()
+        );
+        let guard = 0;
+        while (cur.getTime() <= end.getTime() && guard < 60) {
+          const k = dayKey(cur);
+          byDay.set(k, (byDay.get(k) || new Set<string>()).add(ev.id));
+          cur.setDate(cur.getDate() + 1);
+          guard++;
+        }
+      });
+      const clashDays = Array.from(byDay.values()).filter((set) => set.size > 1).length;
+
       return {
         name: m.name,
         events: mine.length,
         roleCount: mine.reduce((acc, a) => acc + a.roles.length, 0),
+        clashDays,
         top: Array.from(byRole.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4),
       };
     }).sort((a, b) => b.roleCount - a.roleCount);
-  }, [assignments]);
+  }, [assignments, events]);
 
   const prodSummary = useMemo(() => {
     const live = outputs.filter((o) => o.stage !== 'published' && o.stage !== 'approved');
@@ -7292,12 +8065,37 @@ export default function App() {
     [outputs, prodPerson]
   );
 
+  /** Ang taon, buwan at ahensiya na aktwal na nasa datos. */
+  const evYears = useMemo(() => {
+    const set = new Set<string>();
+    events.forEach((ev) => {
+      const d = ev.eventDate || ev.dateRequested;
+      if (d) set.add(String(d.getFullYear()));
+    });
+    return Array.from(set).sort().reverse();
+  }, [events]);
+
+  const evClients = useMemo(
+    () =>
+      Array.from(new Set(events.map((ev) => ev.client.trim()).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [events]
+  );
+
   const filteredEvents = useMemo(() => {
     const q = evQuery.trim().toLowerCase();
     const list = events.filter((ev) => {
       if (evApproval !== 'ALL' && ev.approval !== evApproval) return false;
       if (evFulfil !== 'ALL' && fulfilment(ev) !== evFulfil) return false;
       if (evPriority !== 'ALL' && classifyPriority(ev.priority) !== evPriority) return false;
+
+      // Ang petsa ng EVENT ang sinasala, hindi ang petsa ng pagtanggap —
+      // 'yon ang hinahanap kapag inaayos ang mga nakaraang coverage.
+      const when = ev.eventDate || ev.dateRequested;
+      if (evYear !== 'ALL' && (!when || String(when.getFullYear()) !== evYear)) return false;
+      if (evMonth !== 'ALL' && (!when || String(when.getMonth() + 1) !== evMonth)) return false;
+      if (evClient !== 'ALL' && ev.client.trim() !== evClient) return false;
       if (
         q &&
         !`${ev.title} ${ev.client} ${ev.lead} ${ev.venue} ${ev.id} ${ev.requested.join(' ')}`
@@ -7307,10 +8105,36 @@ export default function App() {
         return false;
       return true;
     });
-    // PM order: urgent muna (may nakasulat na paunawa), tapos ang opisyal
-    // na ranggo ng kliyente — Office of the Secretary pababa.
-    return list.sort((a, b) => queueRank(a) - queueRank(b));
-  }, [events, evQuery, evApproval, evFulfil, evPriority]);
+    const t = (d: Date | null, fallback: number) => d?.getTime() ?? fallback;
+    const sorted = [...list];
+    switch (evSort) {
+      case 'event-desc':
+        sorted.sort((a, b) => t(b.eventDate, 0) - t(a.eventDate, 0));
+        break;
+      case 'event-asc':
+        sorted.sort(
+          (a, b) =>
+            t(a.eventDate, Number.MAX_SAFE_INTEGER) - t(b.eventDate, Number.MAX_SAFE_INTEGER)
+        );
+        break;
+      case 'received-desc':
+        sorted.sort((a, b) => t(b.dateRequested, 0) - t(a.dateRequested, 0));
+        break;
+      case 'client':
+        sorted.sort(
+          (a, b) => a.client.localeCompare(b.client) || t(b.eventDate, 0) - t(a.eventDate, 0)
+        );
+        break;
+      case 'title':
+        sorted.sort((a, b) => a.title.localeCompare(b.title));
+        break;
+      default:
+        // PM order: urgent muna (may nakasulat na paunawa), tapos ang
+        // opisyal na ranggo ng kliyente — Office of the Secretary pababa.
+        sorted.sort((a, b) => queueRank(a) - queueRank(b));
+    }
+    return sorted;
+  }, [events, evQuery, evApproval, evFulfil, evPriority, evYear, evMonth, evClient, evSort]);
 
   /** Nasa AV team pa — sila ang dapat kumilos, hindi ang DC. */
   const triageQueue = useMemo(
@@ -8282,7 +9106,7 @@ export default function App() {
                               : 'border-slate-200 text-slate-9000 hover:text-slate-600'
                           }`}
                         >
-                          {n === 'ALL' ? 'Lahat' : n}
+                          {n === 'ALL' ? 'All' : n}
                         </button>
                       ))}
                     </div>
@@ -8350,7 +9174,7 @@ export default function App() {
                     <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-10 text-center">
                       <p className="mb-1 text-sm text-slate-600">No outputs logged yet.</p>
                       <p className="mb-4 text-xs text-slate-400">
-                        Simulan sina Marx at Reiner — kahit shoot day lang, bilang 'yon.
+                        Log the first one — even a shoot day counts.
                       </p>
                       <button
                         onClick={() => setLogOpen(true)}
@@ -8587,12 +9411,17 @@ export default function App() {
                     title="Event monitoring"
                     hint="AV Services PM: SRS II assesses → Supervising SRS endorses → Division Chief approves → production or coverage."
                     right={
-                      <button
-                        onClick={() => setEvModal({ open: true, editing: null })}
-                        className="av-btn"
-                      >
-                        + New event
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setImportOpen(true)} className="av-btn-ghost">
+                          Import past coverage
+                        </button>
+                        <button
+                          onClick={() => setEvModal({ open: true, editing: null })}
+                          className="av-btn"
+                        >
+                          + New event
+                        </button>
+                      </div>
                     }
                   />
 
@@ -8743,6 +9572,75 @@ export default function App() {
                             </button>
                           )}
                         </div>
+                        {/* Panahon, ahensiya at pagkakasunod — ito ang
+                            kailangan kapag inaayos ang mga lumang record. */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={evYear}
+                            onChange={(e) => setEvYear(e.target.value)}
+                            className="av-btn-ghost"
+                          >
+                            <option value="ALL">All years</option>
+                            {evYears.map((y) => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={evMonth}
+                            onChange={(e) => setEvMonth(e.target.value)}
+                            className="av-btn-ghost"
+                          >
+                            <option value="ALL">All months</option>
+                            {Array.from({ length: 12 }, (_, i) => (
+                              <option key={i} value={String(i + 1)}>
+                                {new Date(2000, i, 1).toLocaleDateString('en-PH', { month: 'long' })}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={evClient}
+                            onChange={(e) => setEvClient(e.target.value)}
+                            className="av-btn-ghost max-w-[220px]"
+                          >
+                            <option value="ALL">All agencies</option>
+                            {evClients.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={evSort}
+                            onChange={(e) => setEvSort(e.target.value as typeof evSort)}
+                            className="av-btn-ghost"
+                          >
+                            <option value="queue">Sort: priority queue</option>
+                            <option value="event-desc">Sort: event date, newest</option>
+                            <option value="event-asc">Sort: event date, oldest</option>
+                            <option value="received-desc">Sort: date received, newest</option>
+                            <option value="client">Sort: agency</option>
+                            <option value="title">Sort: title</option>
+                          </select>
+                          {(evYear !== 'ALL' ||
+                            evMonth !== 'ALL' ||
+                            evClient !== 'ALL' ||
+                            evSort !== 'queue') && (
+                            <button
+                              onClick={() => {
+                                setEvYear('ALL');
+                                setEvMonth('ALL');
+                                setEvClient('ALL');
+                                setEvSort('queue');
+                              }}
+                              className="av-note underline"
+                              style={{ color: 'var(--signal)' }}
+                            >
+                              Reset
+                            </button>
+                          )}
+                          <span className="av-note av-dim ml-auto">
+                            {filteredEvents.length} of {events.length}
+                          </span>
+                        </div>
+
                         <div className="flex flex-wrap gap-1.5">
                           {(['ALL', ...APPROVAL_ORDER] as const).map((k) => (
                             <button
@@ -8794,8 +9692,7 @@ export default function App() {
                         <div className="rounded-[16px] border border-dashed border-[var(--rule)] p-10 text-center">
                           <p className="mb-1 text-sm text-slate-600">No matching events.</p>
                           <p className="mb-4 text-xs text-slate-400">
-                            Dito nagsisimula ang lahat — gumawa ng event para masimulan ang
-                            evaluation, approval at tasking.
+                            Everything starts here. Create an event to begin assessment, approval and tasking.
                           </p>
                           <button
                             onClick={() => setEvModal({ open: true, editing: null })}
@@ -8989,9 +9886,19 @@ export default function App() {
                         value={kpi.csm}
                         target={KPI_CSM_TARGET}
                         label="CSM very satisfactory+"
-                        sub={`${kpi.rated} request ang may CSM rating. Target: 93% na Very Satisfactory pataas.`}
+                        sub={`${kpi.rated} request(s) have a CSM rating. Target: 93% Very Satisfactory or higher.`}
                       />
                     </div>
+                  </div>
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="Schedule conflict and staffing"
+                    hint="COA — address scheduling conflict. Concurrent events against the size of the section, and the services that went unmet because of it."
+                  />
+                  <div className="av-card p-5">
+                    <ScheduleConflictPanel events={events} />
                   </div>
                 </section>
 
@@ -9040,6 +9947,7 @@ export default function App() {
                           <th className="px-4 py-2.5 text-right font-medium">Events</th>
                           <th className="px-4 py-2.5 text-right font-medium">Roles filled</th>
                           <th className="px-4 py-2.5 text-right font-medium">Avg per event</th>
+                          <th className="px-4 py-2.5 text-right font-medium">Conflicted days</th>
                           <th className="px-4 py-2.5 font-medium">Most frequent roles</th>
                         </tr>
                       </thead>
@@ -9057,6 +9965,15 @@ export default function App() {
                             </td>
                             <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-9000 tabular-nums">
                               {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums">
+                              {r.clashDays > 0 ? (
+                                <span style={{ color: 'var(--waiting)', fontWeight: 550 }}>
+                                  {r.clashDays}
+                                </span>
+                              ) : (
+                                <span className="av-dim">0</span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-[12px] text-slate-9000">
                               {r.top.length
@@ -9168,7 +10085,7 @@ export default function App() {
 
                 <div className="custom-scrollbar max-h-[420px] overflow-y-auto rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-5 font-mono text-sm">
                   <p className="mb-3 border-b border-slate-200 pb-2 font-bold text-red-600">
-                    Preview — ito ang lalabas sa printed sheet
+                    Preview — this is what the printed sheet will contain
                   </p>
                   <div className="space-y-1 text-slate-600">
                     <p className="text-base font-bold uppercase text-slate-900">
@@ -9760,6 +10677,13 @@ export default function App() {
               ? myRole === 'admin' || myRole === 'staff'
               : can('edit', myRole, evModal.editing.createdBy, myName))
           }
+        />
+      )}
+      {importOpen && (
+        <ImportModal
+          onClose={() => setImportOpen(false)}
+          onImport={importEvents}
+          submitting={submitting}
         />
       )}
       {reqModal.open && (
