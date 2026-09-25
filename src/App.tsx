@@ -47,6 +47,13 @@ const SCRIPT_URL =
  * Hangga't placeholder ito, setup card lang ang ipapakita ng Production Board.
  */
 const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxvyWZALIz3Lh_OugI2-zbUjjeVffu-K6MogSji5vecgOv2C1NtkHrS9XcbdD1HxVLjQg/exec';
+
+/**
+ * FORMS BRIDGE — ang Web app URL ng FormsBridge.gs (nagtatapos sa /exec).
+ * Kapag blangko, gumagana pa rin ang dashboard; wala lang ang mga bilang
+ * na galing sa AV Request Form at sa CSM form.
+ */
+const FORMS_BRIDGE_URL = 'https://script.google.com/macros/s/AKfycby9ordm58174Py5dijX1TB3D-FMYzpyqBXPAnvFILlhks5bzVcomxW6t2u4uFyhBSIb/exec';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 /**
@@ -137,14 +144,14 @@ const CAL_EMBED =
   'https://calendar.google.com/calendar/embed?src=av%40stii.dost.gov.ph&ctz=Asia%2FSingapore';
 
 /** DOST corporate blue — blue-600. Pumalit sa dating neon cyan. */
-const CYAN = '#2563eb'; // DOST corporate blue (blue-600)
+const CYAN = '#427AA1'; // DOST corporate blue (blue-600)
 
 const SYSTEMS: SystemApp[] = [
   {
     id: 'gatepass',
     name: 'Equipment Gate Pass',
     role: 'Releasing & inventory control',
-    url: 'https://bdmsgatekeeper.vercel.app',
+    url: 'https://bdms-gpass.vercel.app',
     tag: 'OPERATIONS',
     accent: CYAN,
     glyph: 'GP',
@@ -157,7 +164,7 @@ const SYSTEMS: SystemApp[] = [
     role: 'Public capability page',
     url: 'https://bdms-av-portfolio.vercel.app',
     tag: 'PUBLIC FACING',
-    accent: '#dc2626',
+    accent: '#A30000',
     glyph: 'AV',
     embeddable: true,
     points: ['Service catalogue', 'Camera & lens kit', 'Showreel embeds'],
@@ -168,7 +175,7 @@ const SYSTEMS: SystemApp[] = [
     role: 'Field assignment log',
     url: 'https://www.appsheet.com/start/013e44a8-f18a-49f5-98b6-b28f027dd3b7?platform=desktop#appName=DMCUploadingMonitoringBackend-264496452&vss=H4sIAAAAAAAAA6XOsQrCMBQF0F-RO-cLsok4iNhF6WIcYvMKwTYpJtWWkH_3VS3O6pgbzn034Wbpvo-6ukAe0-e1pRESSeEwdqQgFVbexatvFIRCodtXuCwXBQ19UMjIJzH7SAEyfcflf9cFrCEXbW3pOnVNkjvejr8nxcFskAXaPupzQ8_BbHLmrPZVH8iUPOWHCWHj1kOnndl5w5W1bgLlB_LM-uFlAQAA&view=AV%20Nexus',
     tag: 'APPSHEET',
-    accent: '#d97706',
+    accent: '#B07A00',
     glyph: 'TS',
     embeddable: false,
     points: ['Assignment queue', 'Mobile field capture', 'Feeds this dashboard'],
@@ -204,19 +211,19 @@ const STATUS_META: Record<
     label: 'UPCOMING',
     icon: '',
     chip: 'bg-red-100 text-red-800 border-red-200',
-    hex: '#dc2626',
+    hex: '#A30000',
   },
   checked: {
     label: 'CHECKED',
     icon: '',
     chip: 'bg-blue-100 text-blue-800 border-blue-200',
-    hex: '#1d4ed8',
+    hex: '#2F5F82',
   },
   transferred: {
     label: 'DMC TRANSFERRED',
     icon: '',
     chip: 'bg-blue-100 text-blue-800 border-blue-200',
-    hex: '#2563eb',
+    hex: '#427AA1',
   },
   archived: {
     label: 'ARCHIVED',
@@ -265,13 +272,13 @@ const STAGE_META: Record<StageKey, { label: string; short: string; hex: string; 
   shooting: {
     label: 'Shooting',
     short: 'FIELD',
-    hex: '#dc2626',
+    hex: '#A30000',
     chip: 'bg-red-100 text-red-800 border-red-200',
   },
   editing: {
     label: 'Editing',
     short: 'POST',
-    hex: '#d97706',
+    hex: '#B07A00',
     chip: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   review: {
@@ -283,7 +290,7 @@ const STAGE_META: Record<StageKey, { label: string; short: string; hex: string; 
   approved: {
     label: 'Approved',
     short: 'CLEARED',
-    hex: '#2563eb',
+    hex: '#427AA1',
     chip: 'bg-blue-100 text-blue-800 border-blue-200',
   },
   published: {
@@ -361,7 +368,7 @@ interface ServiceRequest {
 const SLA_WD: Record<Stream, number> = { coverage: 3, production: 13 };
 
 const STREAM_META: Record<Stream, { label: string; short: string; hex: string }> = {
-  coverage:   { label: 'AV Coverage',    short: 'COVERAGE',   hex: '#2563eb' },
+  coverage:   { label: 'AV Coverage',    short: 'COVERAGE',   hex: '#427AA1' },
   production: { label: 'AVP Production', short: 'PRODUCTION', hex: '#9333ea' },
 };
 
@@ -384,12 +391,12 @@ const REQ_META: Record<
     served: false, unmet: false, excluded: false,
   },
   approved: {
-    label: 'Approved', hex: '#1d4ed8',
+    label: 'Approved', hex: '#2F5F82',
     chip: 'bg-blue-100 text-blue-800 border-blue-200',
     served: false, unmet: false, excluded: false,
   },
   ongoing: {
-    label: 'Ongoing', hex: '#d97706',
+    label: 'Ongoing', hex: '#B07A00',
     chip: 'bg-amber-100 text-amber-800 border-amber-200',
     served: false, unmet: false, excluded: false,
   },
@@ -399,12 +406,12 @@ const REQ_META: Record<
     served: true, unmet: false, excluded: false,
   },
   rescheduled: {
-    label: 'Rescheduled', hex: '#ca8a04',
+    label: 'Rescheduled', hex: '#B07A00',
     chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
     served: false, unmet: true, excluded: true,
   },
   disapproved: {
-    label: 'Disapproved', hex: '#dc2626',
+    label: 'Disapproved', hex: '#A30000',
     chip: 'bg-red-100 text-red-800 border-red-200',
     served: false, unmet: true, excluded: false,
   },
@@ -600,9 +607,9 @@ function slaState(r: ServiceRequest): SLAState {
 
 const SLA_META: Record<SLAState, { label: string; hex: string; chip: string }> = {
   ontime:   { label: 'ON TIME',  hex: '#16a34a', chip: 'bg-green-100 text-green-800 border-green-200' },
-  overdue: { label: 'OVERDUE', hex: '#dc2626', chip: 'bg-red-100 text-red-800 border-red-200' },
-  atrisk:   { label: 'AT RISK',  hex: '#d97706', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
-  open:     { label: 'WITHIN',   hex: '#2563eb', chip: 'bg-blue-100 text-blue-800 border-blue-200' },
+  overdue: { label: 'OVERDUE', hex: '#A30000', chip: 'bg-red-100 text-red-800 border-red-200' },
+  atrisk:   { label: 'AT RISK',  hex: '#B07A00', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
+  open:     { label: 'WITHIN',   hex: '#427AA1', chip: 'bg-blue-100 text-blue-800 border-blue-200' },
   na:       { label: 'N/A',      hex: '#94a3b8', chip: 'bg-slate-100 text-slate-500 border-slate-200' },
 };
 
@@ -821,7 +828,7 @@ type PriorityKey = 'High' | 'Normal' | 'Low';
 const PRIORITY_ORDER: PriorityKey[] = ['High', 'Normal', 'Low'];
 
 const PRIORITY_META: Record<PriorityKey, { label: string; chip: string; hex: string }> = {
-  High:   { label: 'High priority', chip: 'bg-red-100 text-red-700 border-red-200', hex: '#dc2626' },
+  High:   { label: 'High priority', chip: 'bg-red-100 text-red-700 border-red-200', hex: '#A30000' },
   Normal: { label: 'Normal',        chip: 'bg-slate-100 text-slate-600 border-slate-200', hex: '#64748b' },
   Low:    { label: 'Low',           chip: 'bg-slate-100 text-slate-500 border-slate-200', hex: '#94a3b8' },
 };
@@ -848,7 +855,7 @@ const APPROVAL_META: Record<
     chip: 'bg-purple-100 text-purple-800 border-purple-200', live: true,
   },
   'for-endorsement': {
-    label: 'For endorsement', short: 'FOR SRS', hex: '#d97706',
+    label: 'For endorsement', short: 'FOR SRS', hex: '#B07A00',
     chip: 'bg-amber-100 text-amber-800 border-amber-200', live: true,
   },
   'for-approval': {
@@ -856,15 +863,15 @@ const APPROVAL_META: Record<
     chip: 'bg-slate-100 text-slate-700 border-slate-200', live: true,
   },
   approved: {
-    label: 'Approved', short: 'CLEARED', hex: '#2563eb',
+    label: 'Approved', short: 'CLEARED', hex: '#427AA1',
     chip: 'bg-blue-100 text-blue-800 border-blue-200', live: true,
   },
   declined: {
-    label: 'Declined', short: 'DECLINED', hex: '#dc2626',
+    label: 'Declined', short: 'DECLINED', hex: '#A30000',
     chip: 'bg-red-100 text-red-800 border-red-200', live: false,
   },
   rescheduled: {
-    label: 'Rescheduled', short: 'MOVED', hex: '#ca8a04',
+    label: 'Rescheduled', short: 'MOVED', hex: '#B07A00',
     chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', live: false,
   },
   cancelled: {
@@ -902,7 +909,7 @@ const FULFIL_META: Record<
     chip: 'bg-green-100 text-green-800 border-green-200',
   },
   partial: {
-    label: 'Served in part', hex: '#B45309',
+    label: 'Served in part', hex: '#8A5A00',
     chip: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   inprogress: {
@@ -1007,7 +1014,7 @@ function stepField(key: PipelineKey): string {
 
 const PIPELINE_META: Record<PipelineState, { label: string; hex: string }> = {
   'not-started': { label: 'Not started', hex: '#cbd5e1' },
-  'in-progress': { label: 'In progress', hex: '#d97706' },
+  'in-progress': { label: 'In progress', hex: '#B07A00' },
   done: { label: 'Done', hex: '#16a34a' },
   na: { label: 'N/A', hex: '#e2e8f0' },
 };
@@ -1023,7 +1030,7 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
   else if (ev.approval === 'cancelled') status = 'cancelled';
   else if (ev.approval === 'rescheduled') status = 'rescheduled';
   else if (!isAuthorised(ev)) status = 'pending';
-  else if (ev.dateDelivered) status = 'completed';
+  else if (ev.dateDelivered || isDelivered(ev)) status = 'completed';
   else status = 'ongoing';
 
   const stream: Stream = streamOfServices(ev.requested);
@@ -1536,7 +1543,7 @@ function greetingFor(d: Date): string {
 type IconName =
   | 'events' | 'production' | 'archive' | 'compliance' | 'register' | 'reports'
   | 'services' | 'gatepass' | 'search' | 'plus' | 'kiosk' | 'print' | 'output'
-  | 'triage' | 'refresh' | 'logout' | 'close' | 'sheet' | 'menu';
+  | 'triage' | 'refresh' | 'logout' | 'close' | 'sheet' | 'menu' | 'sun' | 'moon';
 
 /** Stroke icons sa 24-unit grid. Iginuhit dito para walang bagong dependency. */
 const ICON_PATHS: Record<IconName, React.ReactNode> = {
@@ -1634,6 +1641,13 @@ const ICON_PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" />
+    </>
+  ),
+  moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />,
 };
 
 function Icon({
@@ -1695,7 +1709,7 @@ function Ring({
         className="absolute inset-0 -rotate-90"
         aria-hidden="true"
       >
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#EDF1F7" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" strokeWidth={stroke} style={{ stroke: 'var(--track)' }} />
         {p > 0 && (
           <circle
             cx={size / 2}
@@ -1781,7 +1795,7 @@ function PriorityBadge({ priority, dense = false }: { priority: string; dense?: 
       className={`av-pill ${dense ? 'sm' : ''} bg-red-50 text-red-700`}
       title="Marked high priority by the requesting section"
     >
-      <span className="d av-ping" style={{ background: '#E5484D' }} aria-hidden />
+      <span className="d av-ping" style={{ background: '#C22727' }} aria-hidden />
       High priority
     </span>
   );
@@ -2169,14 +2183,14 @@ function ConnectionPanel({
           <div key={pr.name} className="flex gap-3">
             <span
               className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: pr.ok ? '#16a34a' : '#dc2626' }}
+              style={{ background: pr.ok ? '#16a34a' : '#A30000' }}
             />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="text-[12px] font-medium text-slate-700">{pr.name}</span>
                 <span
                   className="text-[11px]"
-                  style={{ color: pr.ok ? '#16a34a' : '#dc2626' }}
+                  style={{ color: pr.ok ? '#16a34a' : '#A30000' }}
                 >
                   {pr.detail}
                 </span>
@@ -2365,7 +2379,7 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
         ))}
       </ul>
       <svg viewBox="0 0 140 140" className="h-[140px] w-[140px] shrink-0" role="img" aria-label="DMC status mix">
-        <circle cx="70" cy="70" r={R} fill="none" stroke="#EEF1F6" strokeWidth={W} />
+        <circle cx="70" cy="70" r={R} fill="none" strokeWidth={W} style={{ stroke: 'var(--track)' }} />
         {segs.map((s) => (
           <circle
             key={s.k}
@@ -2396,10 +2410,10 @@ function StatusDonut({ counts, total }: { counts: Record<StatusKey, number>; tot
               {Math.round(s.frac * 100)}%
             </text>
           ))}
-        <text x="70" y="68" textAnchor="middle" fontSize="20" fontWeight="700" fill="#172033">
+        <text x="70" y="68" textAnchor="middle" fontSize="20" fontWeight="700" style={{ fill: 'var(--ink)' }}>
           {shown}%
         </text>
-        <text x="70" y="84" textAnchor="middle" fontSize="10" fill="#64748B">
+        <text x="70" y="84" textAnchor="middle" fontSize="10" style={{ fill: 'var(--ink-3)' }}>
           cleared
         </text>
       </svg>
@@ -2429,11 +2443,11 @@ function WorkloadBars({
           <div className="flex h-2 gap-[2px] overflow-hidden rounded-full bg-[var(--tint-slate)]">
             <div
               className="h-full rounded-full transition-all duration-1000"
-              style={{ width: `${(d.cov / max) * 100}%`, background: '#2563EB' }}
+              style={{ width: `${(d.cov / max) * 100}%`, background: '#427AA1' }}
             />
             <div
               className="h-full rounded-full transition-all duration-1000"
-              style={{ width: `${(d.out / max) * 100}%`, background: '#F59E0B' }}
+              style={{ width: `${(d.out / max) * 100}%`, background: '#E0A300' }}
             />
           </div>
         </div>
@@ -2485,7 +2499,7 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
   const width = LEFT + weeks.length * (CELL + GAP);
 
   // Limang antas, gaya ng heatmap sa reference — hindi tuloy-tuloy na opacity.
-  const LEVELS = ['#EEF2F8', '#D6E3FD', '#A8C4FA', '#5E8FF2', '#1D4ED8'];
+  const LEVELS = ['var(--heat-0)', 'var(--heat-1)', 'var(--heat-2)', 'var(--heat-3)', 'var(--heat-4)'];
   const shade = (n: number) => {
     if (!n) return LEVELS[0];
     return LEVELS[Math.min(4, Math.max(1, Math.ceil((n / maxCount) * 4)))];
@@ -2526,7 +2540,7 @@ function ActivityGrid({ coverages }: { coverages: Coverage[] }) {
                 width={CELL}
                 height={CELL}
                 rx={3.5}
-                fill={shade(cell.count)}
+                style={{ fill: shade(cell.count) }}
               >
                 <title>{`${fmtDate(cell.date)} — ${cell.count} coverage${
                   cell.count === 1 ? '' : 's'
@@ -2975,7 +2989,7 @@ function KPIRing({
 }) {
   const shown = useCountUp(value ?? 0);
   const pass = value !== null && value >= target;
-  const hex = value === null ? '#cbd5e1' : pass ? '#16a34a' : '#dc2626';
+  const hex = value === null ? '#cbd5e1' : pass ? '#16a34a' : '#A30000';
 
   // Tuldok-tuldok na arko (220°), tatlong hanay — ang "Health Score" ng
   // pangalawang reference. Ang itim na guhit ang target.
@@ -3008,21 +3022,21 @@ function KPIRing({
         aria-label={`${label}: ${value === null ? 'no data' : `${value}%`}, target ${target}%`}
       >
         {dots.map((d) => (
-          <circle key={`${d.i}-${d.row}`} cx={d.x} cy={d.y} r={2.8} fill={d.i < lit ? hex : '#E4E9F0'} />
+          <circle key={`${d.i}-${d.row}`} cx={d.x} cy={d.y} r={2.8} style={{ fill: d.i < lit ? hex : 'var(--track)' }} />
         ))}
         <line
           x1={cx + 60 * Math.cos(ta)}
           y1={cy + 60 * Math.sin(ta)}
           x2={cx + 94 * Math.cos(ta)}
           y2={cy + 94 * Math.sin(ta)}
-          stroke="#172033"
+          style={{ stroke: 'var(--ink)' }}
           strokeWidth="2.2"
           strokeLinecap="round"
         />
-        <text x={cx} y="100" textAnchor="middle" fontSize="32" fontWeight="700" fill="#172033">
+        <text x={cx} y="100" textAnchor="middle" fontSize="32" fontWeight="700" style={{ fill: 'var(--ink)' }}>
           {value === null ? '—' : `${shown}%`}
         </text>
-        <text x={cx} y="121" textAnchor="middle" fontSize="11" fill="#64748B">
+        <text x={cx} y="121" textAnchor="middle" fontSize="11" style={{ fill: 'var(--ink-3)' }}>
           target {target}%
         </text>
       </svg>
@@ -3106,10 +3120,10 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {[
-          { k: 'Service demand', v: totals.demand, c: '#2563eb', s: 'Total requests received' },
+          { k: 'Service demand', v: totals.demand, c: '#427AA1', s: 'Total requests received' },
           { k: 'Services rendered', v: totals.served, c: '#16a34a', s: 'Completed / served' },
-          { k: 'In progress', v: totals.inflight, c: '#d97706', s: 'Pending, approved, ongoing' },
-          { k: 'Unmet requests', v: totals.unmet, c: '#dc2626', s: 'Declined — counts against us' },
+          { k: 'In progress', v: totals.inflight, c: '#B07A00', s: 'Pending, approved, ongoing' },
+          { k: 'Unmet requests', v: totals.unmet, c: '#A30000', s: 'Declined — counts against us' },
           { k: 'Client-side', v: totals.excluded, c: '#64748b', s: 'Cancelled or moved · KPI-excluded' },
         ].map((x) => (
           <div
@@ -3153,7 +3167,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     width={barW}
                     height={dh}
                     rx={3}
-                    fill="#2563eb"
+                    fill="#427AA1"
                     opacity={0.35}
                   >
                     <title>{`${monthLabel(m.key)} — demand ${m.demand}`}</title>
@@ -3172,7 +3186,7 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
                     <text
                       x={x}
                       y={H - 40 - dh}
-                      fill="#dc2626"
+                      fill="#A30000"
                       fontSize="10"
                       fontFamily="ui-monospace, monospace"
                       fontWeight="bold"
@@ -3313,7 +3327,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                   className="h-full rounded-full transition-all duration-1000"
                   style={{
                     width: `${Math.min(100, ratio)}%`,
-                    background: over ? '#dc2626' : '#16a34a',
+                    background: over ? '#A30000' : '#16a34a',
                   }}
                 />
                 <div className="absolute inset-y-0 right-0 w-px bg-slate-400" />
@@ -3546,8 +3560,8 @@ function ComplianceScorecard({
         met: kpi.csm !== null && kpi.csm >= KPI_CSM_TARGET,
         evidence:
           kpi.csm === null
-            ? 'No CSM ratings recorded yet.'
-            : `${kpi.csm}% of ${kpi.rated} rated request(s) are Very Satisfactory or higher.`,
+            ? 'No CSM forms answered in this period yet.'
+            : `${kpi.csm}% of ${kpi.rated} CSM response(s) are Very Satisfactory or higher.`,
       },
     ];
   }, [requests, kpi, events]);
@@ -3580,7 +3594,7 @@ function ComplianceScorecard({
             key={r.item}
             className="flex gap-4 av-card p-4"
             style={{
-              borderLeftColor: r.met ? '#16a34a' : '#d97706',
+              borderLeftColor: r.met ? '#16a34a' : '#B07A00',
               borderLeftWidth: 3,
             }}
           >
@@ -3590,7 +3604,7 @@ function ComplianceScorecard({
               </p>
               <p
                 className="mt-1 text-[10px] font-bold uppercase"
-                style={{ color: r.met ? '#16a34a' : '#d97706' }}
+                style={{ color: r.met ? '#16a34a' : '#B07A00' }}
               >
                 {r.met ? 'Met' : 'Partial'}
               </p>
@@ -3683,7 +3697,7 @@ function RequestTable({
                   {tat === null ? (
                     <span className="text-slate-400">—</span>
                   ) : (
-                    <span style={{ color: tat > SLA_WD[r.stream] ? '#dc2626' : '#16a34a' }}>
+                    <span style={{ color: tat > SLA_WD[r.stream] ? '#A30000' : '#16a34a' }}>
                       {tat} WD
                     </span>
                   )}
@@ -4235,7 +4249,7 @@ function PipelineTrack({
             className="h-full rounded-full transition-all duration-700"
             style={{
               width: `${locked ? 0 : pct}%`,
-              background: pct === 100 ? '#16a34a' : '#2563eb',
+              background: pct === 100 ? '#16a34a' : '#427AA1',
             }}
           />
         </div>
@@ -4296,12 +4310,14 @@ function EventCard({
   canEdit,
   onOpen,
   onStep,
+  sync = false,
 }: {
   ev: AVEvent;
   crew: Assignment[];
   canEdit: boolean;
   onOpen: () => void;
   onStep: (key: PipelineKey, next: PipelineState) => void;
+  sync?: boolean;
 }) {
   const f = fulfilment(ev);
   const sla = eventSLA(ev);
@@ -4342,6 +4358,12 @@ function EventCard({
         <div className="mb-2.5 flex items-start gap-4">
           <button onClick={onOpen} className="min-w-0 flex-1 text-left">
             <h3 className="av-title truncate">{ev.title || 'Untitled event'}</h3>
+            {sync && (
+              <span className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--signal)]">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--signal)]" />
+                Saving to the sheet…
+              </span>
+            )}
           </button>
           <div className="shrink-0 text-right">
             <div className="av-state-k" style={{ color: rail }}>
@@ -4624,6 +4646,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
  */
 function EventModal({
   existing,
+  prefill = null,
   onClose,
   onSubmit,
   onNotify,
@@ -4633,6 +4656,7 @@ function EventModal({
   canEdit,
 }: {
   existing: AVEvent | null;
+  prefill?: AVEvent | null;
   onClose: () => void;
   onSubmit: (
     payload: Record<string, string>,
@@ -4649,43 +4673,45 @@ function EventModal({
   // Tingnan ang paliwanag sa RequestModal — parehong off-by-one bug.
   const iso = (d: Date | null) => (d ? dayKey(d) : '');
 
+  // Ang laman sa simula: ang record mismo, o ang sagot sa request form.
+  const seed = existing ?? prefill;
   const [f, setF] = useState({
-    title: existing?.title ?? '',
-    client: existing?.client ?? '',
-    clientType: existing?.clientType || 'Internal',
-    venue: existing?.venue ?? '',
-    dateRequested: existing ? iso(existing.dateRequested) : today,
-    eventDate: existing ? iso(existing.eventDate) : '',
-    endDate: existing ? iso(existing.endDate) : '',
+    title: seed?.title ?? '',
+    client: seed?.client ?? '',
+    clientType: seed?.clientType || 'Internal',
+    venue: seed?.venue ?? '',
+    dateRequested: seed ? iso(seed.dateRequested) : today,
+    eventDate: seed ? iso(seed.eventDate) : '',
+    endDate: seed ? iso(seed.endDate) : '',
     // Bagong record → dumadaan muna sa AV triage, kapareho ng galing sa Form.
-    approvalStatus: existing
-      ? APPROVAL_META[existing.approval].label
+    approvalStatus: seed
+      ? APPROVAL_META[seed.approval].label
       : APPROVAL_META['for-evaluation'].label,
-    approvalRemarks: existing?.approvalRemarks ?? '',
-    clientTier: existing?.clientTier || CLIENT_TIERS[CLIENT_TIERS.length - 1],
-    urgentNote: existing?.urgentNote ?? '',
-    priority: existing ? classifyPriority(existing.priority) : 'Normal',
-    reason: existing?.reason ?? '',
-    lead: existing?.lead || 'Xyrus',
-    team: existing?.team ?? '',
-    targetDate: existing ? iso(existing.targetDate) : '',
-    dateDelivered: existing ? iso(existing.dateDelivered) : '',
-    csm: existing?.csm ? String(existing.csm) : '',
-    link: existing?.link ?? '',
-    remarks: existing?.remarks ?? '',
+    approvalRemarks: seed?.approvalRemarks ?? '',
+    clientTier: seed?.clientTier || CLIENT_TIERS[CLIENT_TIERS.length - 1],
+    urgentNote: seed?.urgentNote ?? '',
+    priority: seed ? classifyPriority(seed.priority) : 'Normal',
+    reason: seed?.reason ?? '',
+    lead: seed?.lead || 'Xyrus',
+    team: seed?.team ?? '',
+    targetDate: seed ? iso(seed.targetDate) : '',
+    dateDelivered: seed ? iso(seed.dateDelivered) : '',
+    csm: seed?.csm ? String(seed.csm) : '',
+    link: seed?.link ?? '',
+    remarks: seed?.remarks ?? '',
   });
 
-  const [requested, setRequested] = useState<string[]>(existing?.requested ?? []);
+  const [requested, setRequested] = useState<string[]>(seed?.requested ?? []);
   const [agreed, setAgreed] = useState<string[]>(
-    existing ? (existing.agreed.length ? existing.agreed : existing.requested) : []
+    seed ? (seed.agreed.length ? seed.agreed : seed.requested) : []
   );
   /**
    * Hindi na ito ini-edit. Ang paghahatid ay nasa pipeline; ang halagang
    * ito ay sinusundan lang ang pinangako kapag Done na ang Client delivery.
    */
-  const delivered = existing && existing.pipeline.delivery === 'done' ? agreed : [];
+  const delivered = seed && seed.pipeline.delivery === 'done' ? agreed : [];
   const [pipeline, setPipeline] = useState<Record<PipelineKey, PipelineState>>(
-existing?.pipeline ?? {
+seed?.pipeline ?? {
       coordination: 'not-started',
       documents: 'not-started',
       script: 'not-started',
@@ -4726,6 +4752,44 @@ existing?.pipeline ?? {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // DRAFT — hindi nawawala ang ginagawa mo (tingnan ang DRAFTS sa itaas).
+  const draftKey = draftKeyFor(existing?.id ?? prefill?.id ?? null);
+  const snapshot = JSON.stringify({ f, requested, agreed, pipeline, crew });
+  const initialSnap = useRef(snapshot);
+  const [draftAt, setDraftAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    const d = readDraft(draftKey);
+    if (!d) return;
+    setF((p) => ({ ...p, ...d.f }));
+    if (Array.isArray(d.requested)) setRequested(d.requested);
+    if (Array.isArray(d.agreed)) setAgreed(d.agreed);
+    if (d.pipeline) setPipeline((p) => ({ ...p, ...d.pipeline }));
+    if (Array.isArray(d.crew) && d.crew.length) setCrew(d.crew);
+    setDraftAt(d.savedAt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (snapshot === initialSnap.current) return;
+    const t = setTimeout(
+      () => writeDraft(draftKey, { ...JSON.parse(snapshot), savedAt: Date.now() }),
+      400
+    );
+    return () => clearTimeout(t);
+  }, [snapshot, draftKey]);
+
+  const discardDraft = () => {
+    const s0 = JSON.parse(initialSnap.current);
+    setF(s0.f);
+    setRequested(s0.requested);
+    setAgreed(s0.agreed);
+    setPipeline(s0.pipeline);
+    setCrew(s0.crew);
+    writeDraft(draftKey, null);
+    setDraftAt(null);
+  };
 
   const toggle = (list: string[], setList: (v: string[]) => void, svc: string) =>
     setList(list.includes(svc) ? list.filter((x) => x !== svc) : [...list, svc]);
@@ -4908,10 +4972,13 @@ existing?.pipeline ?? {
     }`;
   const lab = 'mb-1.5 block text-[11px] font-medium text-slate-900';
 
-  const submit = () =>
+  const submit = () => {
+    // Itabi muna ang form — kapag pumalya ang pag-save, dito ito babalikan.
+    writeDraft(draftKey, { ...JSON.parse(snapshot), savedAt: Date.now() });
     onSubmit(
       {
         ...f,
+        _draftKey: draftKey,
         lead: crew.find((c) => c.roles.length)?.personnel || f.lead,
         team: crew.map((c) => c.personnel).filter(Boolean).join(', '),
         requestedServices: requested.join(', '),
@@ -4932,6 +4999,7 @@ existing?.pipeline ?? {
       existing?.id ?? null,
       crew.filter((c) => c.personnel && c.roles.length)
     );
+  };
 
   return (
     <div className="no-print fixed inset-0 z-[95] flex items-start justify-center overflow-y-auto px-3 py-[3vh] md:px-4 md:py-[5vh]">
@@ -4957,6 +5025,23 @@ existing?.pipeline ?? {
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {draftAt && (
+            <div className="mx-6 mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-blue-200 bg-blue-50 px-4 py-3">
+              <p className="av-note min-w-0 flex-1" style={{ color: '#1E3A8A' }}>
+                <b>Restored your unsaved draft</b> from{' '}
+                {new Date(draftAt).toLocaleString('en-PH', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                })}
+                . Attachments are not kept in drafts — re-attach the request letter if you added one.
+              </p>
+              <button type="button" onClick={discardDraft} className="av-btn-ghost shrink-0 text-[12px]">
+                Discard draft
+              </button>
+            </div>
+          )}
           {closed && (
             <div
               className="mx-6 mt-5 rounded-[12px] border px-4 py-3"
@@ -4979,7 +5064,7 @@ existing?.pipeline ?? {
                 <button
                   onClick={() => setReopen((r) => !r)}
                   className="av-btn-ghost mt-2.5"
-                  style={frozen ? undefined : { borderColor: '#D97706', color: '#7C4409' }}
+                  style={frozen ? undefined : { borderColor: '#B07A00', color: '#7C4409' }}
                 >
                   {frozen ? 'Reopen this record' : 'Cancel reopening'}
                 </button>
@@ -5653,7 +5738,13 @@ existing?.pipeline ?? {
  * Hindi bilang ng request, kundi bilang ng SERBISYONG hiniling pero hindi
  * naibigay, kasama ang dahilan.
  */
-function ServiceGapPanel({ events }: { events: AVEvent[] }) {
+function ServiceGapPanel({
+  events,
+  intake = [],
+}: {
+  events: AVEvent[];
+  intake?: IntakeRequest[];
+}) {
   const rows = useMemo(() => {
     const map = new Map<
       string,
@@ -5703,13 +5794,41 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
   );
 
   const reasons = useMemo(() => {
-    const list: { ev: AVEvent; gap: string[] }[] = [];
+    const list: {
+      key: string;
+      title: string;
+      when: Date | null;
+      text: string;
+      fromForm: boolean;
+      missing: boolean;
+    }[] = [];
     events.forEach((ev) => {
-      const gap = serviceGap(ev);
-      if (gap.length && ev.reason.trim()) list.push({ ev, gap });
+      const unserved = ev.approval === 'declined' || isExcluded(ev);
+      const partial = isAuthorised(ev) && capacityGap(ev).length > 0;
+      if (!unserved && !partial) return;
+      list.push({
+        key: ev.id,
+        title: ev.title,
+        when: ev.eventDate,
+        text: unservedStatement(ev),
+        fromForm: false,
+        missing: !ev.reason.trim(),
+      });
     });
-    return list.slice(0, 5);
-  }, [events]);
+    // Tinanggihan o kinansela sa form sheet pero wala pa sa AV Nexus.
+    intake.forEach((q) => {
+      if (!/disapprov|declin|cancel/i.test(q.sheetStatus)) return;
+      list.push({
+        key: q.ref,
+        title: q.title,
+        when: q.start,
+        text: formUnservedStatement(q),
+        fromForm: true,
+        missing: !q.notes.trim(),
+      });
+    });
+    return list.sort((a, b) => (b.when?.getTime() ?? 0) - (a.when?.getTime() ?? 0));
+  }, [events, intake]);
 
   if (rows.length === 0) {
     return (
@@ -5725,10 +5844,10 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { k: 'Services requested', v: totals.asked, c: '#2563eb' },
+          { k: 'Services requested', v: totals.asked, c: '#427AA1' },
           { k: 'Services served', v: totals.asked - totals.missed, c: '#16a34a' },
-          { k: 'No capacity to agree', v: totals.noCap, c: '#d97706' },
-          { k: 'Services not served', v: totals.missed, c: '#dc2626' },
+          { k: 'No capacity to agree', v: totals.noCap, c: '#B07A00' },
+          { k: 'Services not served', v: totals.missed, c: '#A30000' },
         ].map((x) => (
           <div
             key={x.k}
@@ -5773,21 +5892,34 @@ function ServiceGapPanel({ events }: { events: AVEvent[] }) {
       </div>
 
       {reasons.length > 0 && (
-        <div className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
-          <p className="mb-3 av-label">
-            Recorded reasons for non-delivery
+        <div className="av-inset p-4">
+          <p className="av-label">Reasons for unserved requests</p>
+          <p className="av-note av-dim mb-3 mt-0.5">
+            {reasons.length} request{reasons.length === 1 ? ' was' : 's were'} not served in full.
+            {reasons.some((r) => r.missing)
+              ? ` ${reasons.filter((r) => r.missing).length} still need a reason.`
+              : ''}
           </p>
-          <div className="space-y-2.5">
-            {reasons.map(({ ev, gap }) => (
-              <div key={ev.id} className="border-l-2 border-red-300 pl-3">
-                <p className="text-xs font-semibold text-slate-700">{ev.title}</p>
-                <p className="mt-0.5 text-[10px] text-red-600">
-                  Not served: {gap.join(', ')}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">{ev.reason}</p>
+          <div className="space-y-3">
+            {reasons.slice(0, 12).map((r) => (
+              <div
+                key={r.key}
+                className="border-l-2 pl-3"
+                style={{ borderColor: r.missing ? 'var(--refused)' : 'var(--rule-strong)' }}
+              >
+                <p className="text-[14px] font-semibold text-[var(--ink)]">{r.title || 'Untitled request'}</p>
+                <p className="av-note mt-0.5">{r.text}</p>
+                {r.fromForm && (
+                  <p className="mt-0.5 text-[12.5px] text-[var(--ink-3)]">
+                    From the request form sheet — not yet logged in AV Nexus
+                  </p>
+                )}
               </div>
             ))}
           </div>
+          {reasons.length > 12 && (
+            <p className="av-note av-dim mt-3">…and {reasons.length - 12} more.</p>
+          )}
         </div>
       )}
     </div>
@@ -5850,9 +5982,9 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { k: 'Cancelled by client', v: v.cancelled.length, c: '#64748b' },
-          { k: 'Moved by client', v: v.moved.length, c: '#ca8a04' },
-          { k: 'Services stood down', v: v.lostServices, c: '#2563eb' },
-          { k: 'Volatility rate', v: v.rate === null ? 0 : v.rate, c: hot ? '#dc2626' : '#16a34a', pct: true },
+          { k: 'Moved by client', v: v.moved.length, c: '#B07A00' },
+          { k: 'Services stood down', v: v.lostServices, c: '#427AA1' },
+          { k: 'Volatility rate', v: v.rate === null ? 0 : v.rate, c: hot ? '#A30000' : '#16a34a', pct: true },
         ].map((x) => (
           <div
             key={x.k}
@@ -5972,7 +6104,6 @@ function ScheduleConflictPanel({ events }: { events: AVEvent[] }) {
       if (!ev.eventDate) return;
       if (!APPROVAL_META[ev.approval].live) return;
       if (ev.approval === 'for-evaluation') return;
-      // Ang multi-day ay tumatabi sa bawat araw na tumatakbo ito.
       const start = ev.eventDate;
       const end = ev.endDate || ev.eventDate;
       const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
@@ -5984,131 +6115,136 @@ function ScheduleConflictPanel({ events }: { events: AVEvent[] }) {
         guard++;
       }
     });
-
-    const clashes = Array.from(byDay.entries())
+    const days = Array.from(byDay.entries())
       .filter(([, list]) => list.length > 1)
       .map(([day, list]) => ({
         day,
         list,
         needed: list.length * CREW_PER_EVENT,
-        shortfall: Math.max(0, list.length * CREW_PER_EVENT - CREW_ON_HAND),
-        unmetServices: list.reduce((a, e) => a + capacityGap(e).length, 0),
+        short: Math.max(0, list.length * CREW_PER_EVENT - CREW_ON_HAND),
       }))
       .sort((a, b) => (a.day < b.day ? 1 : -1));
-
-    const daysWithWork = byDay.size;
-    const worst = clashes.reduce((m, c) => Math.max(m, c.list.length), 0);
+    const scheduled = new Set<string>();
+    byDay.forEach((list) => list.forEach((e) => scheduled.add(e.id)));
+    const affected = new Map<string, AVEvent>();
+    days.forEach((d) => d.list.forEach((e) => affected.set(e.id, e)));
+    // Isang event, isang bilang — kahit ilang araw itong nag-overlap. Dati,
+    // ang tatlong-araw na event ay nabibilang nang tatlong beses dito.
+    const notCommitted = Array.from(affected.values()).reduce((a, e) => a + capacityGap(e).length, 0);
     return {
-      clashes,
-      daysWithWork,
-      worst,
-      overloaded: clashes.filter((c) => c.shortfall > 0).length,
-      unmet: clashes.reduce((a, c) => a + c.unmetServices, 0),
+      days,
+      daysWithWork: byDay.size,
+      scheduled: scheduled.size,
+      affected: affected.size,
+      shortDays: days.filter((d) => d.short > 0).length,
+      notCommitted,
     };
   }, [events]);
 
   if (data.daysWithWork === 0) {
     return (
       <p className="av-note av-dim py-8 text-center">
-        No scheduled events yet, so there is nothing to compare for conflicts.
+        No scheduled events in this period, so there is nothing to check for double-booking.
       </p>
     );
   }
 
-  const clashPct = Math.round((data.clashes.length / data.daysWithWork) * 100);
+  const dayLabel = (k: string) => {
+    const [y, m, d] = k.split('-').map(Number);
+    return fmtDate(new Date(y, m - 1, d));
+  };
 
   return (
     <div className="space-y-5">
       <div className="av-bento">
         <div className="av-head">
-          <div className="av-fig font-mono" style={{ color: data.clashes.length ? 'var(--waiting)' : 'var(--served)' }}>
-            {data.clashes.length}
+          <div className="av-fig" style={{ color: data.days.length ? 'var(--waiting)' : 'var(--served)' }}>
+            {data.days.length}
           </div>
-          <p className="l">Days with a conflict</p>
-          <p className="s">{clashPct}% of scheduled days</p>
+          <p className="l">Double-booked days</p>
+          <p className="s">
+            Out of {data.daysWithWork} day{data.daysWithWork === 1 ? '' : 's'} with events
+          </p>
         </div>
         <div className="av-head">
-          <div className="av-fig font-mono" style={{ color: data.overloaded ? 'var(--refused)' : 'var(--served)' }}>
-            {data.overloaded}
-          </div>
-          <p className="l">Days beyond crew size</p>
-          <p className="s">More than {CREW_ON_HAND} people needed</p>
+          <div className="av-fig">{data.affected}</div>
+          <p className="l">Events affected</p>
+          <p className="s">
+            Out of {data.scheduled} scheduled event{data.scheduled === 1 ? '' : 's'}
+          </p>
         </div>
         <div className="av-head">
-          <div className="av-fig font-mono">{data.worst}</div>
-          <p className="l">Worst single day</p>
-          <p className="s">Concurrent events</p>
+          <div className="av-fig" style={{ color: data.shortDays ? 'var(--refused)' : 'var(--served)' }}>
+            {data.shortDays}
+          </div>
+          <p className="l">Days short of staff</p>
+          <p className="s">Needed more than our {CREW_ON_HAND} people</p>
         </div>
         <div className="av-head">
-          <div className="av-fig font-mono" style={{ color: 'var(--waiting)' }}>
-            {data.unmet}
+          <div className="av-fig" style={{ color: data.notCommitted ? 'var(--waiting)' : undefined }}>
+            {data.notCommitted}
           </div>
-          <p className="l">Services not agreed</p>
-          <p className="s">On conflicted days</p>
+          <p className="l">Services we could not commit to</p>
+          <p className="s">On the affected events</p>
         </div>
       </div>
 
-      <div className="av-card px-4 py-3">
+      <div className="av-inset px-4 py-3">
         <p className="av-note">
-          <b>The staffing case in one line.</b> The section has{' '}
-          <b>{CREW_ON_HAND} AV personnel</b>. A single event typically needs{' '}
-          <b>{CREW_PER_EVENT}</b> — a camera operator, a photographer and a coordinator. On{' '}
-          <b>{data.overloaded}</b> day{data.overloaded === 1 ? '' : 's'} the schedule required
-          more people than the section has, and <b>{data.unmet}</b> requested service
-          {data.unmet === 1 ? '' : 's'} could not be agreed as a result.{' '}
-          <span className="av-dim">
-            This is the quantified basis for requesting additional plantilla positions.
-          </span>
+          <b>In plain words:</b> {data.affected} of {data.scheduled} event
+          {data.scheduled === 1 ? '' : 's'} fell on a day with another event ({data.days.length}{' '}
+          double-booked day{data.days.length === 1 ? '' : 's'}). One event usually needs about{' '}
+          {CREW_PER_EVENT} people, and the section has {CREW_ON_HAND}. On {data.shortDays} of those days we
+          needed more people than we have, and {data.notCommitted} requested service
+          {data.notCommitted === 1 ? '' : 's'} could not be committed.{' '}
+          <span className="av-dim">This is the basis for asking for more AV personnel.</span>
         </p>
       </div>
 
-      {data.clashes.length > 0 && (
-        <div className="overflow-x-auto custom-scrollbar">
-          <table className="w-full min-w-[640px] text-left text-xs">
+      {data.days.length > 0 && (
+        <div className="custom-scrollbar overflow-x-auto">
+          <table className="av-table min-w-[640px]">
             <thead>
-              <tr className="border-b border-[var(--rule)] av-note av-dim">
-                <th className="pb-2 pr-3 font-medium">Date</th>
-                <th className="pb-2 pr-3 font-medium">Concurrent events</th>
-                <th className="pb-2 pr-3 font-medium">Crew needed</th>
-                <th className="pb-2 pr-3 font-medium">Shortfall</th>
-                <th className="pb-2 font-medium">Services not agreed</th>
+              <tr>
+                <th>Date</th>
+                <th>Events on that day</th>
+                <th className="num">People needed</th>
+                <th className="num">Short by</th>
               </tr>
             </thead>
             <tbody>
-              {data.clashes.slice(0, 14).map((c) => (
-                <tr key={c.day} className="border-b border-[var(--rule-soft)] align-top last:border-0">
-                  <td className="py-3 pr-3 font-mono av-note">{c.day}</td>
-                  <td className="py-3 pr-3">
-                    {c.list.map((e) => (
-                      <p key={e.id} className="av-note">
+              {data.days.slice(0, 14).map((d) => (
+                <tr key={d.day} className="align-top">
+                  <td className="whitespace-nowrap">{dayLabel(d.day)}</td>
+                  <td>
+                    {d.list.map((e) => (
+                      <p key={e.id} className="text-[13.5px] text-[var(--ink)]">
                         {e.title}
                         <span className="av-dim"> · {e.client || 'no client'}</span>
                       </p>
                     ))}
                   </td>
-                  <td className="py-3 pr-3 font-mono av-note">
-                    {c.needed} of {CREW_ON_HAND}
+                  <td className="num whitespace-nowrap">
+                    {d.needed} of {CREW_ON_HAND}
                   </td>
-                  <td className="py-3 pr-3 font-mono av-note">
-                    {c.shortfall > 0 ? (
-                      <span style={{ color: 'var(--refused)', fontWeight: 550 }}>
-                        −{c.shortfall}
+                  <td className="num">
+                    {d.short > 0 ? (
+                      <span style={{ color: 'var(--refused)', fontWeight: 600 }}>
+                        {d.short} {d.short === 1 ? 'person' : 'people'}
                       </span>
                     ) : (
                       <span className="av-dim">covered</span>
-                    )}
-                  </td>
-                  <td className="py-3 font-mono av-note">
-                    {c.unmetServices > 0 ? (
-                      <span style={{ color: 'var(--waiting)' }}>{c.unmetServices}</span>
-                    ) : (
-                      <span className="av-dim">0</span>
                     )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {data.days.length > 14 && (
+            <p className="av-note av-dim mt-2">
+              Showing the latest 14 of {data.days.length} double-booked days.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -6693,9 +6829,9 @@ function KioskMode({
           <div className="flex h-full flex-col justify-center gap-12">
             <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
               {[
-                { label: 'Total coverages', v: stats.total, accent: '#2563eb' },
+                { label: 'Total coverages', v: stats.total, accent: '#427AA1' },
                 { label: 'DMC cleared', v: cleared, accent: '#16a34a' },
-                { label: 'This month', v: stats.thisMonth, accent: '#dc2626' },
+                { label: 'This month', v: stats.thisMonth, accent: '#A30000' },
               ].map((x) => (
                 <div
                   key={x.label}
@@ -6792,9 +6928,9 @@ function KioskMode({
           <div className="flex h-full flex-col justify-center gap-10">
             <div className="grid grid-cols-2 gap-6 lg:grid-cols-4">
               {[
-                { k: 'Service demand', v: svc.demand, c: '#2563eb' },
+                { k: 'Service demand', v: svc.demand, c: '#427AA1' },
                 { k: 'Services rendered', v: svc.served, c: '#16a34a' },
-                { k: 'Unmet requests', v: svc.unmet, c: '#dc2626' },
+                { k: 'Unmet requests', v: svc.unmet, c: '#A30000' },
                 { k: 'Client-side', v: svc.excluded, c: '#64748b' },
               ].map((x) => (
                 <div
@@ -6829,7 +6965,7 @@ function KioskMode({
                 },
               ].map((x) => {
                 const pass = x.v !== null && x.v >= x.t;
-                const hex = x.v === null ? '#cbd5e1' : pass ? '#16a34a' : '#dc2626';
+                const hex = x.v === null ? '#cbd5e1' : pass ? '#16a34a' : '#A30000';
                 return (
                   <div
                     key={x.label}
@@ -7319,6 +7455,939 @@ const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'requests',   label: 'Register',   hint: 'Legacy request register' },
 ];
 
+/* ------------------------------------------------------- BACKGROUND SAVE -- */
+
+/**
+ * OUTBOX — ang pag-save ng event ay hindi na humaharang sa screen.
+ *
+ * Dati: naghihintay ang modal sa addEvent (kasama ang email at ang Drive
+ * upload sa server), saka sa setAssignments, saka pa sa buong refresh —
+ * sampung segundo o higit bago mo makita ang event. Ngayon: isinasara agad
+ * ang modal at lumalabas agad ang event (optimistic). Ang totoong pagsulat
+ * sa sheet ay tumatakbo sa likod, sa parehong pagkakasunod-sunod gaya ng
+ * dati. Kapag pumalya, ibinabalik ang dating anyo at itinatabi ang form
+ * bilang draft — walang nawawala.
+ */
+type OutboxItem = {
+  key: string;
+  kind: 'create' | 'update';
+  event: AVEvent;
+  before: AVEvent | null;
+  state: 'saving' | 'synced';
+};
+
+const LOCAL_PREFIX = 'LOCAL-';
+
+/** Event na sine-save pa — wala pang tunay na Event ID sa sheet. */
+function isLocalId(id: string): boolean {
+  return String(id || '').startsWith(LOCAL_PREFIX);
+}
+
+/**
+ * Pinapatong ang mga pag-save na tumatakbo pa sa listahang galing sa sheet,
+ * para hindi sila mabura ng 30-segundong refresh habang naghihintay.
+ * Kapag kumpirmado na (synced), ang sheet na ang masusunod.
+ */
+function applyOutbox(list: AVEvent[], box: OutboxItem[]): AVEvent[] {
+  if (!box.length) return list;
+  const ids = new Set(list.map((e) => e.id));
+  const over = new Map(
+    box
+      .filter((o) => o.kind === 'update' && o.state === 'saving')
+      .map((o) => [o.event.id, o.event] as [string, AVEvent])
+  );
+  const fresh = box
+    .filter(
+      (o) =>
+        o.kind === 'create' &&
+        !ids.has(o.event.id) &&
+        !(o.state === 'synced' && isLocalId(o.event.id))
+    )
+    .map((o) => o.event);
+  return [...fresh, ...list.map((e) => over.get(e.id) || e)];
+}
+
+/** Ang form ng EventModal bilang AVEvent — para lumabas agad bago pa sumagot ang sheet. */
+function eventFromForm(
+  form: Record<string, string>,
+  id: string,
+  base: AVEvent | null,
+  createdBy: string
+): AVEvent {
+  const approval = classifyApproval(form.approvalStatus);
+  const requested = splitServices(form.requestedServices);
+  const agreed = splitServices(form.agreedServices);
+  const pipeline = {} as Record<PipelineKey, PipelineState>;
+  PIPELINE_STEPS.forEach((st) => {
+    const v = form[stepField(st.key)];
+    pipeline[st.key] = v ? classifyPipeline(v) : base?.pipeline[st.key] ?? 'not-started';
+  });
+  return {
+    id,
+    dateRequested: parseDate(form.dateRequested),
+    title: form.title || '',
+    client: form.client || '',
+    clientType: form.clientType || '',
+    eventDate: parseDate(form.eventDate),
+    endDate: parseDate(form.endDate),
+    venue: form.venue || '',
+    requested,
+    agreed,
+    delivered: pipeline.delivery === 'done' ? agreed : base?.delivered ?? [],
+    reason: form.reason || '',
+    approval,
+    approvalRaw: SERVER_STATUS[approval],
+    endorsedBy: base?.endorsedBy ?? '',
+    dateEndorsed: base?.dateEndorsed ?? null,
+    approvedBy: base?.approvedBy ?? '',
+    dateApproved: base?.dateApproved ?? null,
+    approvalRemarks: form.approvalRemarks || '',
+    lead: form.lead || '',
+    team: form.team || '',
+    priority: classifyPriority(form.priority),
+    clientTier: form.clientTier || '',
+    urgentNote: form.urgentNote || '',
+    requestLetter: base?.requestLetter ?? '',
+    pipeline,
+    targetDate: parseDate(form.targetDate),
+    dateDelivered: parseDate(form.dateDelivered),
+    csm: parseCSM(form.csm),
+    link: form.link || '',
+    remarks: form.remarks || '',
+    history: base?.history ?? [],
+    createdBy: base?.createdBy || createdBy,
+  };
+}
+
+/*
+ * DRAFTS — ang form ng EventModal ay naka-save sa browser na ito habang
+ * nagta-type ka. Isara man ang modal, lumipat ng view o tab, o mag-reload,
+ * nandoon pa rin pagbukas mo ulit. Ang sulat (attachment) lang ang hindi
+ * kasama — masyadong malaki para sa localStorage.
+ */
+const DRAFT_PREFIX = 'avnexus.draft.event.';
+
+type EventDraft = {
+  f: Record<string, string>;
+  requested: string[];
+  agreed: string[];
+  pipeline: Record<PipelineKey, PipelineState>;
+  crew: { personnel: string; roles: string[]; status: string }[];
+  savedAt: number;
+};
+
+function draftKeyFor(id: string | null): string {
+  return DRAFT_PREFIX + (id || 'new');
+}
+
+function readDraft(key: string): EventDraft | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as EventDraft;
+    // Isang linggo lang ang buhay ng draft — lampas doon, luma na.
+    if (!d || !d.f || Date.now() - (d.savedAt || 0) > 7 * 86400000) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(key: string, d: EventDraft | null) {
+  try {
+    if (d) window.localStorage.setItem(key, JSON.stringify(d));
+    else window.localStorage.removeItem(key);
+  } catch {
+    /* puno o private mode — tuloy pa rin ang trabaho */
+  }
+}
+
+/* ----------------------------------------------------------- FORMS (v3) -- */
+
+/*
+ * ANG DALAWANG GOOGLE FORM — AV Request Form at CSM Form.
+ * Binabasa sila ng hiwalay na read-only Apps Script (FormsBridge.gs).
+ */
+// Ang URL ay nasa FORMS_BRIDGE_URL, katabi ng PROD_SCRIPT_URL.
+
+type FormsState = 'off' | 'loading' | 'ok' | 'error';
+
+/** Isang sagot sa AV Request Form. Walang pangalan, email o numero. */
+interface IntakeRequest {
+  ref: string;
+  submitted: Date | null;
+  requested: Date | null;
+  title: string;
+  agency: string;
+  stream: Stream;
+  services: string[];
+  start: Date | null;
+  end: Date | null;
+  venue: string;
+  description: string;
+  vip: string;
+  logistics: string;
+  remarks: string;
+  delivery: Date | null;
+  program: string;
+  banner: string;
+  /** Ang "Status" column sa response sheet, kung may laman. */
+  sheetStatus: string;
+  /** Ang "Notes" column — kadalasan ang dahilan kapag tinanggihan. */
+  notes: string;
+}
+
+/** Isang sagot sa CSM form. SQD0–SQD8: 1–5, 0 = N/A, null = walang sagot. */
+interface CSMResponse {
+  submitted: Date | null;
+  date: Date | null;
+  stream: Stream | null;
+  sqd: (number | null)[];
+  cc: (number | null)[];
+  event: string;
+  agency: string;
+  staff: string;
+  specific: string;
+  suggestion: string;
+}
+
+/** 'yyyy-MM-dd' o 'yyyy-MM-ddTHH:mm:ss' bilang LOCAL na oras — walang pag-atras dahil sa UTC. */
+function localDate(v: unknown): Date | null {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (m) {
+    const d = new Date(
+      Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+      Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)
+    );
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return parseDate(s);
+}
+
+/**
+ * Ang mga serbisyo sa form, bilang eksaktong pangalan sa SERVICE_CATALOG.
+ * Hindi hinahati sa kuwit — may kuwit sa loob ng panaklong ng form
+ * ("Video Shoot (video message recordings, speeches, etc.,)").
+ */
+function servicesFromForm(coverage: string, production: string): string[] {
+  let rest = `${coverage || ''} | ${production || ''}`;
+  const out: string[] = [];
+  const take = (re: RegExp, name: string) => {
+    if (re.test(rest)) {
+      out.push(name);
+      rest = rest.replace(new RegExp(re.source, 'gi'), ' ');
+    }
+  };
+  take(/full video production/i, 'Full Video Production');
+  take(/video production/i, 'Video Production');
+  take(/video shoot/i, 'Video Shoot');
+  take(/photo shoot/i, 'Photo Shoot');
+  take(/photo coverage/i, 'Photo Coverage');
+  take(/video coverage/i, 'Video Coverage');
+  take(/livestream/i, 'Livestreaming with multi-camera setup');
+  take(/\bsde\b|same[- ]day edit/i, 'SDE');
+  return out;
+}
+
+function parseIntake(list: unknown): IntakeRequest[] {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((r: any) => {
+      const services = servicesFromForm(String(r?.coverage || ''), String(r?.production || ''));
+      const kind = String(r?.kind || '');
+      const stream: Stream = /production/i.test(kind) ? 'production' : streamOfServices(services);
+      return {
+        ref: String(r?.ref || ''),
+        submitted: localDate(r?.submitted),
+        requested: localDate(r?.requested),
+        title: String(r?.title || '').trim(),
+        agency: String(r?.agency || '').trim(),
+        stream,
+        services,
+        start: localDate(r?.start),
+        end: localDate(r?.end),
+        venue: String(r?.venue || '').trim(),
+        description: String(r?.description || '').trim(),
+        vip: String(r?.vip || '').trim(),
+        logistics: String(r?.logistics || '').trim(),
+        remarks: String(r?.remarks || '').trim(),
+        delivery: localDate(r?.delivery),
+        program: String(r?.program || '').trim(),
+        banner: String(r?.banner || '').trim(),
+        sheetStatus: String(r?.status || '').trim(),
+        notes: String(r?.notes || '').trim(),
+      };
+    })
+    .filter((q) => q.ref && q.title);
+}
+
+function parseCSMRows(list: unknown): CSMResponse[] {
+  if (!Array.isArray(list)) return [];
+  const num = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return isNaN(n) ? null : n;
+  };
+  return list.map((r: any) => {
+    const svc = String(r?.service || '');
+    const stream: Stream | null = !svc.trim() ? null : /production/i.test(svc) ? 'production' : 'coverage';
+    return {
+      submitted: localDate(r?.submitted),
+      date: localDate(r?.date),
+      stream,
+      sqd: Array.from({ length: 9 }, (_, i) => num(Array.isArray(r?.sqd) ? r.sqd[i] : null)),
+      cc: Array.from({ length: 3 }, (_, i) => num(Array.isArray(r?.cc) ? r.cc[i] : null)),
+      event: String(r?.event || '').trim(),
+      agency: String(r?.agency || '').trim(),
+      staff: String(r?.staff || '').trim(),
+      specific: String(r?.specific || '').trim(),
+      suggestion: String(r?.suggestion || '').trim(),
+    };
+  });
+}
+
+/*
+ * CSM — paraan ng ARTA MC 2022-05, gaya ng quarterly CSM report ng seksyon.
+ * Score = (Agree + Strongly agree) ÷ (lahat ng sagot maliban sa N/A).
+ * Hindi kasama ang SQD5 (Costs): libre ang AV services — ganoon din sa mga
+ * "QxReport" sheet ng CSM spreadsheet. Tugma ito sa Q1–Q3 2026 na report.
+ */
+const CSM_POOLED_SQDS = [0, 1, 2, 3, 4, 6, 7, 8];
+const SQD_NAMES = [
+  'Satisfaction', 'Responsiveness', 'Reliability', 'Access and facilities', 'Communication',
+  'Costs', 'Integrity', 'Assurance', 'Outcome',
+];
+
+interface CSMTally {
+  sa: number;
+  a: number;
+  n: number;
+  d: number;
+  sd: number;
+  na: number;
+  total: number;
+  score: number | null;
+}
+
+function tallySQD(rows: CSMResponse[], idx: number[]): CSMTally {
+  const t: CSMTally = { sa: 0, a: 0, n: 0, d: 0, sd: 0, na: 0, total: 0, score: null };
+  rows.forEach((r) =>
+    idx.forEach((i) => {
+      const v = r.sqd[i];
+      if (v === null || v === undefined) return;
+      t.total += 1;
+      if (v <= 0) t.na += 1;
+      else if (v >= 5) t.sa += 1;
+      else if (v >= 4) t.a += 1;
+      else if (v >= 3) t.n += 1;
+      else if (v >= 2) t.d += 1;
+      else t.sd += 1;
+    })
+  );
+  const rated = t.total - t.na;
+  t.score = rated > 0 ? ((t.sa + t.a) / rated) * 100 : null;
+  return t;
+}
+
+/** Adjectival rating ng ARTA. */
+function csmRating(score: number | null): string {
+  if (score === null) return 'No rating yet';
+  if (score >= 95) return 'Outstanding';
+  if (score >= 90) return 'Very Satisfactory';
+  if (score >= 80) return 'Satisfactory';
+  if (score >= 60) return 'Fair';
+  return 'Poor';
+}
+
+/**
+ * PM 2.2 — ang kliyente ay "Very Satisfactory o mas mataas" kapag sumang-ayon
+ * o lubos na sumang-ayon sa SQD0 ("I am satisfied with the service").
+ * Kapag N/A ang SQD0, ang karaniwan ng iba niyang sagot ang titingnan.
+ */
+function csmSatisfied(r: CSMResponse): boolean | null {
+  const v = r.sqd[0];
+  if (v !== null && v !== undefined && v > 0) return v >= 4;
+  const vals = CSM_POOLED_SQDS.map((i) => r.sqd[i]).filter(
+    (x): x is number => x !== null && x !== undefined && x > 0
+  );
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length >= 4;
+}
+
+/** Porsiyento, pababa sa isang decimal — hindi kailanman lumalabis. */
+function pctDown(x: number | null): string {
+  return x === null ? '—' : `${(Math.floor(x * 10) / 10).toFixed(1)}%`;
+}
+
+/* ------------------------------------------------------------- PERIOD -- */
+
+type PeriodKey = 'q1' | 'q2' | 'q3' | 'q4' | 'year' | 'all';
+
+const PERIOD_OPTIONS: { key: PeriodKey; label: string }[] = [
+  { key: 'q1', label: 'Q1' },
+  { key: 'q2', label: 'Q2' },
+  { key: 'q3', label: 'Q3' },
+  { key: 'q4', label: 'Q4' },
+  { key: 'year', label: 'Whole year' },
+  { key: 'all', label: 'All records' },
+];
+
+function periodRange(
+  key: PeriodKey,
+  now: Date = new Date()
+): { from: Date | null; to: Date | null; label: string } {
+  const y = now.getFullYear();
+  if (key === 'all') return { from: null, to: null, label: 'All records' };
+  if (key === 'year') {
+    return { from: new Date(y, 0, 1), to: new Date(y, 11, 31, 23, 59, 59, 999), label: `Year ${y}` };
+  }
+  const q = Number(key.slice(1));
+  return {
+    from: new Date(y, (q - 1) * 3, 1),
+    to: new Date(y, q * 3, 0, 23, 59, 59, 999),
+    label: `Q${q} ${y}`,
+  };
+}
+
+function inRange(d: Date | null | undefined, r: { from: Date | null; to: Date | null }): boolean {
+  if (!r.from && !r.to) return true;
+  if (!d) return false;
+  const t = d.getTime();
+  return (!r.from || t >= r.from.getTime()) && (!r.to || t <= r.to.getTime());
+}
+
+function dateSpan(a: Date | null, b: Date | null): string {
+  if (!a) return 'Date not given';
+  if (!b || dayKey(a) === dayKey(b)) return fmtDate(a);
+  return `${fmtDate(a)} – ${fmtDate(b)}`;
+}
+
+/* ---------------------------------------------------- MATCHING / DEDUP -- */
+
+function normTitle(s: string): string {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Parehong event ba ang dalawang pamagat? Kapag parehong may numero, dapat
+ * magkapareho ang mga numero — "Day 1" ay hindi "Day 2".
+ */
+function titlesMatch(a: string, b: string, loose = false): boolean {
+  const x = normTitle(a);
+  const y = normTitle(b);
+  if (!x || !y) return false;
+  const nums = (t: string) => (t.match(/\d+/g) || []).join(' ');
+  if (nums(x) && nums(y) && nums(x) !== nums(y)) return false;
+  if (x === y) return true;
+  if (Math.min(x.length, y.length) >= 12 && (x.includes(y) || y.includes(x))) return true;
+  if (!loose) return false;
+  const words = (t: string) => new Set(t.split(' ').filter((w) => w.length > 2));
+  const A = words(x);
+  const B = words(y);
+  if (!A.size || !B.size) return false;
+  let both = 0;
+  A.forEach((w) => {
+    if (B.has(w)) both += 1;
+  });
+  return both / (A.size + B.size - both) >= 0.7;
+}
+
+function daysApart(a: Date | null, b: Date | null): number | null {
+  if (!a || !b) return null;
+  const x = new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime();
+  const y = new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime();
+  return Math.abs(Math.round((x - y) / 86400000));
+}
+
+/**
+ * ISANG REQUEST, ISANG BILANG. Kapag ang parehong request ay nasa Events na
+ * at nasa lumang Request Register pa, dati'y dalawang beses itong nabibilang
+ * sa KPI, sa TAT at sa demand. Ngayon, ang event ang masusunod.
+ */
+function dedupeRequests(fromEvents: ServiceRequest[], register: ServiceRequest[]): ServiceRequest[] {
+  const ids = new Set(fromEvents.map((r) => r.id));
+  const extra = register.filter((r) => {
+    if (ids.has(r.id)) return false;
+    return !fromEvents.some((e) => {
+      if (!titlesMatch(e.title, r.title)) return false;
+      const d = daysApart(e.eventDate, r.eventDate);
+      return d === null || d <= 1;
+    });
+  });
+  return [...fromEvents, ...extra];
+}
+
+/* ------------------------------------------- REASONS FOR UNSERVED -- */
+
+/** Maliit na titik sa simula ng dahilan — maliban kung acronym (RSTW, DOST…). */
+function reasonPhrase(reason: string): string {
+  const r = String(reason || '').trim().replace(/[\s.]+$/, '');
+  if (!r) return '';
+  return /^[A-Z][a-z]/.test(r) ? r.charAt(0).toLowerCase() + r.slice(1) : r;
+}
+
+/**
+ * Sino ang nagsuri. Hinahanap sa Action Log ang miyembro ng AV team na
+ * nag-evaluate o nag-recommend; kung wala, ang gumawa ng record.
+ */
+function assessorOf(ev: AVEvent): string {
+  const keys = Object.keys(OFFICIAL).filter((k) => k !== 'Lotus');
+  const who = (line: string) =>
+    keys.find(
+      (k) =>
+        new RegExp(`\\b${k}\\b`, 'i').test(line) ||
+        line.toLowerCase().includes(OFFICIAL[k].fullName.toLowerCase())
+    );
+  const lines = [
+    ...ev.history.filter((l) => /evaluat|assess|recommend|endors|triage/i.test(l)),
+    ...ev.history,
+  ];
+  for (const l of lines) {
+    const k = who(l);
+    if (k) return `${OFFICIAL[k].fullName}, ${OFFICIAL[k].designation}`;
+  }
+  const c = keys.find((k) => k.toLowerCase() === String(ev.createdBy || '').trim().toLowerCase());
+  if (c) return `${OFFICIAL[c].fullName}, ${OFFICIAL[c].designation}`;
+  return 'the AV Team (SRS II)';
+}
+
+/** [Desisyon] due to [dahilan], as assessed by [SRS II / AV Team]. */
+function unservedStatement(ev: AVEvent): string {
+  const why = reasonPhrase(ev.reason) || 'a reason not yet recorded';
+  if (ev.approval === 'declined') {
+    return `Declined by the Division Chief due to ${why}, as assessed by ${assessorOf(ev)}.`;
+  }
+  if (ev.approval === 'cancelled') {
+    return `Cancelled by the requesting office due to ${why}, as recorded by ${assessorOf(ev)}.`;
+  }
+  if (ev.approval === 'rescheduled') {
+    return `Moved to another date by the requesting office due to ${why}, as recorded by ${assessorOf(ev)}.`;
+  }
+  const gap = capacityGap(ev);
+  return `Partly served (${gap.join(', ')} not committed) due to ${why}, as assessed by ${assessorOf(ev)}.`;
+}
+
+function formUnservedStatement(q: IntakeRequest): string {
+  const why = reasonPhrase(q.notes) || 'a reason not yet recorded';
+  return /disapprov|declin/i.test(q.sheetStatus)
+    ? `Declined by the Division Chief due to ${why}, as assessed by the AV Team (SRS II).`
+    : `Cancelled by the requesting office due to ${why}, as recorded by the AV Team (SRS II).`;
+}
+
+/** Ang sagot sa form bilang bagong event — pre-filled na ang EventModal. */
+function eventFromIntake(q: IntakeRequest): AVEvent {
+  const oneDay = q.start && q.end && dayKey(q.start) === dayKey(q.end);
+  const notes = [
+    `Online request form ${q.ref}`,
+    q.vip && !/^n\/?a$/i.test(q.vip) ? `VIPs: ${q.vip}` : '',
+    q.logistics ? `Logistics: ${q.logistics}` : '',
+    q.remarks && !/^(n\/?a|none)$/i.test(q.remarks) ? `Requester's remarks: ${q.remarks}` : '',
+    q.description ? `Brief: ${q.description}` : '',
+    q.program ? `Program: ${q.program}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const pipeline = Object.fromEntries(
+    PIPELINE_STEPS.map((st) => [st.key, 'not-started'])
+  ) as Record<PipelineKey, PipelineState>;
+  return {
+    id: q.ref,
+    dateRequested: q.requested || q.submitted,
+    title: q.title,
+    client: q.agency,
+    clientType: '',
+    eventDate: q.start,
+    endDate: oneDay ? null : q.end,
+    venue: q.venue,
+    requested: q.services,
+    agreed: [],
+    delivered: [],
+    reason: '',
+    approval: 'for-evaluation',
+    approvalRaw: SERVER_STATUS['for-evaluation'],
+    endorsedBy: '',
+    dateEndorsed: null,
+    approvedBy: '',
+    dateApproved: null,
+    approvalRemarks: '',
+    lead: '',
+    team: '',
+    priority: 'Normal',
+    clientTier: '',
+    urgentNote: '',
+    requestLetter: '',
+    pipeline,
+    targetDate: q.stream === 'production' ? q.delivery : null,
+    dateDelivered: null,
+    csm: 0,
+    link: '',
+    remarks: notes.slice(0, 1500),
+    history: [],
+    createdBy: '',
+  };
+}
+
+function sheetStatusChip(st: string): string {
+  if (/disapprov|declin/i.test(st)) return 'bg-red-50 text-red-700';
+  if (/cancel/i.test(st)) return 'bg-slate-100 text-slate-600';
+  if (/ongoing/i.test(st)) return 'bg-amber-50 text-amber-800';
+  if (/approv/i.test(st)) return 'bg-blue-50 text-blue-700';
+  return 'bg-slate-100 text-slate-600';
+}
+
+/* ------------------------------------------------------ FORMS UI -- */
+
+function FormsSetupNote({ what }: { what: string }) {
+  return (
+    <div className="av-alert info">
+      <b>The {what} is not connected yet.</b> Deploy <span className="font-mono">FormsBridge.gs</span> as
+      a web app (Execute as: Me, access: Anyone) and paste its URL into{' '}
+      <span className="font-mono">FORMS_BRIDGE_URL</span> near the top of App.tsx. Until then, this part
+      uses only what is logged in AV Nexus.
+    </div>
+  );
+}
+
+function FormsErrorNote() {
+  return (
+    <div className="av-alert err">
+      <b>Could not read the forms.</b> The forms bridge did not answer. Open its URL in the browser — it
+      should show text that starts with {'{"ok":true'}. If a Google sign-in page shows instead, set the
+      deployment to Execute as: Me, access: Anyone.
+    </div>
+  );
+}
+
+/** Ang CSM report, live — kapareho ng quarterly report ng seksyon. */
+function CSMPanel({ rows, served, state }: { rows: CSMResponse[]; served: number; state: FormsState }) {
+  const all = useMemo(() => tallySQD(rows, CSM_POOLED_SQDS), [rows]);
+  const perSqd = useMemo(() => SQD_NAMES.map((name, i) => ({ i, name, t: tallySQD(rows, [i]) })), [rows]);
+  const streams = useMemo(
+    () =>
+      (['coverage', 'production'] as Stream[]).map((st) => {
+        const rs = rows.filter((r) => r.stream === st);
+        return { st, n: rs.length, t: tallySQD(rs, CSM_POOLED_SQDS) };
+      }),
+    [rows]
+  );
+  const verdicts = useMemo(
+    () => rows.map(csmSatisfied).filter((v): v is boolean => v !== null),
+    [rows]
+  );
+  const happy = verdicts.filter(Boolean).length;
+  const comments = useMemo(
+    () =>
+      rows
+        .filter(
+          (r) =>
+            r.suggestion &&
+            !/^(n\/?a|none|wala|no|nothing|-+|\.+)\.?$/i.test(r.suggestion.trim())
+        )
+        .sort((a, b) => (b.submitted?.getTime() ?? 0) - (a.submitted?.getTime() ?? 0))
+        .slice(0, 4),
+    [rows]
+  );
+
+  if (state === 'off') return <FormsSetupNote what="CSM form" />;
+  if (state === 'error' && rows.length === 0) return <FormsErrorNote />;
+  if (rows.length === 0) {
+    return (
+      <p className="av-note av-dim py-6 text-center">
+        {state === 'loading' ? 'Loading CSM responses…' : 'No CSM forms were answered in this period.'}
+      </p>
+    );
+  }
+
+  const STREAM_NAME: Record<Stream, string> = {
+    coverage: 'Photo/Video Coverage',
+    production: 'AV Production',
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="av-trio four">
+        <div>
+          <p className="av-stat-l">CSM forms answered</p>
+          <p className="av-fig mt-2">{rows.length}</p>
+          <p className="av-stat-s">
+            {served
+              ? `For ${served} completed request${served === 1 ? '' : 's'} in the same period`
+              : 'No completed requests in this period yet'}
+          </p>
+        </div>
+        <div>
+          <p className="av-stat-l">Overall CSM score</p>
+          <p className="av-fig mt-2">{pctDown(all.score)}</p>
+          <p className="av-stat-s">{csmRating(all.score)} on the ARTA scale</p>
+        </div>
+        <div>
+          <p className="av-stat-l">Satisfied clients</p>
+          <p className="av-fig mt-2">
+            {verdicts.length ? pctDown((happy / verdicts.length) * 100) : '—'}
+          </p>
+          <p className="av-stat-s">
+            {happy} of {verdicts.length} agreed they were satisfied (SQD0)
+          </p>
+        </div>
+        <div>
+          <p className="av-stat-l">By service</p>
+          <div className="mt-2 space-y-1.5">
+            {streams.map((x) => (
+              <p key={x.st} className="text-[13.5px] text-[var(--ink-2)]">
+                <b className="text-[var(--ink)]">{STREAM_NAME[x.st]}</b>: {x.n} form
+                {x.n === 1 ? '' : 's'}
+                {x.n ? `, ${pctDown(x.t.score)} ${csmRating(x.t.score)}` : ''}
+              </p>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="custom-scrollbar overflow-x-auto">
+        <table className="av-table min-w-[760px]">
+          <thead>
+            <tr>
+              <th>Service quality dimension</th>
+              <th className="num">Strongly agree</th>
+              <th className="num">Agree</th>
+              <th className="num">Neither</th>
+              <th className="num">Disagree</th>
+              <th className="num">Strongly disagree</th>
+              <th className="num">N/A</th>
+              <th className="num">Score</th>
+              <th>Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {perSqd.map(({ i, name, t }) => {
+              const skip = !CSM_POOLED_SQDS.includes(i);
+              return (
+                <tr key={i} className={skip ? 'opacity-60' : ''}>
+                  <td>
+                    <b className="text-[var(--ink)]">SQD{i}</b> {name}
+                    {skip && <span className="av-dim"> (not scored, free service)</span>}
+                  </td>
+                  <td className="num">{t.sa}</td>
+                  <td className="num">{t.a}</td>
+                  <td className="num">{t.n}</td>
+                  <td className="num">{t.d}</td>
+                  <td className="num">{t.sd}</td>
+                  <td className="num">{t.na}</td>
+                  <td className="num">{skip ? '—' : pctDown(t.score)}</td>
+                  <td>{skip ? '—' : csmRating(t.score)}</td>
+                </tr>
+              );
+            })}
+            <tr className="font-semibold">
+              <td className="text-[var(--ink)]">All scored dimensions</td>
+              <td className="num">{all.sa}</td>
+              <td className="num">{all.a}</td>
+              <td className="num">{all.n}</td>
+              <td className="num">{all.d}</td>
+              <td className="num">{all.sd}</td>
+              <td className="num">{all.na}</td>
+              <td className="num">{pctDown(all.score)}</td>
+              <td>{csmRating(all.score)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {comments.length > 0 && (
+        <div className="av-inset p-4">
+          <p className="av-label mb-2">Latest comments from clients</p>
+          <ul className="space-y-2">
+            {comments.map((c, i) => (
+              <li key={i} className="av-note">
+                “{c.suggestion}”
+                <span className="av-dim">
+                  {' '}— {c.agency || 'client'}, {fmtDate(c.submitted)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="av-note av-dim">
+        <b>How this is computed.</b> Score = (Agree + Strongly agree) ÷ all answers except N/A. SQD5 (Costs)
+        is not scored because AV services are free — the same way the quarterly CSM report does it. Rating
+        (ARTA): 95% and up Outstanding, 90–94.9% Very Satisfactory, 80–89.9% Satisfactory, 60–79.9% Fair,
+        below 60% Poor. A client counts as satisfied when they agreed or strongly agreed with SQD0, “I am
+        satisfied with the service that I availed.” Percentages are rounded down.
+      </p>
+    </div>
+  );
+}
+
+/** Ilan ang dumating sa form, at ilan ang naka-log na sa AV Nexus. */
+function IntakeSummary({
+  items,
+  linked,
+  state,
+  onReview,
+}: {
+  items: IntakeRequest[];
+  linked: Map<string, AVEvent>;
+  state: FormsState;
+  onReview: () => void;
+}) {
+  if (state === 'off') return <FormsSetupNote what="AV Request Form" />;
+  if (state === 'error' && items.length === 0) return <FormsErrorNote />;
+  if (items.length === 0) {
+    return (
+      <p className="av-note av-dim py-6 text-center">
+        {state === 'loading'
+          ? 'Loading requests from the form…'
+          : 'No requests were submitted through the form in this period.'}
+      </p>
+    );
+  }
+  const inNexus = items.filter((q) => linked.has(q.ref)).length;
+  const waiting = items.length - inNexus;
+  const count = (re: RegExp) => items.filter((q) => re.test(q.sheetStatus)).length;
+  const prod = items.filter((q) => q.stream === 'production').length;
+  const declined = count(/disapprov|declin/i);
+  return (
+    <div className="space-y-4">
+      <div className="av-trio four">
+        <div>
+          <p className="av-stat-l">Received through the form</p>
+          <p className="av-fig mt-2">{items.length}</p>
+          <p className="av-stat-s">
+            {items.length - prod} coverage, {prod} production
+          </p>
+        </div>
+        <div>
+          <p className="av-stat-l">Logged in AV Nexus</p>
+          <p className="av-fig mt-2">{inNexus}</p>
+          <p className="av-stat-s">Tracked through approval and delivery</p>
+        </div>
+        <div>
+          <p className="av-stat-l">Not yet logged</p>
+          <p className="av-fig mt-2" style={{ color: waiting ? 'var(--waiting)' : undefined }}>
+            {waiting}
+          </p>
+          <p className="av-stat-s">
+            {waiting ? (
+              <button
+                type="button"
+                onClick={onReview}
+                className="font-semibold text-[var(--signal)] underline-offset-2 hover:underline"
+              >
+                Review them in Events
+              </button>
+            ) : (
+              'Everything is logged'
+            )}
+          </p>
+        </div>
+        <div>
+          <p className="av-stat-l">Status in the form sheet</p>
+          <p className="av-stat-s mt-2">
+            {count(/approv/i) - declined} approved, {count(/ongoing/i)} ongoing, {declined} declined,{' '}
+            {count(/cancel/i)} cancelled
+          </p>
+        </div>
+      </div>
+      <p className="av-note av-dim">
+        Counts every request sent through the AV Request Form in this period, by the date it was sent. A
+        request counts as logged once it exists as an event in AV Nexus.
+      </p>
+    </div>
+  );
+}
+
+/** Ang mga bagong sagot sa form — lumalabas dito nang kusa. */
+function IntakeInbox({
+  items,
+  onLog,
+}: {
+  items: IntakeRequest[];
+  onLog: (q: IntakeRequest) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const recent = items.filter((q) => {
+    const d = q.start || q.requested || q.submitted;
+    return !d || d.getTime() >= cutoff.getTime();
+  });
+  const list = (showAll ? items : recent)
+    .slice()
+    .sort((a, b) => (b.submitted?.getTime() ?? 0) - (a.submitted?.getTime() ?? 0));
+  if (!items.length) return null;
+
+  return (
+    <div className="av-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--rule-soft)] px-5 py-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]"
+            style={{ background: 'var(--tint-amber)', color: 'var(--waiting)' }}
+          >
+            <Icon name="triage" size={18} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="av-sec-h">New from the online request form</h3>
+            <p className="av-sec-p">
+              {items.length} request{items.length === 1 ? ' is' : 's are'} not yet logged in AV Nexus. New
+              submissions appear here on their own.
+            </p>
+          </div>
+        </div>
+        {items.length !== recent.length && (
+          <button type="button" className="av-btn-ghost text-[13px]" onClick={() => setShowAll((v) => !v)}>
+            {showAll ? 'Show recent only' : `Show all ${items.length}`}
+          </button>
+        )}
+      </div>
+      <div className="divide-y divide-[var(--rule-soft)]">
+        {list.slice(0, showAll ? 80 : 8).map((q) => (
+          <div key={q.ref} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold text-[var(--ink)]">{q.title}</p>
+              <p className="av-note av-dim mt-0.5">
+                {[q.agency, dateSpan(q.start, q.end), q.venue].filter(Boolean).join(' · ')}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {q.services.map((svc) => (
+                  <span key={svc} className="av-chip">
+                    {svc}
+                  </span>
+                ))}
+                {q.sheetStatus && (
+                  <span className={`av-pill sm ${sheetStatusChip(q.sheetStatus)}`}>
+                    {q.sheetStatus} in the form sheet
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <span className="av-note av-dim">Sent {fmtDate(q.submitted)}</span>
+              <button
+                type="button"
+                className="av-btn inline-flex items-center gap-2"
+                onClick={() => onLog(q)}
+              >
+                <Icon name="plus" size={15} stroke={2.2} />
+                Log in AV Nexus
+              </button>
+            </div>
+          </div>
+        ))}
+        {list.length === 0 && (
+          <p className="av-note av-dim px-5 py-6">
+            No recent requests waiting. {items.length} older one{items.length === 1 ? ' is' : 's are'} hidden.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------ APP SHELL -- */
 
 /** Sidebar grouping. Ang VIEWS pa rin ang pinagmumulan ng label at hint. */
@@ -7378,7 +8447,11 @@ export default function App() {
 
   const [events, setEvents] = useState<AVEvent[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [evModal, setEvModal] = useState<{ open: boolean; editing: AVEvent | null }>({
+  const [evModal, setEvModal] = useState<{
+    open: boolean;
+    editing: AVEvent | null;
+    prefill?: AVEvent | null;
+  }>({
     open: false,
     editing: null,
   });
@@ -7405,6 +8478,33 @@ export default function App() {
   const [view, setView] = useState<ViewKey>('events');
   // UI lamang: ang sidebar drawer sa maliliit na screen.
   const [navOpen, setNavOpen] = useState(false);
+  // NIGHT MODE — naaalala sa browser na ito. Default: ang setting ng computer.
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = window.localStorage.getItem('avnexus.theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light';
+    } catch {
+      return 'light';
+    }
+  });
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute('data-theme', theme);
+      window.localStorage.setItem('avnexus.theme', theme);
+    } catch {
+      /* private mode */
+    }
+  }, [theme]);
+  // COMPLIANCE PERIOD — lahat ng numero sa Compliance ay para sa panahong ito.
+  const [cPeriod, setCPeriod] = useState<PeriodKey>('year');
+  const pRange = useMemo(() => periodRange(cPeriod), [cPeriod]);
+  // FORMS — AV Request Form at CSM Form (FormsBridge.gs).
+  const [intake, setIntake] = useState<IntakeRequest[]>([]);
+  const [csmRows, setCsmRows] = useState<CSMResponse[]>([]);
+  const [formsState, setFormsState] = useState<FormsState>(FORMS_BRIDGE_URL ? 'loading' : 'off');
 
   /**
    * Sino ang nagpapatakbo ng dashboard ngayon.
@@ -7479,6 +8579,7 @@ export default function App() {
       const out = await Promise.all([
         probeEndpoint('DMC coverage sheet', SCRIPT_URL),
         probeEndpoint('AV Nexus backend', PROD_SCRIPT_URL),
+        ...(FORMS_BRIDGE_URL ? [probeEndpoint('Forms bridge (request + CSM forms)', FORMS_BRIDGE_URL)] : []),
       ]);
       setProbes(out);
     } finally {
@@ -7716,6 +8817,17 @@ export default function App() {
   const [drawerPerson, setDrawerPerson] = useState<{ name: string; image: string } | null>(null);
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: string }[]>([]);
 
+  // OUTBOX — mga pag-save na tumatakbo pa sa likod (tingnan ang submitEvent).
+  const [outbox, setOutbox] = useState<OutboxItem[]>([]);
+  const outboxRef = useRef<OutboxItem[]>([]);
+  const putOutbox = useCallback((fn: (prev: OutboxItem[]) => OutboxItem[]) => {
+    outboxRef.current = fn(outboxRef.current);
+    setOutbox(outboxRef.current);
+  }, []);
+  const savingCount = outbox.filter((o) => o.state === 'saving').length;
+  // Para sa ibang bukas na tab ng AV Nexus sa parehong browser.
+  const channelRef = useRef<BroadcastChannel | null>(null);
+
   const seenIds = useRef<Set<string>>(new Set());
   const loadedOnce = useRef(false);
   const bootedRef = useRef(false);
@@ -7821,7 +8933,7 @@ export default function App() {
           }) as Assignment)
       );
 
-      setEvents(
+      const sheetEvents: AVEvent[] = (
         evRows
           .filter((r: any) => r['Event Title'] || r['Event ID'])
           .map((r: any) => {
@@ -7887,6 +8999,8 @@ export default function App() {
           })
           .reverse()
       );
+      // Ang mga pag-save na tumatakbo pa ay hindi binubura ng refresh.
+      setEvents(applyOutbox(sheetEvents, outboxRef.current));
 
       setRequests(
         reqRows
@@ -8002,7 +9116,11 @@ export default function App() {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
-      setSubmitting(true);
+      // Ang event na sine-save pa lang ay wala pang tunay na ID sa sheet.
+      if (id && isLocalId(id)) {
+        toast('This event is still being saved — try again in a moment.', 'info');
+        return;
+      }
 
       // Eksaktong anyo na tinatanggap ng sheet. Dalawa na ang status na
       // nagsisimula sa "For ", kaya hindi na sapat ang isang .replace().
@@ -8066,6 +9184,35 @@ export default function App() {
           }
         : { action: 'addEvent', payload: { ...payload, actor } };
 
+      // OPTIMISTIC — isara agad ang modal at ipakita agad ang resulta. Ang
+      // pagsulat sa sheet ay tumatakbo sa likod at hindi na hinihintay ng
+      // screen; puwede ka nang lumipat ng view o tab habang nagse-save.
+      const key = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const localId = id || `${LOCAL_PREFIX}${key}`;
+      const base = id ? events.find((e) => e.id === id) ?? null : null;
+      const optimistic: AVEvent =
+        id && base && canDecide(myRole)
+          ? { ...base, approval: statusKey, approvalRaw: normalisedStatus, reason: form.reason ?? base.reason }
+          : eventFromForm(form, localId, base, myName);
+      const dKey = form._draftKey || draftKeyFor(id);
+      let stash: string | null = null;
+      try {
+        stash = window.localStorage.getItem(dKey);
+      } catch {
+        /* private mode */
+      }
+      writeDraft(dKey, null);
+      const item: OutboxItem = {
+        key,
+        kind: id ? 'update' : 'create',
+        event: optimistic,
+        before: base,
+        state: 'saving',
+      };
+      putOutbox((prev) => [...prev.filter((o) => !(id && o.event.id === id)), item]);
+      setEvents((prev) => applyOutbox(prev, [item]));
+      setEvModal({ open: false, editing: null });
+
       try {
         const out = await authedPost(body);
 
@@ -8122,17 +9269,56 @@ export default function App() {
             });
           }
         }
+
+        // Kumpirmado na ng sheet. Kinukuha ng placeholder ang totoong Event
+        // ID, para pagdating ng refresh ay mapalitan ito nang walang kurap.
+        if (!id && eventId) {
+          setEvents((prev) => prev.map((e) => (e.id === localId ? { ...e, id: eventId } : e)));
+        }
+        putOutbox((prev) =>
+          prev.map((o) =>
+            o.key === key
+              ? {
+                  ...o,
+                  state: 'synced' as const,
+                  event: !id && eventId ? { ...o.event, id: eventId } : o.event,
+                }
+              : o
+          )
+        );
+        try {
+          channelRef.current?.postMessage('changed');
+        } catch {
+          /* sarado na ang channel */
+        }
+        setTimeout(async () => {
+          await fetchProduction();
+          putOutbox((prev) => prev.filter((o) => o.key !== key));
+        }, 1400);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Could not save.';
-        toast(msg, 'err');
+        // Hindi pumasok. Ibalik ang dating anyo, at ibalik ang form bilang
+        // draft — pagbukas muli ng modal, nandoon pa ang lahat ng tinype.
+        if (outboxRef.current.some((o) => o.key === key)) {
+          putOutbox((prev) => prev.filter((o) => o.key !== key));
+          setEvents((prev) =>
+            id
+              ? prev.map((e) => (e.id === id && base ? base : e))
+              : prev.filter((e) => e.id !== localId)
+          );
+        }
+        if (stash) {
+          try {
+            window.localStorage.setItem(dKey, stash);
+          } catch {
+            /* puno o private mode */
+          }
+        }
+        toast(`${msg} Your form was kept as a draft.`, 'err');
         setLastError({ what: id ? 'Update event' : 'Create event', detail: msg });
-      } finally {
-        setSubmitting(false);
-        setEvModal({ open: false, editing: null });
-        setTimeout(() => fetchProduction(), 1400);
       }
     },
-    [fetchProduction, toast, actor, myRole, authedPost]
+    [fetchProduction, toast, actor, myRole, myName, events, authedPost, putOutbox]
   );
 
   const importEvents = useCallback(
@@ -8285,16 +9471,72 @@ export default function App() {
     [fetchProduction, toast, authedPost]
   );
 
+  const fetchForms = useCallback(async () => {
+    if (!FORMS_BRIDGE_URL) return;
+    try {
+      const res = await fetch(FORMS_BRIDGE_URL, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data || data.ok === false) throw new Error((data && data.error) || 'Bridge error');
+      setIntake(parseIntake(data.requests));
+      setCsmRows(parseCSMRows(data.csm));
+      setFormsState('ok');
+    } catch {
+      // May lumang datos pa — huwag burahin dahil lang pumalya ang isang refresh.
+      setFormsState((st) => (st === 'ok' ? 'ok' : 'error'));
+    }
+  }, []);
+
   useEffect(() => {
-    fetchTasks();
-    fetchProduction();
-    const interval = setInterval(() => {
+    let last = Date.now();
+    const pull = () => {
+      last = Date.now();
       fetchTasks();
       fetchProduction();
+      fetchForms();
+    };
+    fetchTasks();
+    fetchProduction();
+    fetchForms();
+    // Habang nakatago ang tab, hindi humihila — sayang sa quota ng Apps Script.
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') pull();
     }, 30000);
-    return () => clearInterval(interval);
+    // Pagbalik sa tab o window: kunin agad ang pinakabago.
+    const onBack = () => {
+      if (document.visibilityState === 'visible' && Date.now() - last > 10000) pull();
+    };
+    document.addEventListener('visibilitychange', onBack);
+    window.addEventListener('focus', onBack);
+    // Nag-save sa ibang tab ng AV Nexus → mag-refresh din dito, agad.
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('avnexus-sync');
+      channel.onmessage = () => pull();
+      channelRef.current = channel;
+    } catch {
+      /* lumang browser — ang 30-segundong refresh pa rin ang sasalo */
+    }
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onBack);
+      window.removeEventListener('focus', onBack);
+      channel?.close();
+      channelRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Huwag hayaang maisara ang tab habang may sine-save pa.
+  useEffect(() => {
+    if (!savingCount) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [savingCount]);
 
   /* ------------------------------------------------------- DERIVED DATA -- */
   const stats = useMemo(() => {
@@ -8337,27 +9579,36 @@ export default function App() {
    * 'yon, hindi isa.
    */
   const roleLoad = useMemo(() => {
+    const byId = new Map(events.map((e) => [e.id, e] as [string, AVEvent]));
+    // Hindi binibilang: dropped o reassigned, at mga event na tinanggihan,
+    // kinansela o inilipat. Dati, kasama sila at lumalaki ang workload.
+    const counted = (a: Assignment) => {
+      if (a.status === 'Dropped' || a.status === 'Reassigned') return false;
+      const ev = byId.get(a.eventId);
+      return !!ev && APPROVAL_META[ev.approval].live;
+    };
     return TEAM.map((m) => {
       const mine = assignments.filter(
-        (a) => a.personnel.toLowerCase() === m.name.toLowerCase()
+        (a) => a.personnel.toLowerCase() === m.name.toLowerCase() && counted(a)
       );
+      const inPeriod = mine.filter((a) => inRange(byId.get(a.eventId)?.eventDate ?? null, pRange));
+      // ACTIVE NOW — bukas pa ang event ngayon at hindi pa tapos ang papel.
+      const active = mine.filter((a) => {
+        const ev = byId.get(a.eventId);
+        return !!ev && a.status !== 'Completed' && isAuthorised(ev) && !isClosed(ev);
+      }).length;
       const byRole = new Map<string, number>();
-      mine.forEach((a) =>
-        a.roles.forEach((r) => byRole.set(r, (byRole.get(r) || 0) + 1))
-      );
+      inPeriod.forEach((a) => a.roles.forEach((r) => byRole.set(r, (byRole.get(r) || 0) + 1)));
       /**
        * Ilang araw siya nakatalaga sa DALAWA o higit pang event nang sabay.
-       * Ito ang totoong hitsura ng pagkakahati ng tao — hindi bilang ng
-       * event, kundi bilang ng araw na hinati siya.
+       * Ito ang totoong hitsura ng pagkakahati ng tao.
        */
       const byDay = new Map<string, Set<string>>();
-      mine.forEach((a) => {
-        const ev = events.find((e) => e.id === a.eventId);
+      inPeriod.forEach((a) => {
+        const ev = byId.get(a.eventId);
         if (!ev?.eventDate) return;
         const end = ev.endDate || ev.eventDate;
-        const cur = new Date(
-          ev.eventDate.getFullYear(), ev.eventDate.getMonth(), ev.eventDate.getDate()
-        );
+        const cur = new Date(ev.eventDate.getFullYear(), ev.eventDate.getMonth(), ev.eventDate.getDate());
         let guard = 0;
         while (cur.getTime() <= end.getTime() && guard < 60) {
           const k = dayKey(cur);
@@ -8366,17 +9617,17 @@ export default function App() {
           guard++;
         }
       });
-      const clashDays = Array.from(byDay.values()).filter((set) => set.size > 1).length;
-
       return {
         name: m.name,
-        events: mine.length,
-        roleCount: mine.reduce((acc, a) => acc + a.roles.length, 0),
-        clashDays,
+        active,
+        // Bilang ng EVENT, hindi ng row — isang event, isang bilang.
+        events: new Set(inPeriod.map((a) => a.eventId)).size,
+        roleCount: inPeriod.reduce((acc, a) => acc + a.roles.length, 0),
+        clashDays: Array.from(byDay.values()).filter((set) => set.size > 1).length,
         top: Array.from(byRole.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4),
       };
-    }).sort((a, b) => b.roleCount - a.roleCount);
-  }, [assignments, events]);
+    }).sort((a, b) => b.roleCount - a.roleCount || b.active - a.active);
+  }, [assignments, events, pRange]);
 
   const prodSummary = useMemo(() => {
     const live = outputs.filter((o) => o.stage !== 'published' && o.stage !== 'approved');
@@ -8517,34 +9768,117 @@ export default function App() {
     [events]
   );
 
-  /** Events + legacy register, pinagsama para sa compliance panels. */
+  /** Events + lumang register — isang request, isang bilang (tingnan ang dedupeRequests). */
   const isoRequests = useMemo(
-    () => [...events.map(eventAsRequest), ...requests],
+    () => dedupeRequests(events.map(eventAsRequest), requests),
     [events, requests]
   );
+  // Ang panahong pinili sa Compliance, at ang mga datos sa loob nito.
+  const evP = useMemo(
+    () => events.filter((ev) => inRange(ev.dateRequested || ev.eventDate, pRange)),
+    [events, pRange]
+  );
+  const reqP = useMemo(
+    () => requests.filter((r) => inRange(r.dateRequested || r.eventDate, pRange)),
+    [requests, pRange]
+  );
+  const isoP = useMemo(() => dedupeRequests(evP.map(eventAsRequest), reqP), [evP, reqP]);
+  const csmP = useMemo(
+    () => csmRows.filter((c) => inRange(c.submitted || c.date, pRange)),
+    [csmRows, pRange]
+  );
+  const intakeP = useMemo(
+    () => intake.filter((q) => inRange(q.submitted || q.requested, pRange)),
+    [intake, pRange]
+  );
+
+  /** Aling sagot sa request form ang nasa AV Nexus na. */
+  const intakeLinks = useMemo(() => {
+    const map = new Map<string, AVEvent>();
+    intake.forEach((q) => {
+      const ev =
+        events.find((e) => e.remarks.includes(q.ref)) ||
+        events.find((e) => {
+          const d = daysApart(e.eventDate, q.start);
+          return titlesMatch(e.title, q.title, true) && (d === null || d <= 3);
+        });
+      if (ev) map.set(q.ref, ev);
+    });
+    return map;
+  }, [intake, events]);
+  const intakeOpen = useMemo(() => intake.filter((q) => !intakeLinks.has(q.ref)), [intake, intakeLinks]);
+  // Bago at wala pang aksyon: wala pang Status sa form sheet at wala pa sa Nexus.
+  const intakeNew = useMemo(() => intakeOpen.filter((q) => !q.sheetStatus.trim()).length, [intakeOpen]);
+
+  /** Ang eksaktong saklaw ng petsa ng ipinapakitang datos. */
+  const pLabel = useMemo(() => {
+    const now = new Date();
+    let from = pRange.from;
+    let to = pRange.to;
+    if (!from || !to) {
+      const ds = [
+        ...events.map((e) => e.dateRequested || e.eventDate),
+        ...requests.map((r) => r.dateRequested || r.eventDate),
+        ...csmRows.map((c) => c.submitted),
+      ].filter((d): d is Date => !!d);
+      if (ds.length) {
+        from = new Date(Math.min(...ds.map((d) => d.getTime())));
+        to = new Date(Math.max(...ds.map((d) => d.getTime())));
+      }
+    }
+    const end = to && to.getTime() > now.getTime() ? now : to;
+    return {
+      span: from && end ? `${fmtDate(from)} to ${fmtDate(end)}` : 'no dated records yet',
+      asOf: now.toLocaleString('en-PH', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      }),
+    };
+  }, [pRange, events, requests, csmRows]);
 
   /** PM 2.1 at 2.2 — ang dalawang opisyal na KPI ng AV Services. */
   const kpi = useMemo(() => {
-    const approvedOrBeyond = isoRequests.filter(
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
+    const approvedOrBeyond = isoP.filter(
       (r) => r.status === 'approved' || r.status === 'ongoing' || r.status === 'completed'
     );
     const delivered = approvedOrBeyond.filter((r) => r.status === 'completed');
-    const rated = isoRequests.filter((r) => r.csm > 0);
-    const passing = rated.filter((r) => r.csm >= CSM_PASS);
+    // Hindi pa dapat tapos — nasa hinaharap pa ang target date. Hindi pa ito
+    // pagkukulang, kaya hindi muna binibilang. Dati, ibinibilang itong bigo.
+    const notYetDue = approvedOrBeyond.filter((r) => {
+      if (r.status === 'completed') return false;
+      const t = effectiveTarget(r);
+      return !!t && t.getTime() >= today0.getTime();
+    }).length;
+    const due = approvedOrBeyond.length - notYetDue;
     // Hindi kasama sa denominator — binibilang lang para ipakita.
-    const excluded = isoRequests.filter((r) => REQ_META[r.status].excluded).length;
-
+    const excluded = isoP.filter((r) => REQ_META[r.status].excluded).length;
+    // PM 2.2 — mula sa mismong CSM forms kapag nakakonekta; kung hindi, sa
+    // lumang manual rating na itinype sa event.
+    const verdicts = csmP.map(csmSatisfied).filter((v): v is boolean => v !== null);
+    const fromForms = formsState === 'ok' || verdicts.length > 0;
+    const manual = isoP.filter((r) => r.csm > 0);
+    const csmRated = fromForms ? verdicts.length : manual.length;
+    const csmPassing = fromForms
+      ? verdicts.filter(Boolean).length
+      : manual.filter((r) => r.csm >= CSM_PASS).length;
     return {
       excluded,
-      execution: approvedOrBeyond.length
-        ? Math.round((delivered.length / approvedOrBeyond.length) * 100)
-        : null,
-      approvedTotal: approvedOrBeyond.length,
+      // Pababa ang pag-round: hindi kailanman ipapakitang pasado ang hindi pa.
+      execution: due ? Math.floor((delivered.length / due) * 100) : null,
+      approvedTotal: due,
       deliveredTotal: delivered.length,
-      csm: rated.length ? Math.round((passing.length / rated.length) * 100) : null,
-      rated: rated.length,
+      notYetDue,
+      csm: csmRated ? Math.floor((csmPassing / csmRated) * 100) : null,
+      rated: csmRated,
+      csmPassing,
+      csmSource: fromForms ? ('form' as const) : ('manual' as const),
     };
-  }, [isoRequests]);
+  }, [isoP, csmP, formsState]);
 
   const filteredRequests = useMemo(() => {
     const q = reqQuery.trim().toLowerCase();
@@ -9073,7 +10407,7 @@ export default function App() {
                   : v.key === 'production' ? outputs.length
                   : 0;
                 const alert =
-                  v.key === 'events' ? approvalQueue.length + triageQueue.length : 0;
+                  v.key === 'events' ? approvalQueue.length + triageQueue.length + intakeNew : 0;
                 return (
                   <button
                     key={v.key}
@@ -9186,13 +10520,29 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => { fetchTasks(true); fetchProduction(); }}
+                role="switch"
+                aria-checked={theme === 'dark'}
+                aria-label="Night mode"
+                title={theme === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
+                onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+                className="av-switch"
+              >
+                <span className="knob">
+                  <Icon name={theme === 'dark' ? 'moon' : 'sun'} size={14} stroke={2} />
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { fetchTasks(true); fetchProduction(); fetchForms(); }}
                 title={connMeta.label}
                 className="av-sync hidden md:inline-flex"
               >
                 <span className={`h-2 w-2 rounded-full ${connMeta.dot}`} />
-                <span>{refreshing ? 'Syncing' : connMeta.short}</span>
-                <Icon name="refresh" size={14} className={refreshing ? 'animate-spin' : ''} />
+                <span>
+                  {savingCount ? `Saving ${savingCount}…` : refreshing ? 'Syncing' : connMeta.short}
+                </span>
+                <Icon name="refresh" size={14} className={refreshing || savingCount ? 'animate-spin' : ''} />
               </button>
 
               <button
@@ -9267,6 +10617,13 @@ export default function App() {
               </p>
               <h1 className="av-hero-h">{VIEWS.find((v) => v.key === view)?.label}</h1>
               <p className="av-hero-p">{VIEWS.find((v) => v.key === view)?.hint}</p>
+              {lastUpdated && (
+                <p className="mt-3 text-[13px] text-white/80">
+                  Data as of{' '}
+                  {new Date().toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' })},{' '}
+                  {lastUpdated}
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
@@ -9286,18 +10643,20 @@ export default function App() {
           <div className="av-kpis no-print">
             <HeroStat
               label="Awaiting action"
-              value={triageQueue.length + approvalQueue.length}
+              value={triageQueue.length + approvalQueue.length + intakeNew}
               pct={events.length ? ((triageQueue.length + approvalQueue.length) / events.length) * 100 : 0}
-              hex="#D97706"
+              hex="#B07A00"
               icon="triage"
-              sub={`${triageQueue.length} in triage, ${approvalQueue.length} for sign-off`}
+              sub={`${triageQueue.length} in triage, ${approvalQueue.length} for sign-off${
+                intakeNew ? `, ${intakeNew} new from the form` : ''
+              }`}
               onClick={() => setView('events')}
             />
             <HeroStat
               label="In production"
               value={prodSummary.live}
               pct={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
-              hex="#2563EB"
+              hex="#427AA1"
               icon="production"
               sub={`${prodSummary.overdue} overdue of ${prodSummary.total} outputs`}
               onClick={() => setView('production')}
@@ -9315,13 +10674,13 @@ export default function App() {
                   ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100
                   : 0
               }
-              hex="#0E9F9A"
+              hex="#2F5F82"
               icon="archive"
               sub={`${stats.counts.transferred + stats.counts.archived} of ${stats.total} coverages`}
               onClick={() => setView('pulse')}
             />
             <HeroStat
-              label="Approved requests executed"
+              label="Approved requests completed"
               value={kpi.execution ?? 0}
               suffix={kpi.execution === null ? '' : '%'}
               pct={kpi.execution ?? 0}
@@ -9330,13 +10689,13 @@ export default function App() {
                   ? '#94A3B8'
                   : kpi.execution >= KPI_EXECUTION_TARGET
                   ? '#16A34A'
-                  : '#DC2626'
+                  : '#A30000'
               }
               icon="compliance"
               sub={
                 kpi.execution === null
                   ? 'No approved requests yet'
-                  : `Target ${KPI_EXECUTION_TARGET}%, PM 2.1`
+                  : `${pRange.label}, target ${KPI_EXECUTION_TARGET}%`
               }
               onClick={() => setView('compliance')}
             />
@@ -9445,7 +10804,7 @@ export default function App() {
                     name: 'Tasking System',
                     role: 'AppSheet — DMC transfer and archiving log',
                     url: SYSTEMS.find((x) => x.id === 'tasking')?.url || '',
-                    accent: '#d97706',
+                    accent: '#B07A00',
                   },
                   {
                     name: 'DMC Monitoring',
@@ -9507,14 +10866,14 @@ export default function App() {
                   label="Pending transfer"
                   value={stats.counts.pending}
                   sub="Awaiting upload"
-                  accent="#d97706"
+                  accent="#B07A00"
                   bar={stats.total ? (stats.counts.pending / stats.total) * 100 : 0}
                 />
                 <StatTile
                   label="This month"
                   value={stats.thisMonth}
                   sub={new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}
-                  accent="#dc2626"
+                  accent="#A30000"
                   bar={stats.total ? (stats.thisMonth / Math.max(1, stats.total)) * 100 : 0}
                 />
               </div>
@@ -9701,7 +11060,7 @@ export default function App() {
                       label="In progress"
                       value={prodSummary.live}
                       sub="Still in progress"
-                      accent="#d97706"
+                      accent="#B07A00"
                       bar={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
                     />
                     <StatTile
@@ -9719,7 +11078,7 @@ export default function App() {
                           ? 'No target dates set'
                           : `${prodSummary.onTime}% on-time delivery`
                       }
-                      accent="#dc2626"
+                      accent="#A30000"
                       bar={prodSummary.total ? (prodSummary.overdue / prodSummary.total) * 100 : 0}
                     />
                   </div>
@@ -9960,6 +11319,16 @@ export default function App() {
             {/* ========================================= EVENTS ======== */}
             {view === 'events' && (
               <>
+                {formsState === 'ok' && intakeOpen.length > 0 && (
+                  <section>
+                    <IntakeInbox
+                      items={intakeOpen}
+                      onLog={(q) =>
+                        setEvModal({ open: true, editing: null, prefill: eventFromIntake(q) })
+                      }
+                    />
+                  </section>
+                )}
                 <section>
                   <SectionHead
                     title="Event monitoring"
@@ -10267,8 +11636,17 @@ export default function App() {
                                   ? myRole === 'admin' || myRole === 'staff'
                                   : can('edit', myRole, ev.createdBy, myName)
                               }
-                              onOpen={() => setEvModal({ open: true, editing: ev })}
-                              onStep={(k, next) => stepEvent(ev, k, next)}
+                              sync={outbox.some((o) => o.event.id === ev.id && o.state === 'saving')}
+                              onOpen={() =>
+                                isLocalId(ev.id)
+                                  ? toast('Still saving to the sheet — open it again in a moment.', 'info')
+                                  : setEvModal({ open: true, editing: ev })
+                              }
+                              onStep={(k, next) =>
+                                isLocalId(ev.id)
+                                  ? toast('Still saving to the sheet — try again in a moment.', 'info')
+                                  : stepEvent(ev, k, next)
+                              }
                             />
                           ))}
                         </div>
@@ -10418,19 +11796,50 @@ export default function App() {
             {view === 'compliance' && (prodReady !== 'missing' || events.length > 0) && (
               <>
                 <section>
+                  <div className="av-card flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+                    <div className="min-w-0">
+                      <p className="av-sec-h">Reporting period: {pRange.label}</p>
+                      <p className="av-note av-dim mt-0.5">
+                        Covers <b className="text-[var(--ink)]">{pLabel.span}</b>. Data as of {pLabel.asOf}.
+                      </p>
+                    </div>
+                    <div className="av-seg" role="group" aria-label="Reporting period">
+                      {PERIOD_OPTIONS.map((o) => (
+                        <button
+                          key={o.key}
+                          type="button"
+                          data-on={cPeriod === o.key ? '1' : '0'}
+                          onClick={() => setCPeriod(o.key)}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section>
                   <SectionHead
-                    title="Service performance KPI"
-                    hint="PM-CRPD-AV-08-04 Rev 7, section 2 — Expected Outputs."
+                    title="How we did against our targets"
+                    hint="The two official targets in the AV Services Procedures Manual (PM-CRPD-AV-08-04 Rev 7, section 2)."
                   />
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <div className="av-card p-6">
                       <KPIRing
                         value={kpi.execution}
                         target={KPI_EXECUTION_TARGET}
-                        label="Requests executed"
-                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved requests served to the client.${
+                        label="Approved requests completed"
+                        sub={`${kpi.deliveredTotal} of ${kpi.approvedTotal} approved request${
+                          kpi.approvedTotal === 1 ? '' : 's'
+                        } that were due have been completed.${
+                          kpi.notYetDue
+                            ? ` ${kpi.notYetDue} more ${kpi.notYetDue === 1 ? 'is' : 'are'} approved but not due yet, so not counted yet.`
+                            : ''
+                        }${
                           kpi.excluded
-                            ? ` ${kpi.excluded} cancelled or rescheduled request(s) excluded — see Schedule volatility.`
+                            ? ` ${kpi.excluded} cancelled or moved by the requesting office ${
+                                kpi.excluded === 1 ? 'is' : 'are'
+                              } not counted.`
                             : ''
                         }`}
                       />
@@ -10439,8 +11848,12 @@ export default function App() {
                       <KPIRing
                         value={kpi.csm}
                         target={KPI_CSM_TARGET}
-                        label="CSM very satisfactory+"
-                        sub={`${kpi.rated} request(s) have a CSM rating. Target: 93% Very Satisfactory or higher.`}
+                        label="Clients who rated us Very Satisfactory or better"
+                        sub={
+                          kpi.csmSource === 'form'
+                            ? `${kpi.csmPassing} of ${kpi.rated} client${kpi.rated === 1 ? '' : 's'} who answered the CSM form agreed they were satisfied. Target: at least ${KPI_CSM_TARGET}%.`
+                            : `Based on ${kpi.rated} rating${kpi.rated === 1 ? '' : 's'} typed into events. Connect the CSM form for real counts.`
+                        }
                       />
                     </div>
                   </div>
@@ -10448,123 +11861,153 @@ export default function App() {
 
                 <section>
                   <SectionHead
-                    title="Schedule conflict and staffing"
-                    hint="COA — address scheduling conflict. Concurrent events against the size of the section, and the services that went unmet because of it."
+                    title="Client satisfaction (CSM report)"
+                    hint="Live from the Client Satisfaction Measurement form, computed the same way as the quarterly CSM report."
                   />
                   <div className="av-card p-5">
-                    <ScheduleConflictPanel events={events} />
+                    <CSMPanel rows={csmP} served={kpi.deliveredTotal} state={formsState} />
                   </div>
                 </section>
 
                 <section>
                   <SectionHead
-                    title="Schedule volatility"
-                    hint="Cancelled and rescheduled requests — excluded from the service KPI, counted and reasoned here."
+                    title="Requests from the online form"
+                    hint="Every AV Request Form submission in this period, and whether it is already logged in AV Nexus."
                   />
                   <div className="av-card p-5">
-                    <ScheduleVolatilityPanel events={events} />
+                    <IntakeSummary
+                      items={intakeP}
+                      linked={intakeLinks}
+                      state={formsState}
+                      onReview={() => setView('events')}
+                    />
                   </div>
                 </section>
 
                 <section>
                   <SectionHead
-                    title="Service gap analysis"
-                    hint="Audit Item 44 — every service requested against what was actually served."
+                    title="Double-booked schedules"
+                    hint="Days when two or more events happened at the same time, and whether the team was big enough to cover them."
                   />
                   <div className="av-card p-5">
-                    <ServiceGapPanel events={events} />
+                    <ScheduleConflictPanel events={evP} />
                   </div>
                 </section>
 
-                {requests.length > 0 && (
+                <section>
+                  <SectionHead
+                    title="Cancelled and moved requests"
+                    hint="Requests the requesting office cancelled or moved. They are not counted against our targets, but each one is listed with its reason."
+                  />
+                  <div className="av-card p-5">
+                    <ScheduleVolatilityPanel events={evP} />
+                  </div>
+                </section>
+
+                <section>
+                  <SectionHead
+                    title="Services requested vs. delivered"
+                    hint="Every service a client asked for compared with what we delivered, with the reason for anything not served (Audit Item 44)."
+                  />
+                  <div className="av-card p-5">
+                    <ServiceGapPanel
+                      events={evP}
+                      intake={intakeP.filter((q) => !intakeLinks.has(q.ref))}
+                    />
+                  </div>
+                </section>
+
+                {isoP.length > 0 && (
                   <section>
                     <SectionHead
-                      title="Demand vs capacity"
-                      hint="Monthly demand against services rendered."
+                      title="Requests received vs. completed"
+                      hint="Month by month: how many requests came in and how many we completed. Each request is counted once (Audit Item 44)."
                     />
                     <div className="av-card p-5">
-                      <DemandCapacityPanel requests={requests} />
+                      <DemandCapacityPanel requests={isoP} />
                     </div>
                   </section>
                 )}
 
                 <section>
                   <SectionHead
-                    title="Workload by role"
-                    hint="Audit Item 41 — true workload: every role counted separately."
+                    title="Team workload"
+                    hint="Who is doing how much. Every role a person takes on an event is counted (Audit Item 41)."
                   />
-                  <div className="overflow-x-auto av-card custom-scrollbar">
-                    <table className="w-full min-w-[640px] text-left">
+                  <div className="av-card custom-scrollbar overflow-x-auto p-3">
+                    <table className="av-table min-w-[760px]">
                       <thead>
-                        <tr className="border-b border-slate-200 text-[11px] text-slate-400">
-                          <th className="px-4 py-2.5 font-medium">Personnel</th>
-                          <th className="px-4 py-2.5 text-right font-medium">Events</th>
-                          <th className="px-4 py-2.5 text-right font-medium">Roles filled</th>
-                          <th className="px-4 py-2.5 text-right font-medium">Avg per event</th>
-                          <th className="px-4 py-2.5 text-right font-medium">Conflicted days</th>
-                          <th className="px-4 py-2.5 font-medium">Most frequent roles</th>
+                        <tr>
+                          <th>Personnel</th>
+                          <th className="num">Active now</th>
+                          <th className="num">Events</th>
+                          <th className="num">Role assignments</th>
+                          <th className="num">Roles per event</th>
+                          <th className="num">Double-booked days</th>
+                          <th>Most frequent roles</th>
                         </tr>
                       </thead>
                       <tbody>
                         {roleLoad.map((r) => (
-                          <tr key={r.name} className="border-b border-slate-200 last:border-0">
-                            <td className="px-4 py-3 text-[13px] font-medium text-slate-700">
-                              {r.name}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-600 tabular-nums">
-                              {r.events}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
-                              {r.roleCount}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] text-slate-900 tabular-nums">
-                              {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
-                            </td>
-                            <td className="px-4 py-3 text-right font-mono text-[13px] tabular-nums">
-                              {r.clashDays > 0 ? (
-                                <span style={{ color: 'var(--waiting)', fontWeight: 550 }}>
-                                  {r.clashDays}
-                                </span>
+                          <tr key={r.name}>
+                            <td className="font-semibold text-[var(--ink)]">{r.name}</td>
+                            <td className="num">
+                              {r.active > 0 ? (
+                                <span className="av-pill sm bg-blue-50 text-blue-700">{r.active}</span>
                               ) : (
                                 <span className="av-dim">0</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-[12px] text-slate-900">
-                              {r.top.length
-                                ? r.top.map(([role, n]) => `${role} (${n})`).join(', ')
-                                : '—'}
+                            <td className="num">{r.events}</td>
+                            <td className="num font-semibold text-[var(--ink)]">{r.roleCount}</td>
+                            <td className="num">
+                              {r.events ? (r.roleCount / r.events).toFixed(1) : '—'}
+                            </td>
+                            <td className="num">
+                              {r.clashDays > 0 ? (
+                                <span style={{ color: 'var(--waiting)', fontWeight: 600 }}>{r.clashDays}</span>
+                              ) : (
+                                <span className="av-dim">0</span>
+                              )}
+                            </td>
+                            <td className="text-[13px]">
+                              {r.top.length ? r.top.map(([role, n]) => `${role} (${n})`).join(', ') : '—'}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    {roleLoad.every((r) => r.roleCount === 0) && (
-                      <p className="px-4 py-6 text-center text-[12px] text-slate-400">
-                        No crew assignments recorded yet. Add them inside an event.
+                    {roleLoad.every((r) => r.roleCount === 0 && r.active === 0) && (
+                      <p className="av-note av-dim px-4 py-6 text-center">
+                        No crew assignments in this period yet. Add them inside an event.
                       </p>
                     )}
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-400">
-                    An average above 1.0 means one person is holding several roles at once — direct evidence of a personnel shortfall.
+                  <p className="av-note av-dim mt-2">
+                    <b>Active now</b> counts assignments on events that are still open today.{' '}
+                    <b>Role assignments</b> counts every role a person took: camera operator and editor on the
+                    same event counts as 2. More than 1.0 roles per event means people are covering more than
+                    one job at a time. Dropped or reassigned assignments, and events that were declined,
+                    cancelled or moved, are not counted.
                   </p>
                 </section>
 
                 <section>
                   <SectionHead
-                    title="Turnaround time monitor"
-                    hint="Audit Item 41 — actual processing time from the date of receipt, in working days."
+                    title="How fast we deliver"
+                    hint="Working days from receiving a request to delivering it, against the standard: 3 working days for coverage, 13 for production (Audit Item 41)."
                   />
                   <div className="av-card p-5">
-                    <SLAMonitor requests={isoRequests} />
+                    <SLAMonitor requests={isoP} />
                   </div>
                 </section>
 
                 <section>
                   <SectionHead
-                    title="Audit readiness"
-                    hint="Each finding shown with live evidence from the register."
+                    title="Audit checklist"
+                    hint="Each audit finding, with the live numbers that answer it."
                   />
-                  <ComplianceScorecard requests={isoRequests} kpi={kpi} events={events} />
+                  <ComplianceScorecard requests={isoP} kpi={kpi} events={evP} />
                 </section>
               </>
             )}
@@ -11152,6 +12595,7 @@ export default function App() {
       {evModal.open && (
         <EventModal
           existing={evModal.editing}
+          prefill={evModal.prefill ?? null}
           onClose={() => setEvModal({ open: false, editing: null })}
           onSubmit={submitEvent}
           onNotify={notifyApprover}
@@ -11239,8 +12683,8 @@ const AV_CSS = `
   --ink-2: #475569;
   --ink-3: #64748B;
   --ink-4: #94A3B8;
-  --signal: #2563EB;
-  --signal-strong: #1D4ED8;
+  --signal: #427AA1;
+  --signal-strong: #2F5F82;
   --signal-soft: #EEF3FF;
   --paper: #F3F5FA;
   --card: #FFFFFF;
@@ -11256,7 +12700,7 @@ const AV_CSS = `
   --tint-teal: #E6F6F5;
   --tint-red: #FDEFED;
   --triage: #6D28D9;
-  --waiting: #B45309;
+  --waiting: #8A5A00;
   --cleared: #0F766E;
   --served: #047857;
   --refused: #B42318;
@@ -11334,7 +12778,7 @@ body { background: var(--paper); color: var(--ink); }
 .av-nav[data-on='1'] .ct { background: rgba(255,255,255,.22); color: #fff; }
 .av-nav-dot {
   position: absolute; left: 27px; top: 8px; width: 8px; height: 8px;
-  border-radius: 99px; background: #F59E0B; box-shadow: 0 0 0 2px #fff;
+  border-radius: 99px; background: #E0A300; box-shadow: 0 0 0 2px #fff;
 }
 .av-nav[data-on='1'] .av-nav-dot { box-shadow: 0 0 0 2px var(--signal); }
 .av-nav-rule { height: 1px; margin: 12px 12px 4px; background: var(--rule-soft); }
@@ -11544,7 +12988,7 @@ body { background: var(--paper); color: var(--ink); }
 }
 .av-toast .d { width: 8px; height: 8px; margin-top: 5px; flex-shrink: 0; border-radius: 99px; background: var(--ink-4); }
 .av-toast.err { border-color: #F6CBC6; color: #9B1C14; }
-.av-toast.err .d { background: #E5484D; }
+.av-toast.err .d { background: #C22727; }
 .av-toast.new { border-color: #C7D7FB; }
 .av-toast.new .d { background: var(--signal); }
 @keyframes avping {
@@ -11573,7 +13017,7 @@ body { background: var(--paper); color: var(--ink); }
 .av-mobtab .b {
   position: absolute; top: 2px; left: calc(50% + 5px); min-width: 16px; height: 16px; padding: 0 4px;
   display: flex; align-items: center; justify-content: center; border-radius: var(--r-pill);
-  background: #D97706; color: #fff; font-size: 9.5px; font-weight: 700; box-shadow: 0 0 0 2px #fff;
+  background: #B07A00; color: #fff; font-size: 9.5px; font-weight: 700; box-shadow: 0 0 0 2px #fff;
 }
 .av-fab {
   position: fixed; right: 16px; z-index: 71; width: 52px; height: 52px;
@@ -11617,4 +13061,343 @@ body { background: var(--paper); color: var(--ink); }
   tr, .avoid-break { break-inside: avoid; page-break-inside: avoid; }
   @page { size: A4; margin: 18mm 14mm; }
 }
+
+/* =========================================================== v3 BRAND ===
+   Website palette: #427AA1 blue, #FFFFFF, #A30000 red, near-black ink, at
+   #FFBF1F gold — pang-accent lamang para hindi masakit sa mata.
+   Night mode: html[data-theme='dark'].
+   ====================================================================== */
+:root {
+  --ink: #15191E;
+  --ink-2: #3D4650;
+  --ink-3: #5B6570;
+  --ink-4: #87919B;
+  --signal: #427AA1;
+  --signal-strong: #2F5F82;
+  --signal-soft: #EAF2F8;
+  --brand-red: #A30000;
+  --brand-gold: #FFBF1F;
+  --paper: #F4F6F8;
+  --card: #FFFFFF;
+  --surface-2: #F7F9FB;
+  --rule: #DEE3E9;
+  --rule-soft: #ECEFF3;
+  --rule-strong: #CBD3DC;
+  --tint-blue: #EAF2F8;
+  --tint-red: #FBEAEA;
+  --tint-amber: #FFF6DA;
+  --tint-slate: #EDF0F3;
+  --waiting: #8A5A00;
+  --refused: #A30000;
+  --moved: #8A5A00;
+  --lift-brand: 0 8px 20px -8px rgba(66,122,161,.55);
+  --track: #E9EDF2;
+  --heat-0: #ECF0F4;
+  --heat-1: #CFE0EC;
+  --heat-2: #9FC2DA;
+  --heat-3: #5E95BA;
+  --heat-4: #2F5F82;
+  --band-a: #1D4460;
+  --band-b: #2F5F82;
+  --band-c: #427AA1;
+}
+.av-band { background: linear-gradient(112deg, var(--band-a) 0%, var(--band-b) 45%, var(--band-c) 100%); }
+.av-band::after { background: rgba(8,24,40,.18); }
+.av-hero-k::before {
+  content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 8px;
+  border-radius: 99px; background: var(--brand-gold); vertical-align: 1px;
+}
+.av-nav-dot { background: var(--brand-gold); }
+.av-mobtab .b { background: var(--brand-red); }
+.av-toast.err { color: var(--refused); }
+.av-toast.err .d { background: var(--brand-red); }
+
+/* ------------------------------------------------- readability (v3) --- */
+@media screen {
+  html .av-page[class~="text-[13px]"] { font-size: 14px; }
+  .av-note { font-size: 13.5px; line-height: 1.6; }
+  .av-sec-p, .av-label { font-size: 13.5px; }
+  .av-kpi .l { font-size: 14px; }
+  .av-kpi .s, .av-state-s, .av-head .s, .av-step .w { font-size: 12.5px; }
+  .av-nav { font-size: 14.5px; }
+  .av-hero-p { font-size: 15px; }
+  .av-idl { font-size: 13px; }
+  .av-chip, .av-pill { font-size: 12.5px; }
+  .av-pill.sm { font-size: 11.5px; }
+  .av-title { font-size: 16px; }
+}
+
+/* --------------------------------------------------- new pieces (v3) --- */
+.av-seg {
+  display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px;
+  border-radius: var(--r-ctl); background: var(--tint-slate); border: 1px solid var(--rule-soft);
+}
+.av-seg button {
+  height: 34px; padding: 0 14px; border-radius: 8px; white-space: nowrap;
+  font-size: 13.5px; font-weight: 500; color: var(--ink-3);
+  transition: background-color .15s, color .15s;
+}
+.av-seg button:hover { color: var(--ink); }
+.av-seg button[data-on='1'] {
+  background-color: var(--card); color: var(--ink); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 1px var(--rule);
+}
+.av-trio {
+  display: grid; gap: 1px; overflow: hidden; grid-template-columns: repeat(2, minmax(0,1fr));
+  background: var(--rule); border: 1px solid var(--rule); border-radius: var(--r-ctl);
+}
+.av-trio > * { min-width: 0; padding: 14px 16px; background: var(--surface-2); }
+@media (min-width: 1024px) { .av-trio.four { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+.av-stat-l { font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+.av-stat-s { margin-top: 6px; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+.av-inset { background: var(--surface-2); border: 1px solid var(--rule-soft); border-radius: var(--r-ctl); }
+.av-alert { border-radius: var(--r-ctl); padding: 12px 16px; font-size: 13.5px; line-height: 1.6; border: 1px solid; }
+.av-alert.info { background: var(--tint-blue); border-color: rgba(66,122,161,.28); color: var(--ink-2); }
+.av-alert.err { background: var(--tint-red); border-color: rgba(163,0,0,.25); color: var(--refused); }
+.av-table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 13.5px; color: var(--ink-2); }
+.av-table th {
+  padding: 10px 14px; white-space: nowrap; background: var(--surface-2);
+  font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+}
+.av-table th:first-child { border-radius: var(--r-ctl) 0 0 var(--r-ctl); }
+.av-table th:last-child { border-radius: 0 var(--r-ctl) var(--r-ctl) 0; }
+.av-table td { padding: 12px 14px; border-bottom: 1px solid var(--rule-soft); vertical-align: middle; }
+.av-table tbody tr:last-child td { border-bottom: 0; }
+.av-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.av-switch {
+  position: relative; width: 56px; height: 32px; flex-shrink: 0; border-radius: 999px;
+  border: 1px solid var(--rule); background-color: var(--tint-slate);
+  transition: background-color .2s, border-color .2s;
+}
+.av-switch:hover { border-color: var(--rule-strong); }
+.av-switch .knob {
+  position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: #FFFFFF; color: #C98F00; box-shadow: 0 1px 3px rgba(0,0,0,.18);
+  transition: transform .22s cubic-bezier(.16,1,.3,1), background-color .2s, color .2s;
+}
+
+/* ------------------------------------------------------ night mode --- */
+@media screen {
+  html[data-theme='dark'] {
+    color-scheme: dark;
+    --ink: #E8EDF2;
+    --ink-2: #B9C3CD;
+    --ink-3: #8F9BA7;
+    --ink-4: #6E7A86;
+    --signal: #6FA6CB;
+    --signal-strong: #8DBAD9;
+    --signal-soft: rgba(66,122,161,.22);
+    --paper: #0E1318;
+    --card: #151C23;
+    --surface-2: #1A222A;
+    --rule: #26303A;
+    --rule-soft: #1F2830;
+    --rule-strong: #33404C;
+    --tint-blue: rgba(66,122,161,.18);
+    --tint-green: rgba(34,160,107,.16);
+    --tint-amber: rgba(255,191,31,.14);
+    --tint-violet: rgba(155,122,224,.16);
+    --tint-slate: #1E2730;
+    --tint-teal: rgba(31,168,160,.16);
+    --tint-red: rgba(210,69,69,.16);
+    --triage: #B9A3F0;
+    --waiting: #FFD166;
+    --cleared: #5FD0C7;
+    --served: #5FD19B;
+    --refused: #F08A8A;
+    --standby: #9AA7B4;
+    --moved: #FFD166;
+    --lift: 0 1px 2px rgba(0,0,0,.45);
+    --lift-raise: 0 12px 28px -14px rgba(0,0,0,.65), 0 2px 6px rgba(0,0,0,.35);
+    --lift-float: 0 24px 60px -18px rgba(0,0,0,.75), 0 4px 12px rgba(0,0,0,.4);
+    --lift-brand: 0 8px 20px -8px rgba(66,122,161,.6);
+    --track: #26303A;
+    --heat-0: #1C252E;
+    --heat-1: #1F3A4E;
+    --heat-2: #2A5877;
+    --heat-3: #427AA1;
+    --heat-4: #8DBAD9;
+    --band-a: #0F2536;
+    --band-b: #183A52;
+    --band-c: #2A5877;
+  }
+  html[data-theme='dark'] body { background: var(--paper); color: var(--ink); }
+  html[data-theme='dark'] .av-side,
+  html[data-theme='dark'] .av-kpi,
+  html[data-theme='dark'] .av-toast { background: var(--card); }
+  html[data-theme='dark'] .av-top { background: rgba(21,28,35,.9); }
+  html[data-theme='dark'] .av-mobnav { background: rgba(21,28,35,.96); }
+  html[data-theme='dark'] .av-search { background-color: var(--surface-2); }
+  html[data-theme='dark'] .av-search:hover { background-color: var(--card); }
+  html[data-theme='dark'] .av-kbd,
+  html[data-theme='dark'] .av-sync,
+  html[data-theme='dark'] .av-iconbtn,
+  html[data-theme='dark'] .av-btn-ghost,
+  html[data-theme='dark'] .av-file::file-selector-button { background-color: var(--card); color: var(--ink-2); }
+  html[data-theme='dark'] .av-iconbtn:hover,
+  html[data-theme='dark'] .av-btn-ghost:hover { background-color: var(--surface-2); color: var(--ink); }
+  html[data-theme='dark'] .av-avatar { box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--rule); }
+  html[data-theme='dark'] .av-nav-dot,
+  html[data-theme='dark'] .av-mobtab .b { box-shadow: 0 0 0 2px var(--card); }
+  html[data-theme='dark'] .av-nav[data-on='1'] { background-color: #2F5F82; color: #FFFFFF; }
+  html[data-theme='dark'] .av-btn { background-color: #427AA1; }
+  html[data-theme='dark'] .av-btn:hover { background-color: #4F8BB2; }
+  html[data-theme='dark'] .av-switch { background-color: #2A5877; border-color: transparent; }
+  html[data-theme='dark'] .av-switch .knob { transform: translateX(24px); background: #0E1318; color: #FFD670; }
+  html[data-theme='dark'] ::selection { background: rgba(111,166,203,.3); }
+}
+
+/* ----- generated: Tailwind colours → website palette (light) ----- */
+html [class~="accent-blue-600"] { accent-color: #427AA1; }
+html [class~="accent-blue-700"] { accent-color: #356385; }
+html [class~="bg-amber-100"] { background-color: #FFF3D1; }
+html [class~="bg-amber-400"] { background-color: #FFC847; }
+html [class~="bg-amber-50"] { background-color: #FFFAEB; }
+html [class~="bg-amber-500"] { background-color: #FFBF1F; }
+html [class~="bg-blue-100"] { background-color: #E1EDF5; }
+html [class~="bg-blue-300"] { background-color: #97BFD8; }
+html [class~="bg-blue-50"] { background-color: #F0F6FA; }
+html [class~="bg-blue-600"] { background-color: #427AA1; }
+html [class~="bg-red-100"] { background-color: #FBE3E3; }
+html [class~="bg-red-400"] { background-color: #D95757; }
+html [class~="bg-red-50"] { background-color: #FDF2F2; }
+html [class~="bg-red-500"] { background-color: #C22727; }
+html [class~="bg-red-600"] { background-color: #A30000; }
+html [class~="bg-yellow-100"] { background-color: #FFF3D1; }
+html [class~="border-amber-200"] { border-color: #FFE6A3; }
+html [class~="border-amber-300"] { border-color: #FFD670; }
+html [class~="border-blue-200"] { border-color: #C3DBEA; }
+html [class~="border-blue-300"] { border-color: #97BFD8; }
+html [class~="border-blue-400"] { border-color: #6A9FC0; }
+html [class~="border-red-200"] { border-color: #F5C2C2; }
+html [class~="border-red-300"] { border-color: #EB9393; }
+html [class~="border-red-400"] { border-color: #D95757; }
+html [class~="border-red-500"] { border-color: #C22727; }
+html [class~="border-yellow-200"] { border-color: #FFE6A3; }
+html [class~="focus:border-blue-500"]:focus { border-color: #4F8BB2; }
+html [class~="focus:ring-blue-500/15"]:focus { --tw-ring-color: rgba(79,139,178,0.15); }
+html [class~="focus:ring-blue-500/20"]:focus { --tw-ring-color: rgba(79,139,178,0.20); }
+html [class~="hover:bg-blue-50"]:hover { background-color: #F0F6FA; }
+html [class~="hover:bg-blue-700"]:hover { background-color: #356385; }
+html [class~="hover:border-blue-400"]:hover { border-color: #6A9FC0; }
+html [class~="hover:text-amber-800"]:hover { color: #6B4500; }
+html [class~="hover:text-blue-600"]:hover { color: #427AA1; }
+html [class~="hover:text-red-600"]:hover { color: #A30000; }
+html [class~="hover:text-red-800"]:hover { color: #6E0505; }
+html [class~="text-amber-500"] { color: #9A6A00; }
+html [class~="text-amber-600"] { color: #8A5A00; }
+html [class~="text-amber-700"] { color: #7A4F00; }
+html [class~="text-amber-800"] { color: #6B4500; }
+html [class~="text-blue-600"] { color: #427AA1; }
+html [class~="text-blue-700"] { color: #356385; }
+html [class~="text-blue-800"] { color: #2B506B; }
+html [class~="text-red-600"] { color: #A30000; }
+html [class~="text-red-700"] { color: #870000; }
+html [class~="text-red-800"] { color: #6E0505; }
+html [class~="text-yellow-800"] { color: #6B4500; }
+
+/* ----- generated: night mode for Tailwind colours ----- */
+@media screen {
+  html[data-theme='dark'] [class~="bg-amber-100"] { background-color: rgba(255,191,31,0.14); }
+  html[data-theme='dark'] [class~="bg-amber-400"] { background-color: rgba(255,191,31,0.55); }
+  html[data-theme='dark'] [class~="bg-amber-50"] { background-color: rgba(255,191,31,0.14); }
+  html[data-theme='dark'] [class~="bg-blue-100"] { background-color: rgba(91,151,190,0.14); }
+  html[data-theme='dark'] [class~="bg-blue-300"] { background-color: rgba(91,151,190,0.32); }
+  html[data-theme='dark'] [class~="bg-blue-50"] { background-color: rgba(91,151,190,0.14); }
+  html[data-theme='dark'] [class~="bg-emerald-50"] { background-color: rgba(34,160,107,0.14); }
+  html[data-theme='dark'] [class~="bg-gray-100"] { background-color: #1C242D; }
+  html[data-theme='dark'] [class~="bg-green-100"] { background-color: rgba(34,160,107,0.14); }
+  html[data-theme='dark'] [class~="bg-purple-100"] { background-color: rgba(155,122,224,0.14); }
+  html[data-theme='dark'] [class~="bg-purple-50"] { background-color: rgba(155,122,224,0.14); }
+  html[data-theme='dark'] [class~="bg-red-100"] { background-color: rgba(210,69,69,0.14); }
+  html[data-theme='dark'] [class~="bg-red-400"] { background-color: rgba(210,69,69,0.55); }
+  html[data-theme='dark'] [class~="bg-red-50"] { background-color: rgba(210,69,69,0.14); }
+  html[data-theme='dark'] [class~="bg-slate-100"] { background-color: #1C242D; }
+  html[data-theme='dark'] [class~="bg-slate-300"] { background-color: #33404D; }
+  html[data-theme='dark'] [class~="bg-slate-400"] { background-color: #4A5866; }
+  html[data-theme='dark'] [class~="bg-slate-50"] { background-color: var(--surface-2); }
+  html[data-theme='dark'] [class~="bg-teal-100"] { background-color: rgba(31,168,160,0.14); }
+  html[data-theme='dark'] [class~="bg-white"] { background-color: var(--card); }
+  html[data-theme='dark'] [class~="bg-yellow-100"] { background-color: rgba(255,191,31,0.14); }
+  html[data-theme='dark'] [class~="border-amber-200"] { border-color: rgba(255,191,31,0.38); }
+  html[data-theme='dark'] [class~="border-amber-300"] { border-color: rgba(255,191,31,0.38); }
+  html[data-theme='dark'] [class~="border-blue-200"] { border-color: rgba(91,151,190,0.38); }
+  html[data-theme='dark'] [class~="border-blue-300"] { border-color: rgba(91,151,190,0.38); }
+  html[data-theme='dark'] [class~="border-blue-400"] { border-color: #5B97BE; }
+  html[data-theme='dark'] [class~="border-gray-400"] { border-color: var(--rule-strong); }
+  html[data-theme='dark'] [class~="border-green-200"] { border-color: rgba(34,160,107,0.38); }
+  html[data-theme='dark'] [class~="border-purple-100"] { border-color: rgba(155,122,224,0.38); }
+  html[data-theme='dark'] [class~="border-purple-200"] { border-color: rgba(155,122,224,0.38); }
+  html[data-theme='dark'] [class~="border-purple-300"] { border-color: rgba(155,122,224,0.38); }
+  html[data-theme='dark'] [class~="border-red-200"] { border-color: rgba(210,69,69,0.38); }
+  html[data-theme='dark'] [class~="border-red-300"] { border-color: rgba(210,69,69,0.38); }
+  html[data-theme='dark'] [class~="border-red-400"] { border-color: #D24545; }
+  html[data-theme='dark'] [class~="border-red-500"] { border-color: #D24545; }
+  html[data-theme='dark'] [class~="border-slate-200"] { border-color: var(--rule); }
+  html[data-theme='dark'] [class~="border-slate-300"] { border-color: var(--rule-strong); }
+  html[data-theme='dark'] [class~="border-teal-200"] { border-color: rgba(31,168,160,0.38); }
+  html[data-theme='dark'] [class~="border-yellow-200"] { border-color: rgba(255,191,31,0.38); }
+  html[data-theme='dark'] [class~="focus:border-blue-500"]:focus { border-color: #5B97BE; }
+  html[data-theme='dark'] [class~="focus:border-purple-500"]:focus { border-color: #9B7AE0; }
+  html[data-theme='dark'] [class~="focus:ring-blue-500/15"]:focus { --tw-ring-color: rgba(91,151,190,0.15); }
+  html[data-theme='dark'] [class~="focus:ring-blue-500/20"]:focus { --tw-ring-color: rgba(91,151,190,0.20); }
+  html[data-theme='dark'] [class~="focus:ring-purple-500/20"]:focus { --tw-ring-color: rgba(155,122,224,0.20); }
+  html[data-theme='dark'] [class~="hover:bg-blue-50"]:hover { background-color: rgba(91,151,190,0.14); }
+  html[data-theme='dark'] [class~="hover:bg-slate-400"]:hover { background-color: #4A5866; }
+  html[data-theme='dark'] [class~="hover:bg-slate-50"]:hover { background-color: var(--surface-2); }
+  html[data-theme='dark'] [class~="hover:bg-white"]:hover { background-color: var(--card); }
+  html[data-theme='dark'] [class~="hover:border-blue-400"]:hover { border-color: #5B97BE; }
+  html[data-theme='dark'] [class~="hover:border-slate-300"]:hover { border-color: var(--rule-strong); }
+  html[data-theme='dark'] [class~="hover:border-slate-400"]:hover { border-color: var(--rule-strong); }
+  html[data-theme='dark'] [class~="hover:text-amber-800"]:hover { color: #FFD670; }
+  html[data-theme='dark'] [class~="hover:text-blue-600"]:hover { color: #9CC3DD; }
+  html[data-theme='dark'] [class~="hover:text-red-600"]:hover { color: #F29A9A; }
+  html[data-theme='dark'] [class~="hover:text-red-800"]:hover { color: #F29A9A; }
+  html[data-theme='dark'] [class~="hover:text-slate-600"]:hover { color: var(--ink-2); }
+  html[data-theme='dark'] [class~="hover:text-slate-800"]:hover { color: var(--ink); }
+  html[data-theme='dark'] [class~="hover:text-slate-900"]:hover { color: var(--ink); }
+  html[data-theme='dark'] [class~="placeholder:text-slate-400"]::placeholder { color: var(--ink-3); }
+  html[data-theme='dark'] [class~="ring-white"] { --tw-ring-color: var(--rule); }
+  html[data-theme='dark'] [class~="text-amber-500"] { color: #FFD670; }
+  html[data-theme='dark'] [class~="text-amber-600"] { color: #FFD670; }
+  html[data-theme='dark'] [class~="text-amber-700"] { color: #FFD670; }
+  html[data-theme='dark'] [class~="text-amber-800"] { color: #FFD670; }
+  html[data-theme='dark'] [class~="text-blue-600"] { color: #9CC3DD; }
+  html[data-theme='dark'] [class~="text-blue-700"] { color: #9CC3DD; }
+  html[data-theme='dark'] [class~="text-blue-800"] { color: #9CC3DD; }
+  html[data-theme='dark'] [class~="text-emerald-700"] { color: #6FD3A5; }
+  html[data-theme='dark'] [class~="text-gray-500"] { color: var(--ink-3); }
+  html[data-theme='dark'] [class~="text-gray-600"] { color: var(--ink-2); }
+  html[data-theme='dark'] [class~="text-gray-700"] { color: var(--ink-2); }
+  html[data-theme='dark'] [class~="text-green-600"] { color: #6FD3A5; }
+  html[data-theme='dark'] [class~="text-green-800"] { color: #6FD3A5; }
+  html[data-theme='dark'] [class~="text-purple-500"] { color: #C3B0F2; }
+  html[data-theme='dark'] [class~="text-purple-600"] { color: #C3B0F2; }
+  html[data-theme='dark'] [class~="text-purple-700"] { color: #C3B0F2; }
+  html[data-theme='dark'] [class~="text-purple-800"] { color: #C3B0F2; }
+  html[data-theme='dark'] [class~="text-red-600"] { color: #F29A9A; }
+  html[data-theme='dark'] [class~="text-red-700"] { color: #F29A9A; }
+  html[data-theme='dark'] [class~="text-red-800"] { color: #F29A9A; }
+  html[data-theme='dark'] [class~="text-slate-400"] { color: var(--ink-3); }
+  html[data-theme='dark'] [class~="text-slate-500"] { color: var(--ink-3); }
+  html[data-theme='dark'] [class~="text-slate-600"] { color: var(--ink-2); }
+  html[data-theme='dark'] [class~="text-slate-700"] { color: var(--ink-2); }
+  html[data-theme='dark'] [class~="text-slate-800"] { color: var(--ink); }
+  html[data-theme='dark'] [class~="text-slate-900"] { color: var(--ink); }
+  html[data-theme='dark'] [class~="text-teal-800"] { color: #6FD4CD; }
+  html[data-theme='dark'] [class~="text-yellow-800"] { color: #FFD670; }
+}
+
+/* ----- generated: no text smaller than 12px on screen ----- */
+@media screen {
+  html [class~="text-[9px]"] { font-size: 12px; }
+  html [class~="text-[10px]"] { font-size: 12px; }
+  html [class~="text-[11px]"] { font-size: 12.5px; }
+  html [class~="text-[11.5px]"] { font-size: 12.5px; }
+  html [class~="text-[12px]"] { font-size: 13px; }
+  html [class~="text-[12.5px]"] { font-size: 13px; }
+  html [class~="text-xs"] { font-size: 12.5px; }
+}
+
 `;
