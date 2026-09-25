@@ -53,7 +53,7 @@ const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxvyWZALIz3Lh_O
  * Kapag blangko, gumagana pa rin ang dashboard; wala lang ang mga bilang
  * na galing sa AV Request Form at sa CSM form.
  */
-const FORMS_BRIDGE_URL = 'https://script.google.com/macros/s/AKfycby9ordm58174Py5dijX1TB3D-FMYzpyqBXPAnvFILlhks5bzVcomxW6t2u4uFyhBSIb/exec';
+const FORMS_BRIDGE_URL = '';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 /**
@@ -1032,7 +1032,8 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
   else if (ev.approval === 'cancelled') status = 'cancelled';
   else if (ev.approval === 'rescheduled') status = 'rescheduled';
   else if (!isAuthorised(ev)) status = 'pending';
-  else if (ev.dateDelivered || isDelivered(ev)) status = 'completed';
+  // Isang basehan sa buong dashboard: Done na ang Client delivery step.
+  else if (isDelivered(ev)) status = 'completed';
   else status = 'ongoing';
 
   const stream: Stream = streamOfServices(ev.requested);
@@ -1054,7 +1055,8 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
     reason: ev.reason,
     dateApproved: ev.dateApproved,
     targetDate: ev.targetDate,
-    dateDelivered: ev.dateDelivered,
+    // Binibilang lang ang petsa kapag Done na ang delivery step.
+    dateDelivered: isDelivered(ev) ? ev.dateDelivered : null,
     csm: ev.csm,
     link: ev.link,
     remarks: ev.remarks,
@@ -1265,7 +1267,7 @@ function eventSpanDays(ev: AVEvent): number {
 /** Aktwal na turnaround: Date Requested → Date Served, sa working days. */
 function eventTAT(ev: AVEvent): number | null {
   const start = ev.dateRequested;
-  if (!start || !ev.dateDelivered) return null;
+  if (!start || !ev.dateDelivered || !isDelivered(ev)) return null;
   return workingDaysBetween(start, ev.dateDelivered);
 }
 
@@ -1275,7 +1277,7 @@ function eventSLA(ev: AVEvent): SLAState {
   if (!APPROVAL_META[ev.approval].live) return 'na';
   const target = eventTarget(ev);
   if (!target) return 'na';
-  if (ev.dateDelivered) {
+  if (ev.dateDelivered && isDelivered(ev)) {
     return ev.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'overdue';
   }
   const today = new Date();
@@ -3955,6 +3957,9 @@ function RequestModal({
                   value={f.dateDelivered}
                   onChange={(e) => set('dateDelivered', e.target.value)}
                 />
+                <p className="mt-1 text-[12px] leading-snug text-[var(--ink-3)]">
+                  Counts as delivered only when the Client delivery step is Done.
+                </p>
               </div>
             </div>
 
@@ -7477,11 +7482,15 @@ function PersonnelDrawer({
                     <span
                       className="av-pill sm shrink-0"
                       style={{
-                        background: t.overdue ? 'var(--tint-red)' : 'var(--tint-slate)',
-                        color: t.overdue ? 'var(--refused)' : 'var(--ink-2)',
+                        background: t.partDone
+                          ? 'var(--tint-green)'
+                          : t.overdue
+                          ? 'var(--tint-red)'
+                          : 'var(--tint-slate)',
+                        color: t.partDone ? 'var(--served)' : t.overdue ? 'var(--refused)' : 'var(--ink-2)',
                       }}
                     >
-                      {t.overdue ? 'Overdue' : t.stage === 'progress' ? 'In progress' : 'Assigned'}
+                      {t.partDone ? 'Part done' : t.overdue ? 'Overdue' : t.stage === 'progress' ? 'In progress' : 'Assigned'}
                     </span>
                   </div>
                 ))}
@@ -8510,6 +8519,8 @@ interface CrewTask {
   due: Date | null;
   overdue: boolean;
   next: string | null;
+  /** Tapos na ang sariling bahagi niya, kahit hindi pa tapos ang event. */
+  partDone: boolean;
 }
 
 const TASK_STAGES: { key: TaskStage; label: string; hint: string; hex: string }[] = [
@@ -8522,10 +8533,13 @@ const STAGE_RANK: Record<TaskStage, number> = { assigned: 0, progress: 1, done: 
 
 /** Nasaan na ang trabaho ng taong ito sa event na ito. */
 function taskStage(ev: AVEvent, a: Assignment): TaskStage {
-  if (ev.pipeline.archiving === 'done') return 'dmc';
-  if (isDelivered(ev) || ev.dateDelivered || a.status === 'Completed') return 'done';
+  // Kapareho ng event card: ang Client delivery step ang nagsasabing tapos.
+  // Hindi ang Date delivered na field, at hindi ang status ng isang tao —
+  // ang "Completed" ng isang crew ay bahagi lang niya, hindi ang buong event.
+  if (isDelivered(ev)) return ev.pipeline.archiving === 'done' ? 'dmc' : 'done';
   const started =
     a.status === 'In progress' ||
+    a.status === 'Completed' ||
     (isAuthorised(ev) &&
       Object.values(ev.pipeline).some((v) => v === 'in-progress' || v === 'done'));
   return started ? 'progress' : 'assigned';
@@ -8552,6 +8566,7 @@ function buildTasks(events: AVEvent[], assignments: Assignment[]): CrewTask[] {
       due,
       overdue: (stage === 'assigned' || stage === 'progress') && !!due && due.getTime() < today0.getTime(),
       next: nextPipelineStep(ev)?.label ?? null,
+      partDone: a.status === 'Completed',
     });
   });
   return out;
@@ -8765,6 +8780,7 @@ function CrewBoard({
                           >
                             {t.person}
                             {t.roles.length ? ` · ${t.roles.length} role${t.roles.length === 1 ? '' : 's'}` : ''}
+                            {t.partDone && c.stage !== 'done' && c.stage !== 'dmc' ? ' ✓' : ''}
                           </span>
                         ))}
                       </div>
@@ -8800,6 +8816,155 @@ function CrewBoard({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * Mga record na hindi magkatugma ang sinasabi — para iisa ang lumalabas sa
+ * production board, sa event card at sa compliance.
+ */
+function DataChecks({
+  events,
+  onMarkDone,
+  onRecordPast,
+  onOpen,
+}: {
+  events: AVEvent[];
+  onMarkDone: (ev: AVEvent) => void;
+  onRecordPast: (ev: AVEvent) => void;
+  onOpen: (ev: AVEvent) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const recentCut = new Date();
+  recentCut.setDate(recentCut.getDate() - 30);
+  const dateNoStep = events.filter((ev) => isAuthorised(ev) && !!ev.dateDelivered && !isDelivered(ev));
+  const stepNoDate = events.filter((ev) => {
+    const end = ev.endDate || ev.eventDate;
+    return (
+      isAuthorised(ev) &&
+      isDelivered(ev) &&
+      !ev.dateDelivered &&
+      !!end &&
+      end.getTime() >= recentCut.getTime()
+    );
+  });
+  const stuck = events.filter((ev) => ev.approval === 'for-evaluation' && eventEnded(ev));
+  const total = dateNoStep.length + stepNoDate.length + stuck.length;
+  if (!total) return null;
+
+  const Row = ({ ev, children }: { ev: AVEvent; children?: React.ReactNode }) => (
+    <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-semibold text-[var(--ink)]">{ev.title || 'Untitled event'}</p>
+        <p className="truncate text-[12.5px] text-[var(--ink-3)]">
+          {ev.client || 'No client'} · {dateSpan(ev.eventDate, ev.endDate)}
+          {ev.dateDelivered ? ` · delivery date ${fmtDate(ev.dateDelivered)}` : ''}
+        </p>
+      </div>
+      <div className="flex shrink-0 gap-2">
+        {children}
+        <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onOpen(ev)}>
+          Open
+        </button>
+      </div>
+    </div>
+  );
+
+  const Group = ({
+    title,
+    note,
+    list,
+    action,
+    bulk,
+  }: {
+    title: string;
+    note: string;
+    list: AVEvent[];
+    action?: (ev: AVEvent) => React.ReactNode;
+    bulk?: React.ReactNode;
+  }) =>
+    list.length ? (
+      <div className="border-t border-[var(--rule-soft)] px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="av-label">
+              {title} ({list.length})
+            </p>
+            <p className="av-note av-dim">{note}</p>
+          </div>
+          {bulk}
+        </div>
+        <div className="mt-1 divide-y divide-[var(--rule-soft)]">
+          {list.slice(0, 20).map((ev) => (
+            <Row key={ev.id} ev={ev}>
+              {action?.(ev)}
+            </Row>
+          ))}
+        </div>
+        {list.length > 20 && <p className="av-note av-dim mt-2">…and {list.length - 20} more.</p>}
+      </div>
+    ) : null;
+
+  return (
+    <section>
+    <div className="av-card" style={{ borderColor: 'rgba(176,122,0,.35)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+      >
+        <span className="min-w-0">
+          <span className="av-sec-h block">
+            {total} record{total === 1 ? ' needs' : 's need'} a quick fix
+          </span>
+          <span className="av-sec-p block">
+            So the production board, the event cards and the compliance numbers all say the same thing.
+          </span>
+        </span>
+        <span className="av-btn-ghost shrink-0 text-[13px]">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        <>
+          <Group
+            title="Past events still waiting in triage"
+            note="The event already happened. If it was approved outside AV Nexus, record it as a completed past event."
+            list={stuck}
+            action={(ev) => (
+              <button type="button" className="av-btn text-[13px]" onClick={() => onRecordPast(ev)}>
+                Record as done
+              </button>
+            )}
+          />
+          <Group
+            title="Delivery date filled in, but Client delivery is not Done"
+            note="These count as still in production everywhere until the step is Done. Mark as done if they were delivered, or open the event and clear the date."
+            list={dateNoStep}
+            action={(ev) => (
+              <button type="button" className="av-btn text-[13px]" onClick={() => onMarkDone(ev)}>
+                Mark as done
+              </button>
+            )}
+            bulk={
+              dateNoStep.length > 1 ? (
+                <button
+                  type="button"
+                  className="av-btn-ghost text-[13px]"
+                  onClick={() => dateNoStep.forEach((ev) => onMarkDone(ev))}
+                >
+                  Mark all {dateNoStep.length} as done
+                </button>
+              ) : undefined
+            }
+          />
+          <Group
+            title="Delivered, but no delivery date"
+            note="Turnaround time cannot be measured without it. Open the event and add the date."
+            list={stepNoDate}
+          />
+        </>
+      )}
+    </div>
+    </section>
   );
 }
 
@@ -9244,7 +9409,7 @@ export default function App() {
   // Para sa ibang bukas na tab ng AV Nexus sa parehong browser.
   const channelRef = useRef<BroadcastChannel | null>(null);
   // Mga bagong import na dapat markahang tapos pagdating nila mula sa sheet.
-  const pendingDone = useRef<Set<string>>(new Set());
+  const pendingDone = useRef<Map<string, { crewFrom?: string }>>(new Map());
 
   const seenIds = useRef<Set<string>>(new Set());
   const loadedOnce = useRef(false);
@@ -9804,16 +9969,27 @@ export default function App() {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
+      // Pag-tick ng Client delivery: itala rin ang petsa kung wala pa, para
+      // masukat ang turnaround. Hindi na kailangang punan nang hiwalay.
+      const stampDate = key === 'delivery' && next === 'done' && !ev.dateDelivered;
       setEvents((prev) =>
         prev.map((x) =>
-          x.id === ev.id ? { ...x, pipeline: { ...x.pipeline, [key]: next } } : x
+          x.id === ev.id
+            ? {
+                ...x,
+                pipeline: { ...x.pipeline, [key]: next },
+                dateDelivered: stampDate ? new Date() : x.dateDelivered,
+              }
+            : x
         )
       );
       try {
+        const patch: Record<string, string> = { [stepField(key)]: PIPELINE_META[next].label };
+        if (stampDate) patch.dateDelivered = dayKey(new Date());
         await authedPost({
             action: 'updateEvent',
             id: ev.id,
-            patch: { [stepField(key)]: PIPELINE_META[next].label },
+            patch,
           });
       } catch (err) {
         // Ang optimistic na pagbabago ay bumalik sa dating anyo kapag
@@ -9913,16 +10089,33 @@ export default function App() {
     [authedPost, toast, fetchProduction]
   );
 
-  // Ang bagong import na "done" ay minamarkahang tapos pagdating mula sa sheet.
+  // Ang bagong import ay minamarkahang tapos pagdating mula sa sheet, at
+  // kinokopya ang crew kapag pinalitan nito ang isang lumang triage record.
   useEffect(() => {
     if (!pendingDone.current.size) return;
-    Array.from(pendingDone.current).forEach((marker) => {
+    Array.from(pendingDone.current.entries()).forEach(([marker, opt]) => {
       const ev = events.find((e) => e.remarks.includes(marker) && isAuthorised(e));
       if (!ev) return;
       pendingDone.current.delete(marker);
+      if (opt.crewFrom) {
+        const rows = assignments
+          .filter(
+            (a) =>
+              a.eventId === opt.crewFrom &&
+              a.status !== 'Dropped' &&
+              a.status !== 'Reassigned' &&
+              a.roles.length > 0
+          )
+          .map((a) => ({ personnel: a.personnel, roles: a.roles, status: a.status }));
+        if (rows.length) {
+          authedPost({ action: 'setAssignments', eventId: ev.id, rows }).catch(() =>
+            toast('Could not copy the crew to the new record. Add them inside the event.', 'err')
+          );
+        }
+      }
       if (!isClosed(ev)) markDone(ev, true);
     });
-  }, [events, markDone]);
+  }, [events, assignments, markDone, authedPost, toast]);
 
   /**
    * Ang triage record ng event na tapos na: papalitan ng completed past
@@ -9935,9 +10128,32 @@ export default function App() {
         return;
       }
       const marker = `Replaces triage record ${ev.id}`;
-      const res = await importPast([importRowFromEvent(ev, 'approved', '', marker)], 'Recorded as a completed past event');
-      if (!res || res.created < 1) return;
-      pendingDone.current.add(marker);
+      // 1. Palayain ang pangalan — tinatanggihan ng import ang parehong pamagat.
+      try {
+        await authedPost({ action: 'updateEvent', id: ev.id, patch: { title: `${ev.title} [replaced]` } });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not prepare the old record.';
+        toast(msg, 'err');
+        setLastError({ what: 'Record as completed past event', detail: msg });
+        return;
+      }
+      // 2. Ang completed past record, gamit ang orihinal na pamagat.
+      const res = await importPast(
+        [importRowFromEvent(ev, 'approved', '', marker)],
+        'Recorded as a completed past event'
+      );
+      if (!res || res.created < 1) {
+        // Hindi pumasok: ibalik ang pamagat. Walang nagbago sa record.
+        try {
+          await authedPost({ action: 'updateEvent', id: ev.id, patch: { title: ev.title } });
+        } catch {
+          toast(`Rename "${ev.title} [replaced]" back to "${ev.title}" in the sheet.`, 'err');
+        }
+        setTimeout(() => fetchProduction(), 1400);
+        return;
+      }
+      // 3. Pumasok na ang bago: kanselahin ang luma bilang doble at itago.
+      pendingDone.current.set(marker, { crewFrom: ev.id });
       setEvents((prev) => prev.filter((x) => x.id !== ev.id));
       try {
         await authedPost({
@@ -9979,7 +10195,7 @@ export default function App() {
           ? 'Logged as declined'
           : 'Logged as cancelled';
       const res = await importPast([importRowFromEvent(eventFromIntake(q), status, reason, '')], label);
-      if (res && res.created > 0 && mode === 'done') pendingDone.current.add(q.ref);
+      if (res && res.created > 0 && mode === 'done') pendingDone.current.set(q.ref, {});
       // Kapag pumasok, hintayin ang refresh bago ibalik; kapag hindi, ibalik agad.
       setTimeout(
         () => setBusyRefs((b) => b.filter((r) => r !== q.ref)),
@@ -10172,7 +10388,7 @@ export default function App() {
   /** Ang totoong "in production": aprubado at hindi pa naihahatid. */
   const prodLive = useMemo(() => {
     const approved = events.filter((ev) => isAuthorised(ev));
-    const live = approved.filter((ev) => !isDelivered(ev) && !ev.dateDelivered);
+    const live = approved.filter((ev) => !isDelivered(ev));
     const crewed = new Set(
       assignments.filter((a) => a.status !== 'Dropped' && a.status !== 'Reassigned').map((a) => a.eventId)
     );
@@ -10216,11 +10432,14 @@ export default function App() {
         (a) => a.personnel.toLowerCase() === m.name.toLowerCase() && counted(a)
       );
       const inPeriod = mine.filter((a) => inRange(byId.get(a.eventId)?.eventDate ?? null, pRange));
-      // ACTIVE NOW — bukas pa ang event ngayon at hindi pa tapos ang papel.
-      const active = mine.filter((a) => {
-        const ev = byId.get(a.eventId);
-        return !!ev && a.status !== 'Completed' && isAuthorised(ev) && !isClosed(ev);
-      }).length;
+      // ACTIVE NOW — kapareho ng production board: nasa Assigned o In progress
+      // pa ang event, at hindi pa tapos ang sariling bahagi niya.
+      const active = tasks.filter(
+        (t) =>
+          t.person.toLowerCase() === m.name.toLowerCase() &&
+          (t.stage === 'assigned' || t.stage === 'progress') &&
+          !t.partDone
+      ).length;
       const byRole = new Map<string, number>();
       inPeriod.forEach((a) => a.roles.forEach((r) => byRole.set(r, (byRole.get(r) || 0) + 1)));
       /**
@@ -10251,7 +10470,7 @@ export default function App() {
         top: Array.from(byRole.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4),
       };
     }).sort((a, b) => b.roleCount - a.roleCount || b.active - a.active);
-  }, [assignments, events, pRange]);
+  }, [assignments, events, pRange, tasks]);
 
   const prodSummary = useMemo(() => {
     const live = outputs.filter((o) => o.stage !== 'published' && o.stage !== 'approved');
@@ -11889,6 +12108,16 @@ export default function App() {
                     />
                   </section>
                 )}
+                  <DataChecks
+                    events={events}
+                    onMarkDone={markDone}
+                    onRecordPast={recordPast}
+                    onOpen={(ev) =>
+                      isLocalId(ev.id)
+                        ? toast('Still saving to the sheet — open it again in a moment.', 'info')
+                        : setEvModal({ open: true, editing: ev })
+                    }
+                  />
                 <section>
                   <SectionHead
                     title="Event monitoring"
