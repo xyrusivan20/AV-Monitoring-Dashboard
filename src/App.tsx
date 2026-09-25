@@ -588,6 +588,8 @@ function daysToTarget(r: ServiceRequest): number | null {
 type SLAState = 'ontime' | 'overdue' | 'atrisk' | 'open' | 'na';
 
 function slaState(r: ServiceRequest): SLAState {
+  // Tapos na pero walang petsa ng paghahatid: hindi masusukat, hindi overdue.
+  if (r.status === 'completed' && !r.dateDelivered) return 'na';
   // Ang inilipat ay dating nakakakuha ng SLA state at pwedeng lumabas na
   // OVERDUE — sinusukat laban sa petsang hindi na naman natuloy.
   if (r.status === 'disapproved' || r.status === 'cancelled' ||
@@ -1268,6 +1270,8 @@ function eventTAT(ev: AVEvent): number | null {
 }
 
 function eventSLA(ev: AVEvent): SLAState {
+  // Naihatid na pero walang petsa: hindi masusukat, pero hindi rin overdue.
+  if (isDelivered(ev) && !ev.dateDelivered) return 'na';
   if (!APPROVAL_META[ev.approval].live) return 'na';
   const target = eventTarget(ev);
   if (!target) return 'na';
@@ -2436,7 +2440,7 @@ function WorkloadBars({
             <span className="text-[12px] text-[var(--ink-3)]">
               <b className="font-semibold tabular-nums text-[var(--ink)]">{d.count}</b>
               <span className="ml-1.5 tabular-nums">
-                {d.cov} cov, {d.out} vid
+                {d.cov} DMC, {d.out} events
               </span>
             </span>
           </div>
@@ -4647,6 +4651,8 @@ function EventSummary({ events }: { events: AVEvent[] }) {
 function EventModal({
   existing,
   prefill = null,
+  onMarkDone,
+  onRecordPast,
   onClose,
   onSubmit,
   onNotify,
@@ -4657,6 +4663,8 @@ function EventModal({
 }: {
   existing: AVEvent | null;
   prefill?: AVEvent | null;
+  onMarkDone?: (ev: AVEvent) => void;
+  onRecordPast?: (ev: AVEvent) => void;
   onClose: () => void;
   onSubmit: (
     payload: Record<string, string>,
@@ -5442,6 +5450,28 @@ seed?.pipeline ?? {
                 </div>
               </div>
 
+              {existing && canEdit && isAuthorised(existing) && !isClosed(existing) && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-[var(--rule)] bg-[var(--surface-2)] px-4 py-3">
+                  <p className="av-note min-w-0 flex-1">
+                    <b>Finished with this event?</b> One click marks every step done and records the delivery.
+                  </p>
+                  <button type="button" className="av-btn" onClick={() => onMarkDone?.(existing)}>
+                    Mark event as done
+                  </button>
+                </div>
+              )}
+              {existing && canEdit && existing.approval === 'for-evaluation' && eventEnded(existing) && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border px-4 py-3" style={{ background: 'var(--tint-amber)', borderColor: 'rgba(176,122,0,.3)' }}>
+                  <p className="av-note min-w-0 flex-1">
+                    <b>This event already happened.</b> If it was approved outside AV Nexus (for example through
+                    the old request form), record it as a completed past event. It leaves the triage queue and
+                    counts as served.
+                  </p>
+                  <button type="button" className="av-btn" onClick={() => onRecordPast?.(existing)}>
+                    Record as completed past event
+                  </button>
+                </div>
+              )}
               {/* ------------------------- CREW & ROLES ------------------- */}
               <div className="mt-5 border-t border-slate-200 pt-4">
                 <div className="mb-3 flex items-center justify-between">
@@ -6097,7 +6127,13 @@ const CREW_ON_HAND = TEAM.length;
 /** Karaniwang kailangan kada event: cam op, photographer, at coordinator. */
 const CREW_PER_EVENT = 3;
 
-function ScheduleConflictPanel({ events }: { events: AVEvent[] }) {
+function ScheduleConflictPanel({
+  events,
+  range,
+}: {
+  events: AVEvent[];
+  range?: { from: Date | null; to: Date | null };
+}) {
   const data = useMemo(() => {
     const byDay = new Map<string, AVEvent[]>();
     events.forEach((ev) => {
@@ -6109,8 +6145,11 @@ function ScheduleConflictPanel({ events }: { events: AVEvent[] }) {
       const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
       let guard = 0;
       while (cur.getTime() <= end.getTime() && guard < 60) {
-        const k = dayKey(cur);
-        byDay.set(k, [...(byDay.get(k) || []), ev]);
+        // Ang araw lang na nasa loob ng napiling panahon.
+        if (!range || inRange(cur, range)) {
+          const k = dayKey(cur);
+          byDay.set(k, [...(byDay.get(k) || []), ev]);
+        }
         cur.setDate(cur.getDate() + 1);
         guard++;
       }
@@ -6139,7 +6178,7 @@ function ScheduleConflictPanel({ events }: { events: AVEvent[] }) {
       shortDays: days.filter((d) => d.short > 0).length,
       notCommitted,
     };
-  }, [events]);
+  }, [events, range]);
 
   if (data.daysWithWork === 0) {
     return (
@@ -7345,12 +7384,14 @@ function PersonnelDrawer({
   name,
   image,
   records,
+  tasks = [],
   onClose,
   onGenerateIPCR,
 }: {
   name: string;
   image: string;
   records: Coverage[];
+  tasks?: CrewTask[];
   onClose: () => void;
   onGenerateIPCR: () => void;
 }) {
@@ -7408,8 +7449,49 @@ function PersonnelDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+          <div className="mb-6">
+            <p className="av-label mb-3">Work in AV Nexus</p>
+            <div className="grid grid-cols-4 gap-2">
+              {TASK_STAGES.map((st) => (
+                <div key={st.key} className="rounded-[10px] bg-[var(--surface-2)] px-2 py-2.5 text-center">
+                  <p className="av-fig-sm" style={{ color: st.hex }}>
+                    {tasks.filter((t) => t.stage === st.key).length}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-tight text-[var(--ink-3)]">{st.label}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 space-y-2.5">
+              {tasks
+                .filter((t) => t.stage === 'assigned' || t.stage === 'progress')
+                .sort((a, b) => (a.ev.eventDate?.getTime() ?? 0) - (b.ev.eventDate?.getTime() ?? 0))
+                .slice(0, 6)
+                .map((t) => (
+                  <div key={t.key} className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13.5px] font-semibold text-[var(--ink)]">{t.ev.title}</p>
+                      <p className="truncate text-[12.5px] text-[var(--ink-3)]">
+                        {t.roles.join(', ') || 'No role set'} · {fmtDate(t.ev.eventDate)}
+                      </p>
+                    </div>
+                    <span
+                      className="av-pill sm shrink-0"
+                      style={{
+                        background: t.overdue ? 'var(--tint-red)' : 'var(--tint-slate)',
+                        color: t.overdue ? 'var(--refused)' : 'var(--ink-2)',
+                      }}
+                    >
+                      {t.overdue ? 'Overdue' : t.stage === 'progress' ? 'In progress' : 'Assigned'}
+                    </span>
+                  </div>
+                ))}
+              {tasks.length === 0 && (
+                <p className="text-[13px] text-[var(--ink-3)]">No crew assignments in AV Nexus yet.</p>
+              )}
+            </div>
+          </div>
           <p className="av-label mb-3">
-            Deployment history
+            DMC deployment history
           </p>
           <div className="space-y-3">
             {records.map((r, i) => (
@@ -7448,7 +7530,7 @@ const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'portfolio',  label: 'Services',   hint: 'Public-facing AV services page' },
   { key: 'events',     label: 'Events',     hint: 'PM workflow — assessment, endorsement, approval, production' },
   { key: 'gatepass',   label: 'Gate Pass',  hint: 'Equipment releasing and inventory' },
-  { key: 'production', label: 'Production', hint: 'Video output board' },
+  { key: 'production', label: 'Production', hint: 'Crew tasks from the events, from assignment to DMC' },
   { key: 'pulse',      label: 'Archive',    hint: 'DMC archive, team and source sheets' },
   { key: 'compliance', label: 'Compliance', hint: 'Audit Items 40, 41 and 44' },
   { key: 'reports',    label: 'Reports',    hint: 'IPCR and MOV generator' },
@@ -8304,15 +8386,17 @@ function IntakeSummary({
 function IntakeInbox({
   items,
   onLog,
+  onQuick,
 }: {
   items: IntakeRequest[];
   onLog: (q: IntakeRequest) => void;
+  onQuick: (q: IntakeRequest, mode: IntakeMode) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
   const recent = items.filter((q) => {
-    const d = q.start || q.requested || q.submitted;
+    const d = q.end || q.start || q.requested || q.submitted;
     return !d || d.getTime() >= cutoff.getTime();
   });
   const list = (showAll ? items : recent)
@@ -8331,59 +8415,390 @@ function IntakeInbox({
             <Icon name="triage" size={18} />
           </span>
           <div className="min-w-0">
-            <h3 className="av-sec-h">New from the online request form</h3>
+            <h3 className="av-sec-h">From the online request form</h3>
             <p className="av-sec-p">
-              {items.length} request{items.length === 1 ? ' is' : 's are'} not yet logged in AV Nexus. New
+              {items.length} request{items.length === 1 ? ' is' : 's are'} not yet in AV Nexus. New
               submissions appear here on their own.
             </p>
           </div>
         </div>
         {items.length !== recent.length && (
           <button type="button" className="av-btn-ghost text-[13px]" onClick={() => setShowAll((v) => !v)}>
-            {showAll ? 'Show recent only' : `Show all ${items.length}`}
+            {showAll ? 'Show recent only' : `Show older requests too (${items.length - recent.length})`}
           </button>
         )}
       </div>
       <div className="divide-y divide-[var(--rule-soft)]">
-        {list.slice(0, showAll ? 80 : 8).map((q) => (
-          <div key={q.ref} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center">
-            <div className="min-w-0 flex-1">
-              <p className="text-[15px] font-semibold text-[var(--ink)]">{q.title}</p>
-              <p className="av-note av-dim mt-0.5">
-                {[q.agency, dateSpan(q.start, q.end), q.venue].filter(Boolean).join(' · ')}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {q.services.map((svc) => (
-                  <span key={svc} className="av-chip">
-                    {svc}
-                  </span>
-                ))}
-                {q.sheetStatus && (
-                  <span className={`av-pill sm ${sheetStatusChip(q.sheetStatus)}`}>
-                    {q.sheetStatus} in the form sheet
-                  </span>
+        {list.slice(0, showAll ? 100 : 8).map((q) => {
+          const act = intakeAction(q);
+          const quick = act.mode !== 'triage' && act.ready;
+          return (
+            <div key={q.ref} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center">
+              <div className="min-w-0 flex-1">
+                <p className="text-[15px] font-semibold text-[var(--ink)]">{q.title}</p>
+                <p className="av-note av-dim mt-0.5">
+                  {[q.agency, dateSpan(q.start, q.end), q.venue].filter(Boolean).join(' · ')}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {q.services.map((svc) => (
+                    <span key={svc} className="av-chip">
+                      {svc}
+                    </span>
+                  ))}
+                  {q.sheetStatus && (
+                    <span className={`av-pill sm ${sheetStatusChip(q.sheetStatus)}`}>
+                      {q.sheetStatus} in the form sheet
+                    </span>
+                  )}
+                </div>
+                {act.mode !== 'triage' && !act.ready && (
+                  <p className="mt-1.5 text-[12.5px] text-[var(--waiting)]">
+                    Missing the event date, agency or services — review it first.
+                  </p>
                 )}
               </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <span className="av-note av-dim mr-1">Sent {fmtDate(q.submitted)}</span>
+                {quick && (
+                  <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onLog(q)}>
+                    Review first
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="av-btn inline-flex items-center gap-2"
+                  onClick={() => (quick ? onQuick(q, act.mode) : onLog(q))}
+                >
+                  <Icon name="plus" size={15} stroke={2.2} />
+                  {quick ? act.label : act.mode === 'triage' ? 'Log for triage' : 'Review and log'}
+                </button>
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <span className="av-note av-dim">Sent {fmtDate(q.submitted)}</span>
-              <button
-                type="button"
-                className="av-btn inline-flex items-center gap-2"
-                onClick={() => onLog(q)}
-              >
-                <Icon name="plus" size={15} stroke={2.2} />
-                Log in AV Nexus
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {list.length === 0 && (
           <p className="av-note av-dim px-5 py-6">
             No recent requests waiting. {items.length} older one{items.length === 1 ? ' is' : 's are'} hidden.
           </p>
         )}
       </div>
+      <p className="av-note av-dim border-t border-[var(--rule-soft)] px-5 py-3">
+        <b>Log as done</b> — already served: saved as a completed past record, skipping triage.{' '}
+        <b>Log as approved</b> — approved outside AV Nexus: goes straight to production.{' '}
+        <b>Log for triage</b> — a new request: goes to AV evaluation.
+      </p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------ CREW TASKS (v4) -- */
+
+/*
+ * ANG PRODUCTION BOARD AY GALING NA SA EVENTS.
+ * Bawat tao na naka-assign sa crew ng isang event ay isang task. Hindi na
+ * kailangang i-log ulit sa hiwalay na Production Log — pagka-assign mo sa
+ * loob ng event, nandito na, at nasa profile na rin ng tao.
+ */
+type TaskStage = 'assigned' | 'progress' | 'done' | 'dmc';
+
+interface CrewTask {
+  key: string;
+  ev: AVEvent;
+  person: string;
+  roles: string[];
+  stage: TaskStage;
+  due: Date | null;
+  overdue: boolean;
+  next: string | null;
+}
+
+const TASK_STAGES: { key: TaskStage; label: string; hint: string; hex: string }[] = [
+  { key: 'assigned', label: 'Assigned', hint: 'Crew is set, work has not started', hex: '#87919B' },
+  { key: 'progress', label: 'In progress', hint: 'Coordination, shoot or editing under way', hex: '#B07A00' },
+  { key: 'done', label: 'Completed', hint: 'Delivered to the client', hex: '#1F8A5B' },
+  { key: 'dmc', label: 'Transferred to DMC', hint: 'Handed over to the Digital Media Archive', hex: '#427AA1' },
+];
+const STAGE_RANK: Record<TaskStage, number> = { assigned: 0, progress: 1, done: 2, dmc: 3 };
+
+/** Nasaan na ang trabaho ng taong ito sa event na ito. */
+function taskStage(ev: AVEvent, a: Assignment): TaskStage {
+  if (ev.pipeline.archiving === 'done') return 'dmc';
+  if (isDelivered(ev) || ev.dateDelivered || a.status === 'Completed') return 'done';
+  const started =
+    a.status === 'In progress' ||
+    (isAuthorised(ev) &&
+      Object.values(ev.pipeline).some((v) => v === 'in-progress' || v === 'done'));
+  return started ? 'progress' : 'assigned';
+}
+
+function buildTasks(events: AVEvent[], assignments: Assignment[]): CrewTask[] {
+  const byId = new Map(events.map((e) => [e.id, e] as [string, AVEvent]));
+  const today0 = new Date();
+  today0.setHours(0, 0, 0, 0);
+  const out: CrewTask[] = [];
+  assignments.forEach((a, i) => {
+    if (a.status === 'Dropped' || a.status === 'Reassigned') return;
+    const ev = byId.get(a.eventId);
+    // Hindi task ang tinanggihan, kinansela o inilipat na event.
+    if (!ev || !APPROVAL_META[ev.approval].live) return;
+    const stage = taskStage(ev, a);
+    const due = eventTarget(ev);
+    out.push({
+      key: a.id || `${a.eventId}-${a.personnel}-${i}`,
+      ev,
+      person: a.personnel,
+      roles: a.roles,
+      stage,
+      due,
+      overdue: (stage === 'assigned' || stage === 'progress') && !!due && due.getTime() < today0.getTime(),
+      next: nextPipelineStep(ev)?.label ?? null,
+    });
+  });
+  return out;
+}
+
+/**
+ * Ang crew task bilang Output — para mabilang sa IPCR at makita sa kiosk,
+ * nang hindi na kailangang i-log ulit sa lumang Production Log.
+ */
+function taskAsOutput(t: CrewTask): Output {
+  const stage: StageKey =
+    t.stage === 'dmc' ? 'published' : t.stage === 'done' ? 'approved' : t.stage === 'progress' ? 'editing' : 'assigned';
+  return {
+    id: `TASK-${t.key}`,
+    event: t.ev.title,
+    title: t.ev.title,
+    type: t.ev.requested.join(', ') || 'AV service',
+    runtime: '',
+    seconds: 0,
+    personnel: t.person,
+    role: t.roles.join(', '),
+    requestedBy: t.ev.client,
+    stage,
+    stageRaw: STAGE_META[stage].label,
+    platform: '',
+    link: t.ev.link,
+    revisions: 0,
+    remarks: 'From the event crew roster',
+    assigned: t.ev.dateRequested || t.ev.eventDate,
+    target: t.due,
+    delivered: t.stage === 'done' || t.stage === 'dmc' ? t.ev.dateDelivered || t.ev.endDate || t.ev.eventDate : null,
+  };
+}
+
+/** Tapos na ba ang event (lumipas na ang huling araw)? */
+function eventEnded(ev: AVEvent): boolean {
+  const end = ev.endDate || ev.eventDate;
+  if (!end) return false;
+  const t = new Date();
+  t.setHours(0, 0, 0, 0);
+  return end.getTime() < t.getTime();
+}
+
+/*
+ * PALIT-RECORD. Walang delete sa backend, kaya ang lumang triage record na
+ * pinalitan ng completed past record ay kinakansela na may dahilan at ang
+ * tag na ito — at hindi na ipinapakita kahit saan sa dashboard. Nasa sheet
+ * pa rin ito, kaya buo ang audit trail.
+ */
+const REPLACED_TAG = '[replaced by past record]';
+
+function isReplaced(ev: AVEvent): boolean {
+  return ev.remarks.toLowerCase().includes(REPLACED_TAG);
+}
+
+/**
+ * Isang hilera para sa importEvents — ang parehong daan ng "Import past
+ * coverage". Ito ang tamang daan para sa mga request na naaprubahan sa
+ * labas ng AV Nexus (lumang request form): pumapasok nang may status na.
+ */
+function importRowFromEvent(
+  ev: AVEvent,
+  status: ApprovalKey,
+  reason: string,
+  note: string
+): Record<string, string> {
+  return {
+    _line: '1',
+    title: ev.title,
+    client: ev.client || 'Not specified',
+    clientTier: ev.clientTier,
+    clientType: ev.clientType || (/dost|stii/i.test(ev.client) ? 'Internal' : 'External'),
+    eventDate: ev.eventDate ? dayKey(ev.eventDate) : '',
+    endDate: ev.endDate ? dayKey(ev.endDate) : '',
+    venue: ev.venue,
+    requestedServices: ev.requested.join(', '),
+    agreedServices: (ev.agreed.length ? ev.agreed : ev.requested).join(', '),
+    dateRequested: ev.dateRequested ? dayKey(ev.dateRequested) : '',
+    dateDelivered: ev.dateDelivered ? dayKey(ev.dateDelivered) : '',
+    approvalStatus: SERVER_STATUS[status],
+    reason,
+    leadPersonnel: ev.lead,
+    csm: ev.csm ? String(ev.csm) : '',
+    link: ev.link,
+    remarks: [ev.remarks, note].filter(Boolean).join(' · '),
+  };
+}
+
+type IntakeMode = 'done' | 'approved' | 'declined' | 'cancelled' | 'triage';
+
+/**
+ * Ang tamang gawin sa isang sagot sa form, batay sa petsa at sa Status
+ * column ng form sheet. Ang lumang request na tapos na ay hindi na dapat
+ * dumaan sa triage.
+ */
+function intakeAction(q: IntakeRequest): { mode: IntakeMode; label: string; ready: boolean } {
+  const st = q.sheetStatus.toLowerCase();
+  const ready = !!q.start && q.services.length > 0 && !!q.agency.trim();
+  const end = q.end || q.start;
+  const today0 = new Date();
+  today0.setHours(0, 0, 0, 0);
+  if (/disapprov|declin/.test(st)) return { mode: 'declined', label: 'Log as declined', ready };
+  if (/cancel/.test(st)) return { mode: 'cancelled', label: 'Log as cancelled', ready };
+  if (end && end.getTime() < today0.getTime()) return { mode: 'done', label: 'Log as done', ready };
+  if (/approv|ongoing/.test(st)) return { mode: 'approved', label: 'Log as approved', ready };
+  return { mode: 'triage', label: 'Log for triage', ready: true };
+}
+
+/** Ang production board — isang card bawat event, apat na yugto. */
+function CrewBoard({
+  tasks,
+  person,
+  onOpen,
+}: {
+  tasks: CrewTask[];
+  person: string;
+  onOpen: (ev: AVEvent) => void;
+}) {
+  const [showOld, setShowOld] = useState(false);
+  const mine = person === 'ALL' ? tasks : tasks.filter((t) => t.person.toLowerCase() === person.toLowerCase());
+
+  // Isang card bawat event. Ang pinakamabagal na miyembro ang nagtatakda ng yugto.
+  const map = new Map<string, { ev: AVEvent; stage: TaskStage; crew: CrewTask[]; overdue: boolean; due: Date | null; next: string | null }>();
+  mine.forEach((t) => {
+    const cur = map.get(t.ev.id);
+    if (!cur) {
+      map.set(t.ev.id, { ev: t.ev, stage: t.stage, crew: [t], overdue: t.overdue, due: t.due, next: t.next });
+    } else {
+      cur.crew.push(t);
+      if (STAGE_RANK[t.stage] < STAGE_RANK[cur.stage]) cur.stage = t.stage;
+      cur.overdue = cur.overdue || t.overdue;
+    }
+  });
+  const cards = Array.from(map.values());
+  const recentCut = new Date();
+  recentCut.setDate(recentCut.getDate() - 60);
+  const isOld = (c: { ev: AVEvent }) => {
+    const d = c.ev.dateDelivered || c.ev.endDate || c.ev.eventDate;
+    return !!d && d.getTime() < recentCut.getTime();
+  };
+  const count = (st: TaskStage) => cards.filter((c) => c.stage === st).length;
+  const active = count('assigned') + count('progress');
+  const overdue = cards.filter((c) => c.overdue).length;
+  const hiddenOld = cards.filter((c) => (c.stage === 'done' || c.stage === 'dmc') && isOld(c)).length;
+
+  if (!cards.length) {
+    return (
+      <div className="av-card px-6 py-10 text-center">
+        <p className="av-sec-h">No crew assignments yet{person === 'ALL' ? '' : ` for ${person}`}.</p>
+        <p className="av-note av-dim mx-auto mt-1 max-w-lg">
+          Open an event and add people under Crew &amp; roles. They show up here on their own, and on each
+          person&rsquo;s profile.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <StatTile label="To do or ongoing" value={active} sub="Events still being worked on" accent="#2F5F82" bar={cards.length ? (active / cards.length) * 100 : 0} />
+        <StatTile label="In progress" value={count('progress')} sub="Work has started" accent="#B07A00" bar={cards.length ? (count('progress') / cards.length) * 100 : 0} />
+        <StatTile label="Completed" value={count('done')} sub="Delivered to the client" accent="#1F8A5B" bar={cards.length ? (count('done') / cards.length) * 100 : 0} />
+        <StatTile label="Transferred to DMC" value={count('dmc')} sub="Archived with DMC" accent="#427AA1" bar={cards.length ? (count('dmc') / cards.length) * 100 : 0} />
+        <StatTile label="Overdue" value={overdue} sub="Past the SLA target" accent="#A30000" bar={active ? (overdue / active) * 100 : 0} />
+      </div>
+
+      <div className="custom-scrollbar overflow-x-auto pb-2">
+        <div className="grid min-w-[980px] grid-cols-4 gap-3">
+          {TASK_STAGES.map((st) => {
+            const lane = cards
+              .filter((c) => c.stage === st.key)
+              .filter((c) => showOld || (st.key !== 'done' && st.key !== 'dmc') || !isOld(c))
+              .sort((a, b) =>
+                st.key === 'done' || st.key === 'dmc'
+                  ? (b.ev.eventDate?.getTime() ?? 0) - (a.ev.eventDate?.getTime() ?? 0)
+                  : (a.ev.eventDate?.getTime() ?? 0) - (b.ev.eventDate?.getTime() ?? 0)
+              );
+            return (
+              <div key={st.key} className="av-lane">
+                <div className="mb-2.5 flex items-center justify-between px-1 pt-1">
+                  <span className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--ink)]">
+                    <span className="h-2 w-2 rounded-full" style={{ background: st.hex }} />
+                    {st.label}
+                  </span>
+                  <span className="av-pill sm" style={{ background: 'var(--card)', color: 'var(--ink-3)' }}>
+                    {lane.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {lane.slice(0, 12).map((c) => (
+                    <button
+                      key={c.ev.id}
+                      type="button"
+                      onClick={() => onOpen(c.ev)}
+                      className={`av-tcard ${c.overdue ? 'late' : ''}`}
+                    >
+                      <p className="line-clamp-2 text-[14px] font-semibold leading-snug text-[var(--ink)]">
+                        {c.ev.title || 'Untitled event'}
+                      </p>
+                      <p className="mt-0.5 truncate text-[12.5px] text-[var(--ink-3)]">
+                        {c.ev.client || 'No client'} · {dateSpan(c.ev.eventDate, c.ev.endDate)}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {c.crew.map((t) => (
+                          <span
+                            key={t.key}
+                            className="av-pill sm"
+                            style={{ background: 'var(--tint-slate)', color: 'var(--ink-2)' }}
+                            title={t.roles.join(', ') || 'No role set'}
+                          >
+                            {t.person}
+                            {t.roles.length ? ` · ${t.roles.length} role${t.roles.length === 1 ? '' : 's'}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                      {(c.stage === 'assigned' || c.stage === 'progress') && (
+                        <p
+                          className="mt-2 text-[12.5px]"
+                          style={{ color: c.overdue ? 'var(--refused)' : 'var(--ink-3)', fontWeight: c.overdue ? 600 : 400 }}
+                        >
+                          {c.overdue ? 'Overdue since ' : 'Due '}
+                          {c.due ? fmtDate(c.due) : '—'}
+                          {c.next ? ` · Next: ${c.next}` : ''}
+                        </p>
+                      )}
+                    </button>
+                  ))}
+                  {lane.length > 12 && (
+                    <p className="px-1 text-[12.5px] text-[var(--ink-3)]">+{lane.length - 12} more</p>
+                  )}
+                  {lane.length === 0 && (
+                    <p className="rounded-[10px] border border-dashed border-[var(--rule-strong)] py-6 text-center text-[12.5px] text-[var(--ink-3)]">
+                      Nothing here
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {hiddenOld > 0 && (
+        <button type="button" className="av-btn-ghost text-[13px]" onClick={() => setShowOld((v) => !v)}>
+          {showOld ? 'Hide work finished over 60 days ago' : `Show ${hiddenOld} finished more than 60 days ago`}
+        </button>
+      )}
     </div>
   );
 }
@@ -8404,7 +8819,6 @@ const NAV_GROUPS: { title: string; items: { key: ViewKey; icon: IconName }[] }[]
     title: 'Assurance',
     items: [
       { key: 'compliance', icon: 'compliance' },
-      { key: 'requests', icon: 'register' },
       { key: 'reports', icon: 'reports' },
     ],
   },
@@ -8505,6 +8919,8 @@ export default function App() {
   const [intake, setIntake] = useState<IntakeRequest[]>([]);
   const [csmRows, setCsmRows] = useState<CSMResponse[]>([]);
   const [formsState, setFormsState] = useState<FormsState>(FORMS_BRIDGE_URL ? 'loading' : 'off');
+  // Mga sagot sa form na sine-save pa — itinatago muna sa inbox para hindi madoble.
+  const [busyRefs, setBusyRefs] = useState<string[]>([]);
 
   /**
    * Sino ang nagpapatakbo ng dashboard ngayon.
@@ -8827,6 +9243,8 @@ export default function App() {
   const savingCount = outbox.filter((o) => o.state === 'saving').length;
   // Para sa ibang bukas na tab ng AV Nexus sa parehong browser.
   const channelRef = useRef<BroadcastChannel | null>(null);
+  // Mga bagong import na dapat markahang tapos pagdating nila mula sa sheet.
+  const pendingDone = useRef<Set<string>>(new Set());
 
   const seenIds = useRef<Set<string>>(new Set());
   const loadedOnce = useRef(false);
@@ -9000,7 +9418,7 @@ export default function App() {
           .reverse()
       );
       // Ang mga pag-save na tumatakbo pa ay hindi binubura ng refresh.
-      setEvents(applyOutbox(sheetEvents, outboxRef.current));
+      setEvents(applyOutbox(sheetEvents.filter((e) => !isReplaced(e)), outboxRef.current));
 
       setRequests(
         reqRows
@@ -9407,6 +9825,170 @@ export default function App() {
     [fetchProduction, toast, authedPost]
   );
 
+  /** Import sa pamamagitan ng importEvents — ibinabalik ang resulta. */
+  const importPast = useCallback(
+    async (rows: Record<string, string>[], label: string) => {
+      if (!PROD_CONFIGURED) {
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
+        return null;
+      }
+      try {
+        const out = await authedPost({ action: 'importEvents', rows });
+        const created = Number(out?.created || 0);
+        const skipped = Number(out?.skipped || 0);
+        if (created) toast(`${label}${created > 1 ? ` (${created})` : ''}`, 'ok');
+        if (skipped) {
+          const probs = Array.isArray(out?.problems) ? out.problems : [];
+          toast(`Not saved: ${probs[0]?.reason || 'the sheet skipped it'}`, 'err');
+          setLastError({
+            what: label,
+            detail: probs
+              .slice(0, 6)
+              .map((x: { title?: string; reason?: string }) => `${x.title ? `${x.title}: ` : ''}${x.reason || ''}`)
+              .join('\n'),
+          });
+        }
+        try {
+          channelRef.current?.postMessage('changed');
+        } catch {
+          /* sarado na ang channel */
+        }
+        setTimeout(() => fetchProduction(), 1400);
+        return { created, skipped };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not save.';
+        toast(msg, 'err');
+        setLastError({ what: label, detail: msg });
+        return null;
+      }
+    },
+    [authedPost, toast, fetchProduction]
+  );
+
+  /**
+   * "TAPOS NA" — isang pindot. Lahat ng applicable na hakbang ay Done, at
+   * may petsa ng paghahatid. Kapag matagal nang tapos ang event (lampas 30
+   * araw), hindi tayo mag-iimbento ng petsa — hindi na lang susukatin ang TAT.
+   */
+  const markDone = useCallback(
+    async (ev: AVEvent, quiet = false) => {
+      if (!PROD_CONFIGURED) {
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
+        return;
+      }
+      if (isLocalId(ev.id)) {
+        toast('Still saving to the sheet — try again in a moment.', 'info');
+        return;
+      }
+      const today0 = new Date();
+      today0.setHours(0, 0, 0, 0);
+      const end = ev.endDate || ev.eventDate;
+      const stale = !!end && today0.getTime() - end.getTime() > 30 * 86400000;
+      const deliveredOn = ev.dateDelivered || (stale ? null : new Date());
+      const pipeline = { ...ev.pipeline };
+      const patch: Record<string, string> = {};
+      stepsFor(streamOfServices(ev.requested)).forEach((st) => {
+        if (pipeline[st.key] === 'na') return;
+        pipeline[st.key] = 'done';
+        patch[stepField(st.key)] = PIPELINE_META.done.label;
+      });
+      if (!ev.dateDelivered && deliveredOn) patch.dateDelivered = dayKey(deliveredOn);
+      setEvents((prev) => prev.map((x) => (x.id === ev.id ? { ...x, pipeline, dateDelivered: deliveredOn } : x)));
+      try {
+        await authedPost({ action: 'updateEvent', id: ev.id, patch });
+        if (!quiet) toast(`Marked as done: ${ev.title || ev.id}`, 'ok');
+        try {
+          channelRef.current?.postMessage('changed');
+        } catch {
+          /* sarado na ang channel */
+        }
+      } catch (err) {
+        setEvents((prev) => prev.map((x) => (x.id === ev.id ? ev : x)));
+        const msg = err instanceof Error ? err.message : 'Could not mark as done.';
+        toast(msg, 'err');
+        setLastError({ what: 'Mark as done', detail: msg });
+      }
+      setTimeout(() => fetchProduction(), 1600);
+    },
+    [authedPost, toast, fetchProduction]
+  );
+
+  // Ang bagong import na "done" ay minamarkahang tapos pagdating mula sa sheet.
+  useEffect(() => {
+    if (!pendingDone.current.size) return;
+    Array.from(pendingDone.current).forEach((marker) => {
+      const ev = events.find((e) => e.remarks.includes(marker) && isAuthorised(e));
+      if (!ev) return;
+      pendingDone.current.delete(marker);
+      if (!isClosed(ev)) markDone(ev, true);
+    });
+  }, [events, markDone]);
+
+  /**
+   * Ang triage record ng event na tapos na: papalitan ng completed past
+   * record (import), at ang luma ay kakanselahin bilang doble at itatago.
+   */
+  const recordPast = useCallback(
+    async (ev: AVEvent) => {
+      if (!ev.eventDate || !ev.requested.length) {
+        toast('Add the event date and at least one requested service first.', 'err');
+        return;
+      }
+      const marker = `Replaces triage record ${ev.id}`;
+      const res = await importPast([importRowFromEvent(ev, 'approved', '', marker)], 'Recorded as a completed past event');
+      if (!res || res.created < 1) return;
+      pendingDone.current.add(marker);
+      setEvents((prev) => prev.filter((x) => x.id !== ev.id));
+      try {
+        await authedPost({
+          action: 'updateEvent',
+          id: ev.id,
+          patch: {
+            approvalStatus: SERVER_STATUS.cancelled,
+            reason: 'Duplicate entry, replaced by the completed past record',
+            remarks: `${ev.remarks ? `${ev.remarks} ` : ''}${REPLACED_TAG}`,
+          },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not close the old triage record.';
+        toast(msg, 'err');
+        setLastError({ what: 'Close the old triage record', detail: msg });
+      }
+      setTimeout(() => fetchProduction(), 1600);
+    },
+    [importPast, authedPost, toast, fetchProduction]
+  );
+
+  /** Mabilisang pag-log ng sagot sa form: done, approved, declined o cancelled. */
+  const logIntakeAs = useCallback(
+    async (q: IntakeRequest, mode: IntakeMode) => {
+      if (mode === 'triage') return;
+      const status: ApprovalKey =
+        mode === 'declined' ? 'declined' : mode === 'cancelled' ? 'cancelled' : 'approved';
+      const reason =
+        mode === 'declined' || mode === 'cancelled'
+          ? q.notes || 'Recorded from the request form sheet'
+          : '';
+      setBusyRefs((b) => [...b, q.ref]);
+      const label =
+        mode === 'done'
+          ? 'Logged as done'
+          : mode === 'approved'
+          ? 'Logged as approved'
+          : mode === 'declined'
+          ? 'Logged as declined'
+          : 'Logged as cancelled';
+      const res = await importPast([importRowFromEvent(eventFromIntake(q), status, reason, '')], label);
+      if (res && res.created > 0 && mode === 'done') pendingDone.current.add(q.ref);
+      // Kapag pumasok, hintayin ang refresh bago ibalik; kapag hindi, ibalik agad.
+      setTimeout(
+        () => setBusyRefs((b) => b.filter((r) => r !== q.ref)),
+        res && res.created > 0 ? 5000 : 0
+      );
+    },
+    [importPast]
+  );
+
   const submitRequest = useCallback(
     async (form: Record<string, string>, id: string | null) => {
       if (!PROD_CONFIGURED) {
@@ -9558,6 +10140,49 @@ export default function App() {
     return { counts: base, total: coverages.length, thisMonth };
   }, [coverages]);
 
+  /** CREW TASKS — ang production board at ang mga profile, galing sa events. */
+  const tasks = useMemo(() => buildTasks(events, assignments), [events, assignments]);
+  const activeTaskEvents = useMemo(
+    () => new Set(tasks.filter((t) => t.stage === 'assigned' || t.stage === 'progress').map((t) => t.ev.id)).size,
+    [tasks]
+  );
+  /**
+   * Crew tasks bilang Output. Kapag may lumang manual entry na para sa parehong
+   * tao at event, iyon ang masusunod — walang dobleng bilang sa IPCR.
+   */
+  const crewOutputs = useMemo(
+    () =>
+      tasks
+        .filter(
+          (t) =>
+            !outputs.some(
+              (o) =>
+                titlesMatch(o.event || o.title, t.ev.title, true) &&
+                (o.personnel || '').toLowerCase().includes(t.person.toLowerCase())
+            )
+        )
+        .map(taskAsOutput),
+    [tasks, outputs]
+  );
+  /** Isang entry bawat event — para sa section-wide na bilang (kiosk, Supervising SRS). */
+  const crewEventOutputs = useMemo(
+    () => crewOutputs.filter((o, i, arr) => arr.findIndex((x) => x.event === o.event) === i),
+    [crewOutputs]
+  );
+  /** Ang totoong "in production": aprubado at hindi pa naihahatid. */
+  const prodLive = useMemo(() => {
+    const approved = events.filter((ev) => isAuthorised(ev));
+    const live = approved.filter((ev) => !isDelivered(ev) && !ev.dateDelivered);
+    const crewed = new Set(
+      assignments.filter((a) => a.status !== 'Dropped' && a.status !== 'Reassigned').map((a) => a.eventId)
+    );
+    return {
+      count: live.length,
+      pct: approved.length ? (live.length / approved.length) * 100 : 0,
+      overdue: live.filter((ev) => eventSLA(ev) === 'overdue').length,
+      unassigned: live.filter((ev) => !crewed.has(ev.id)).length,
+    };
+  }, [events, assignments]);
   const workload = useMemo(
     () =>
       TEAM.map((m) => {
@@ -9565,12 +10190,11 @@ export default function App() {
         const cov = coverages.filter((c) =>
           (c.personnel || '').toLowerCase().includes(n)
         ).length;
-        const out = outputs.filter((o) =>
-          (o.personnel || '').toLowerCase().includes(n)
-        ).length;
+        // Ang mga event na hinawakan niya (crew roster), hindi na ang lumang Production Log.
+        const out = tasks.filter((t) => t.person.toLowerCase() === n).length;
         return { name: m.name, cov, out, count: cov + out };
       }).sort((a, b) => b.count - a.count),
-    [coverages, outputs]
+    [coverages, tasks]
   );
 
   /**
@@ -9791,6 +10415,21 @@ export default function App() {
     () => intake.filter((q) => inRange(q.submitted || q.requested, pRange)),
     [intake, pRange]
   );
+  /** Mga event na GINANAP sa panahong ito (para sa double-booking at workload). */
+  const evHeldP = useMemo(
+    () =>
+      events.filter((ev) => {
+        if (!pRange.from && !pRange.to) return true;
+        const s0 = ev.eventDate;
+        const e0 = ev.endDate || ev.eventDate;
+        if (!s0 || !e0) return false;
+        return (
+          (!pRange.to || s0.getTime() <= pRange.to.getTime()) &&
+          (!pRange.from || e0.getTime() >= pRange.from.getTime())
+        );
+      }),
+    [events, pRange]
+  );
 
   /** Aling sagot sa request form ang nasa AV Nexus na. */
   const intakeLinks = useMemo(() => {
@@ -9806,7 +10445,10 @@ export default function App() {
     });
     return map;
   }, [intake, events]);
-  const intakeOpen = useMemo(() => intake.filter((q) => !intakeLinks.has(q.ref)), [intake, intakeLinks]);
+  const intakeOpen = useMemo(
+    () => intake.filter((q) => !intakeLinks.has(q.ref) && !busyRefs.includes(q.ref)),
+    [intake, intakeLinks, busyRefs]
+  );
   // Bago at wala pang aksyon: wala pang Status sa form sheet at wala pa sa Nexus.
   const intakeNew = useMemo(() => intakeOpen.filter((q) => !q.sheetStatus.trim()).length, [intakeOpen]);
 
@@ -9954,9 +10596,11 @@ export default function App() {
   const ipcrOutputs = useMemo(() => {
     let base: Output[];
     if (selectedIPCRPersonnel === 'Lotus') {
-      base = outputs.filter((o) => o.stage === 'approved' || o.stage === 'published');
+      base = [...outputs, ...crewEventOutputs].filter(
+        (o) => o.stage === 'approved' || o.stage === 'published'
+      );
     } else {
-      base = outputs.filter((o) =>
+      base = [...outputs, ...crewOutputs].filter((o) =>
         (o.personnel || '').toLowerCase().includes(selectedIPCRPersonnel.toLowerCase())
       );
     }
@@ -9971,7 +10615,7 @@ export default function App() {
       const bt = (b.delivered || b.target || b.assigned)?.getTime() ?? 0;
       return at - bt;
     });
-  }, [outputs, selectedIPCRPersonnel, ipcrYear]);
+  }, [crewOutputs, crewEventOutputs, outputs, selectedIPCRPersonnel, ipcrYear]);
 
   const ipcrQQT = useMemo(() => {
     const rated = ipcrOutputs.map(deliveredOnTime).filter((v) => v !== null) as boolean[];
@@ -10187,13 +10831,6 @@ export default function App() {
         },
       },
       {
-        id: 'log-output',
-        label: 'Log a video output',
-        hint: 'Production',
-        group: 'Actions',
-        run: () => setLogOpen(true),
-      },
-      {
         id: 'go-board',
         label: 'Jump to Production Board',
         hint: 'Navigate',
@@ -10404,7 +11041,7 @@ export default function App() {
                 const badge =
                   v.key === 'events' ? events.length
                   : v.key === 'requests' ? requests.length
-                  : v.key === 'production' ? outputs.length
+                  : v.key === 'production' ? activeTaskEvents
                   : 0;
                 const alert =
                   v.key === 'events' ? approvalQueue.length + triageQueue.length + intakeNew : 0;
@@ -10432,18 +11069,6 @@ export default function App() {
 
           <div className="av-nav-rule" />
           <p className="av-nav-sec">Quick actions</p>
-          <button
-            type="button"
-            className="av-nav"
-            title="Log a video output"
-            onClick={() => {
-              setLogOpen(true);
-              setNavOpen(false);
-            }}
-          >
-            <Icon name="output" size={19} />
-            <span className="truncate">Log video output</span>
-          </button>
           <button
             type="button"
             className="av-nav"
@@ -10644,7 +11269,11 @@ export default function App() {
             <HeroStat
               label="Awaiting action"
               value={triageQueue.length + approvalQueue.length + intakeNew}
-              pct={events.length ? ((triageQueue.length + approvalQueue.length) / events.length) * 100 : 0}
+              pct={
+                events.length + intakeNew
+                  ? ((triageQueue.length + approvalQueue.length + intakeNew) / (events.length + intakeNew)) * 100
+                  : 0
+              }
               hex="#B07A00"
               icon="triage"
               sub={`${triageQueue.length} in triage, ${approvalQueue.length} for sign-off${
@@ -10654,11 +11283,11 @@ export default function App() {
             />
             <HeroStat
               label="In production"
-              value={prodSummary.live}
-              pct={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
+              value={prodLive.count}
+              pct={prodLive.pct}
               hex="#427AA1"
               icon="production"
-              sub={`${prodSummary.overdue} overdue of ${prodSummary.total} outputs`}
+              sub={`${prodLive.overdue} overdue, ${prodLive.unassigned} with no crew yet`}
               onClick={() => setView('production')}
             />
             <HeroStat
@@ -10892,12 +11521,12 @@ export default function App() {
                   <WorkloadBars data={workload} />
                   <div className="mt-4 flex gap-4 border-t border-slate-200 pt-3">
                     <span className="flex items-center gap-1.5 text-[10px] text-slate-900">
-                      <span className="h-1.5 w-3 rounded-full bg-blue-600 hover:bg-blue-700" />
+                      <span className="h-1.5 w-3 rounded-full bg-blue-600" />
                       Field coverage (DMC)
                     </span>
                     <span className="flex items-center gap-1.5 text-[10px] text-slate-900">
                       <span className="h-1.5 w-3 rounded-full bg-amber-400" />
-                      Video output
+                      Events assigned (crew)
                     </span>
                   </div>
                 </div>
@@ -10936,7 +11565,7 @@ export default function App() {
               <SectionHead title="AV team status" hint="Select a card to view the full deployment history." />
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {TEAM.map((member) => {
-                  const act = latestActivityFor(member.name, coverages, outputs);
+                  const act = latestActivityFor(member.name, coverages, [...outputs, ...crewOutputs]);
                   const w = workload.find((x) => x.name === member.name);
                   return (
                     <button
@@ -11000,127 +11629,57 @@ export default function App() {
             )}
 
             {view === 'production' && (
-            <>
-            {/* ------------------------------------ PRODUCTION BOARD ---- */}
-            <section ref={boardRef}>
-              <SectionHead
-                title="Production board"
-                hint="Video outputs that do not pass through DMC — shoot, edit and post-production."
-                right={
-                  <div className="flex items-center gap-2">
-                    <div className="hidden items-center gap-1 md:flex">
-                      {['ALL', 'Marx', 'Reiner', 'Xyrus', 'Pat'].map((n) => (
-                        <button
-                          key={n}
-                          onClick={() => setProdPerson(n)}
-                          className={`rounded-full border px-3 py-1.5 text-[11px] font-medium transition-colors ${
-                            prodPerson === n
-                              ? 'border-blue-300 bg-blue-50 text-blue-600'
-                              : 'border-slate-200 text-slate-900 hover:text-slate-600'
-                          }`}
-                        >
-                          {n === 'ALL' ? 'All' : n}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => setLogOpen(true)}
-                      className="av-btn"
-                    >
-                      + Log output
-                    </button>
-                  </div>
-                }
-              />
-
-              {prodReady === 'missing' ? (
-                <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-8 text-center">
-                  <p className="mb-2 text-sm font-bold text-slate-900">Production Log is not set up yet</p>
-                  <p className="mx-auto max-w-lg text-xs leading-relaxed text-slate-900">
-                    In the AV Production Log spreadsheet, open Extensions → Apps Script, paste{' '}
-                    <span className="font-mono text-slate-600">AVNexus.gs</span>, run{' '}
-                    <span className="font-mono text-blue-600">authorize()</span> then{' '}
-                    <span className="font-mono text-blue-600">quickSetup()</span>, redeploy the web
-                    app, and put the /exec URL in{' '}
-                    <span className="font-mono text-blue-600">PROD_SCRIPT_URL</span>. The DMC and
-                    AppSheet spreadsheet is not touched.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                    <StatTile
-                      label="Video outputs"
-                      value={prodSummary.total}
-                      sub="Deliverables on record"
-                      accent={CYAN}
-                      bar={100}
-                    />
-                    <StatTile
-                      label="In progress"
-                      value={prodSummary.live}
-                      sub="Still in progress"
-                      accent="#B07A00"
-                      bar={prodSummary.total ? (prodSummary.live / prodSummary.total) * 100 : 0}
-                    />
-                    <StatTile
-                      label="Served"
-                      value={prodSummary.done}
-                      sub={`Total runtime ${fmtRuntime(prodSummary.seconds)}`}
-                      accent="#16a34a"
-                      bar={prodSummary.total ? (prodSummary.done / prodSummary.total) * 100 : 0}
-                    />
-                    <StatTile
-                      label="Overdue"
-                      value={prodSummary.overdue}
-                      sub={
-                        prodSummary.onTime === null
-                          ? 'No target dates set'
-                          : `${prodSummary.onTime}% on-time delivery`
-                      }
-                      accent="#A30000"
-                      bar={prodSummary.total ? (prodSummary.overdue / prodSummary.total) * 100 : 0}
-                    />
-                  </div>
-
-                  {outputs.length === 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-[var(--rule)] bg-white p-10 text-center">
-                      <p className="mb-1 text-sm text-slate-600">No outputs logged yet.</p>
-                      <p className="mb-4 text-xs text-slate-400">
-                        Log the first one — even a shoot day counts.
-                      </p>
-                      <button
-                        onClick={() => setLogOpen(true)}
-                        className="av-btn"
-                      >
-                        Log the first output
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <ProductionBoard
-                        outputs={boardOutputs}
-                        onAdvance={advanceStage}
-                        busyId={busyId}
-                      />
-                      <div className="av-card mt-4 p-5">
-                        <p className="mb-4 av-label">
-                          Output scoreboard · quantity, timeliness, revisions
-                        </p>
-                        <ProductionScoreboard
-                          outputs={outputs}
-                          people={TEAM.map((t) => t.name)}
-                        />
+              <>
+                <section ref={boardRef}>
+                  <SectionHead
+                    title="Production board"
+                    hint="Every event with an assigned crew, from assignment to DMC. It fills itself: add people under Crew & roles inside an event and it shows up here and on their profile."
+                    right={
+                      <div className="av-seg" role="group" aria-label="Filter by person">
+                        {['ALL', ...TEAM.map((t) => t.name)].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            data-on={prodPerson === n ? '1' : '0'}
+                            onClick={() => setProdPerson(n)}
+                          >
+                            {n === 'ALL' ? 'Everyone' : n}
+                          </button>
+                        ))}
                       </div>
-                    </>
-                  )}
-                </>
-              )}
-            </section>
-
-            </>
+                    }
+                  />
+                  <CrewBoard
+                    tasks={tasks}
+                    person={prodPerson}
+                    onOpen={(ev) =>
+                      isLocalId(ev.id)
+                        ? toast('Still saving to the sheet — open it again in a moment.', 'info')
+                        : setEvModal({ open: true, editing: ev })
+                    }
+                  />
+                </section>
+                {outputs.length > 0 && (
+                  <section>
+                    <details className="av-card">
+                      <summary className="cursor-pointer select-none px-5 py-4">
+                        <span className="av-sec-h">Old Production Log</span>
+                        <span className="av-note av-dim ml-2">
+                          {outputs.length} manual entr{outputs.length === 1 ? 'y' : 'ies'} from before the board
+                          filled itself. Kept for the IPCR; nothing new needs to be logged here.
+                        </span>
+                      </summary>
+                      <div className="border-t border-[var(--rule-soft)] p-4">
+                        <ProductionBoard outputs={boardOutputs} onAdvance={advanceStage} busyId={busyId} />
+                        <div className="mt-4">
+                          <ProductionScoreboard outputs={outputs} people={TEAM.map((t) => t.name)} />
+                        </div>
+                      </div>
+                    </details>
+                  </section>
+                )}
+              </>
             )}
-
             {view === 'pulse' && (
             <>
             {/* -------------------------------- RECORDS + CALENDAR ------ */}
@@ -11326,6 +11885,7 @@ export default function App() {
                       onLog={(q) =>
                         setEvModal({ open: true, editing: null, prefill: eventFromIntake(q) })
                       }
+                      onQuick={logIntakeAs}
                     />
                   </section>
                 )}
@@ -11890,7 +12450,7 @@ export default function App() {
                     hint="Days when two or more events happened at the same time, and whether the team was big enough to cover them."
                   />
                   <div className="av-card p-5">
-                    <ScheduleConflictPanel events={evP} />
+                    <ScheduleConflictPanel events={evHeldP} range={pRange} />
                   </div>
                 </section>
 
@@ -11932,7 +12492,7 @@ export default function App() {
                 <section>
                   <SectionHead
                     title="Team workload"
-                    hint="Who is doing how much. Every role a person takes on an event is counted (Audit Item 41)."
+                    hint="Who is doing how much, for events held in this period. Every role a person takes is counted (Audit Item 41)."
                   />
                   <div className="av-card custom-scrollbar overflow-x-auto p-3">
                     <table className="av-table min-w-[760px]">
@@ -12583,7 +13143,7 @@ export default function App() {
       {kioskOn && (
         <KioskMode
           coverages={coverages}
-          outputs={outputs}
+          outputs={[...outputs, ...crewEventOutputs]}
           requests={requests}
           kpi={kpi}
           stats={stats}
@@ -12596,6 +13156,14 @@ export default function App() {
         <EventModal
           existing={evModal.editing}
           prefill={evModal.prefill ?? null}
+          onMarkDone={(ev) => {
+            setEvModal({ open: false, editing: null });
+            markDone(ev);
+          }}
+          onRecordPast={(ev) => {
+            setEvModal({ open: false, editing: null });
+            recordPast(ev);
+          }}
           onClose={() => setEvModal({ open: false, editing: null })}
           onSubmit={submitEvent}
           onNotify={notifyApprover}
@@ -12641,6 +13209,7 @@ export default function App() {
       {drawerPerson && (
         <PersonnelDrawer
           name={drawerPerson.name}
+          tasks={tasks.filter((t) => t.person.toLowerCase() === String(drawerPerson.name).toLowerCase())}
           image={drawerPerson.image}
           records={coverages.filter((c) =>
             (c.personnel || '').toLowerCase().includes(drawerPerson.name.toLowerCase())
@@ -13399,5 +13968,21 @@ html [class~="text-yellow-800"] { color: #6B4500; }
   html [class~="text-[12.5px]"] { font-size: 13px; }
   html [class~="text-xs"] { font-size: 12.5px; }
 }
+
+
+/* ----------------------------------------------------- crew board (v4) --- */
+.av-lane {
+  min-width: 0; padding: 10px; border-radius: var(--r-card);
+  border: 1px solid var(--rule-soft); background: var(--surface-2);
+}
+.av-tcard {
+  display: block; width: 100%; text-align: left; padding: 12px 13px;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-ctl);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04); transition: border-color .15s, box-shadow .15s;
+}
+.av-tcard:hover { border-color: var(--rule-strong); box-shadow: var(--lift-raise); }
+.av-tcard.late { border-color: rgba(163,0,0,.35); box-shadow: inset 3px 0 0 var(--brand-red); }
+details.av-card > summary { list-style: none; }
+details.av-card > summary::-webkit-details-marker { display: none; }
 
 `;
