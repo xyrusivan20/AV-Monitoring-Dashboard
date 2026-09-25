@@ -53,7 +53,7 @@ const PROD_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxvyWZALIz3Lh_O
  * Kapag blangko, gumagana pa rin ang dashboard; wala lang ang mga bilang
  * na galing sa AV Request Form at sa CSM form.
  */
-const FORMS_BRIDGE_URL = '';
+const FORMS_BRIDGE_URL = 'https://script.google.com/macros/s/AKfycby9ordm58174Py5dijX1TB3D-FMYzpyqBXPAnvFILlhks5bzVcomxW6t2u4uFyhBSIb/exec';
 const PROD_CONFIGURED = PROD_SCRIPT_URL.startsWith('https://script.google.com/');
 
 /**
