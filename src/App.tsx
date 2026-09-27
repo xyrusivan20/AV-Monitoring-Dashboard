@@ -135,6 +135,683 @@ function readIdToken(jwt: string): { email: string; name: string; picture: strin
   }
 }
 
+/* ============================================================== NETWORK ===
+   MATIBAY NA NETWORK LAYER — lahat ng GET at POST sa Apps Script ay dito
+   dumadaan. Tatlong karaniwang sira ang sinasalo nito:
+     1. Cold start: 5–15 segundo bago sumagot ang Apps Script.
+     2. HTML sa halip na JSON: sign-in page, "unusual traffic" page ng Google
+        (madalas sa mobile data — maraming user ang iisang IP ng carrier),
+        o error page ng script.
+     3. Nakabiting request: sa telepono, kapag na-lock ang screen o lumipat
+        ng app, may fetch na hindi na sumasagot kailanman.
+   Kaya may timeout ang bawat request, exponential backoff na may jitter,
+   at cache-buster para hindi ma-cache ng home-screen app o ng carrier ang
+   lumang sagot.
+   ====================================================================== */
+
+type NetKind =
+  | 'offline' | 'timeout' | 'network' | 'http' | 'html' | 'parse'
+  | 'server' | 'auth' | 'setup';
+
+class NetError extends Error {
+  kind: NetKind;
+  status: number;
+  /** Baka nakarating na sa server bago pumalya — hindi alam kung naisulat. */
+  ambiguous: boolean;
+  constructor(kind: NetKind, message: string, status = 0, ambiguous = false) {
+    super(message);
+    this.name = 'NetError';
+    this.kind = kind;
+    this.status = status;
+    this.ambiguous = ambiguous;
+  }
+}
+
+/** Sulit bang ulitin? Hindi ang pagtanggi ng server o ang maling setup. */
+function isRetryable(err: unknown): boolean {
+  if (!(err instanceof NetError)) return true;
+  if (err.kind === 'http') return err.status === 408 || err.status === 429 || err.status >= 500;
+  return err.kind === 'timeout' || err.kind === 'network' || err.kind === 'html' || err.kind === 'parse';
+}
+
+function netMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return String(err || 'Unknown error');
+}
+
+function isOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+/** Binuksan mula sa home-screen shortcut (iOS o Android), hindi sa browser tab. */
+function isStandalone(): boolean {
+  try {
+    return (
+      window.matchMedia?.('(display-mode: standalone)').matches === true ||
+      (navigator as unknown as { standalone?: boolean }).standalone === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** 0.8 s, 1.6 s, 3.2 s … may kaunting random para hindi sabay-sabay ang mga tab. */
+function backoffMs(attempt: number, base = 800, cap = 15000): number {
+  return Math.min(cap, base * 2 ** attempt) + Math.round(Math.random() * 400);
+}
+
+/** Bagong URL bawat kuha — walang cache ng webview o ng carrier ang makakasingit. */
+function bust(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}_ts=${Date.now().toString(36)}`;
+}
+
+interface NetOptions {
+  /** Ilang ULIT pagkatapos ng unang subok. Default 3 → apat na subok. */
+  retries?: number;
+  timeoutMs?: number;
+  /** Bagong cache-buster sa bawat subok (para sa GET). */
+  fresh?: boolean;
+}
+
+async function fetchText(url: string, init: RequestInit, timeoutMs: number): Promise<string> {
+  if (!isOnline()) throw new NetError('offline', 'This device is offline.');
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl?.abort();
+  }, timeoutMs);
+  try {
+    let res: Response;
+    try {
+      res = await fetch(url, ctrl ? { ...init, signal: ctrl.signal } : init);
+    } catch {
+      if (timedOut) {
+        throw new NetError('timeout', `No answer after ${Math.round(timeoutMs / 1000)} seconds.`, 0, true);
+      }
+      if (!isOnline()) throw new NetError('offline', 'This device went offline.', 0, true);
+      throw new NetError('network', 'The server could not be reached.', 0, true);
+    }
+    let text: string;
+    try {
+      text = await res.text();
+    } catch {
+      throw new NetError(timedOut ? 'timeout' : 'network', 'The answer was cut off before it finished.', res.status, true);
+    }
+    if (!res.ok) {
+      throw new NetError(
+        'http',
+        res.status === 404
+          ? 'This deployment no longer exists (HTTP 404). Copy the current URL from Deploy → Manage deployments.'
+          : `The server answered HTTP ${res.status}.`,
+        res.status,
+        res.status >= 500
+      );
+    }
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseJSONText(text: string): unknown {
+  const t = text.replace(/^\uFEFF/, '').trimStart();
+  if (t.startsWith('<')) {
+    throw new NetError(
+      'html',
+      /unusual traffic|\/sorry\/|captcha/i.test(t)
+        ? 'Google briefly paused requests from this network (unusual-traffic check).'
+        : 'The server returned a web page instead of data — usually a Google sign-in page.',
+      0,
+      true
+    );
+  }
+  try {
+    return JSON.parse(t);
+  } catch {
+    throw new NetError('parse', 'The server answer was not valid data.', 0, true);
+  }
+}
+
+async function requestJSON<T = any>(
+  url: string,
+  init: RequestInit,
+  opts: NetOptions = {}
+): Promise<{ data: T; text: string }> {
+  const retries = Math.max(0, opts.retries ?? 3);
+  const timeoutMs = opts.timeoutMs ?? 25000;
+  let last: unknown = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const text = await fetchText(opts.fresh ? bust(url) : url, init, timeoutMs);
+      return { data: parseJSONText(text) as T, text };
+    } catch (err) {
+      last = err;
+      if (!isRetryable(err) || attempt === retries) break;
+      await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+      if (!isOnline()) break;
+    }
+  }
+  throw last instanceof Error ? last : new NetError('network', netMessage(last));
+}
+
+/** GET na hindi naka-cache, may timeout, at hanggang apat na subok. */
+function getJSON<T = any>(url: string, opts: NetOptions = {}) {
+  return requestJSON<T>(url, { cache: 'no-store', credentials: 'omit' }, { fresh: true, ...opts });
+}
+
+/** POST na text/plain — walang CORS preflight, kaya gumagana sa Apps Script. */
+function postJSON<T = any>(url: string, body: unknown, opts: NetOptions = {}) {
+  return requestJSON<T>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+      credentials: 'omit',
+    },
+    opts
+  );
+}
+
+/** Mga hilerang object lamang — ang null o sirang hilera ay nilalaktawan, hindi bumabagsak. */
+function rowsOf(v: unknown): any[] {
+  return Array.isArray(v) ? v.filter((r) => r !== null && typeof r === 'object') : [];
+}
+
+/** Ang sulat ng kahilingan mula sa form; hindi bumabagsak kapag sira. */
+function letterOf(v: string | undefined): unknown {
+  if (!v) return undefined;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return undefined;
+  }
+}
+
+/* ============================================================ SNAPSHOTS ===
+   Ang huling matagumpay na sagot ng bawat sheet ay itinatabi sa device.
+   Sa susunod na pagbukas — lalo na mula sa home-screen shortcut — ito agad
+   ang lumalabas habang kinukuha ang bago. May hangganan ang laki para hindi
+   maagawan ng espasyo ang pila ng mga hindi pa naipapadala.
+   ====================================================================== */
+const SNAP_PREFIX = 'avnexus.snap.';
+const SNAP_MAX_CHARS = 700000;
+
+function readSnap(key: string): { at: number; text: string } | null {
+  try {
+    const raw = window.localStorage.getItem(SNAP_PREFIX + key);
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    return j && typeof j.text === 'string' && typeof j.at === 'number' ? j : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSnap(key: string, text: string) {
+  try {
+    if (text.length > SNAP_MAX_CHARS) window.localStorage.removeItem(SNAP_PREFIX + key);
+    else window.localStorage.setItem(SNAP_PREFIX + key, JSON.stringify({ at: Date.now(), text }));
+  } catch {
+    /* puno ang storage — live data pa rin ang gamit */
+  }
+}
+
+function clearSnaps() {
+  try {
+    ['prod', 'dmc', 'forms'].forEach((k) => window.localStorage.removeItem(SNAP_PREFIX + k));
+  } catch {
+    /* wala nang magagawa */
+  }
+}
+
+/* =========================================================== SYNC QUEUE ===
+   ZERO DATA LOSS. Bawat pagsulat (event, crew, output, request, stage) ay
+   itinatabi muna sa device (localStorage) BAGO ipadala. Walang internet?
+   Pumalya ang Apps Script? Nananatili ito sa pila at kusang ipinapadala
+   pagbalik ng koneksiyon — kahit isara ang tab o i-restart ang telepono.
+
+   IWAS-DOBLE. Ang paggawa ng bagong record ay hindi ligtas ulitin nang
+   basta: kapag nag-timeout, baka naisulat na pala. Kaya bago ulitin,
+   sinisilip muna ang sheet kung naroon na (parehong pamagat at petsa, at
+   bago lang). Kapag naroon na, tapos — hindi na ipinapadala ulit.
+
+   ISANG TAB LANG ANG NAGPAPADALA — may lease sa localStorage, para hindi
+   sabay na ipadala ng dalawang bukas na tab ang parehong pila.
+   ====================================================================== */
+
+type SyncBadge = '' | 'saving' | 'offline' | 'failed';
+
+interface SyncProbe {
+  kind: 'event' | 'output' | 'request';
+  title: string;
+  /** yyyy-MM-dd */
+  date: string;
+  /** Mga ID na may parehong pamagat at petsa BAGO pa ito ginawa. */
+  known: string[];
+}
+
+interface SyncOp {
+  id: string;
+  action: string;
+  /** Katawan ng kahilingan — walang session o token. */
+  body: Record<string, unknown>;
+  label: string;
+  /** Isang target, isang pagkakasunod: hindi nauuna ang huling edit sa una. */
+  target: string;
+  createdAt: number;
+  attempts: number;
+  nextAt: number;
+  state: 'queued' | 'sending' | 'failed';
+  lastError: string;
+  ambiguous: boolean;
+  sendingSince?: number;
+  /** Ang anyo ng event sa screen habang hindi pa kumpirmado. */
+  event?: AVEvent | null;
+  /** Crew na isusulat kapag may Event ID na. */
+  roster?: { personnel: string; roles: string[]; status: string }[];
+  probe?: SyncProbe;
+  draftKey?: string;
+  draft?: string | null;
+  notice?: 'event-create' | 'event-update';
+  doneText?: string;
+}
+
+/** Kumpirmado na ng sheet; nasa screen pa hanggang sa susunod na refresh. */
+interface SettledOp {
+  at: number;
+  create: boolean;
+  event: AVEvent;
+  realId?: string;
+}
+
+const QUEUE_KEY = 'avnexus.outbox.v2';
+const LEASE_KEY = 'avnexus.outbox.lease';
+const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const MAX_AUTO_ATTEMPTS = 4;
+/** Kapag hindi magamit ang localStorage (private mode), dito muna. */
+let memQueue: SyncOp[] = [];
+let queuePersisted = true;
+const NO_CREW: Assignment[] = [];
+
+const EVENT_DATE_FIELDS = [
+  'dateRequested', 'eventDate', 'endDate', 'dateEndorsed', 'dateApproved', 'targetDate', 'dateDelivered',
+];
+
+/** Ibinabalik ang mga Date ng event na dumaan sa JSON. */
+function reviveEvent(raw: unknown): AVEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const e: Record<string, any> = { ...(raw as Record<string, any>) };
+  EVENT_DATE_FIELDS.forEach((k) => {
+    const v = e[k];
+    const d = v instanceof Date ? v : v ? new Date(String(v)) : null;
+    e[k] = d && !isNaN(d.getTime()) ? d : null;
+  });
+  ['requested', 'agreed', 'delivered', 'history'].forEach((k) => {
+    if (!Array.isArray(e[k])) e[k] = [];
+  });
+  if (!e.pipeline || typeof e.pipeline !== 'object') e.pipeline = {};
+  return typeof e.id === 'string' ? (e as AVEvent) : null;
+}
+
+function readQueue(): SyncOp[] {
+  // Pumalya ang huling pag-imbak → ang nasa memory ang totoo, hindi ang lumang kopya.
+  if (!queuePersisted) return memQueue;
+  try {
+    const raw = window.localStorage.getItem(QUEUE_KEY);
+    if (raw === null) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((o) => o && typeof o.id === 'string' && typeof o.action === 'string' && o.body)
+      .map((o) => ({ ...o, event: o.event ? reviveEvent(o.event) : null }) as SyncOp);
+  } catch {
+    return memQueue;
+  }
+}
+
+function writeQueue(list: SyncOp[]): boolean {
+  memQueue = list;
+  const save = () => {
+    if (list.length) window.localStorage.setItem(QUEUE_KEY, JSON.stringify(list));
+    else window.localStorage.removeItem(QUEUE_KEY);
+  };
+  try {
+    save();
+    queuePersisted = true;
+  } catch {
+    // Puno? Burahin ang mga snapshot (napapalitan naman) at subukan ulit.
+    clearSnaps();
+    try {
+      save();
+      queuePersisted = true;
+    } catch {
+      queuePersisted = false;
+    }
+  }
+  return queuePersisted;
+}
+
+/** Laging binabasa muna ang naka-imbak — baka binago ng ibang tab. */
+function mutateQueue(fn: (list: SyncOp[]) => SyncOp[]): SyncOp[] {
+  const next = fn(readQueue());
+  writeQueue(next);
+  return next;
+}
+
+function takeLease(ms = 60000): boolean {
+  try {
+    const now = Date.now();
+    const cur = JSON.parse(window.localStorage.getItem(LEASE_KEY) || 'null');
+    if (cur && cur.tab !== TAB_ID && Number(cur.until) > now) return false;
+    window.localStorage.setItem(LEASE_KEY, JSON.stringify({ tab: TAB_ID, until: now + ms }));
+    const mine = JSON.parse(window.localStorage.getItem(LEASE_KEY) || 'null');
+    return !!mine && mine.tab === TAB_ID;
+  } catch {
+    return true;
+  }
+}
+
+function dropLease() {
+  try {
+    const cur = JSON.parse(window.localStorage.getItem(LEASE_KEY) || 'null');
+    if (cur && cur.tab === TAB_ID) window.localStorage.removeItem(LEASE_KEY);
+  } catch {
+    /* wala */
+  }
+}
+
+function newOpId(): string {
+  return `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeOp(
+  action: string,
+  body: Record<string, unknown>,
+  label: string,
+  target: string,
+  extra: Partial<SyncOp> = {}
+): SyncOp {
+  return {
+    id: newOpId(),
+    action,
+    body,
+    label,
+    target,
+    createdAt: Date.now(),
+    attempts: 0,
+    nextAt: 0,
+    state: 'queued',
+    lastError: '',
+    ambiguous: false,
+    ...extra,
+  };
+}
+
+/** Ang susunod na maipapadala: una-una, pero hindi nauuna sa naunang pagbabago ng parehong record. */
+function nextSendable(list: SyncOp[], now: number): SyncOp | null {
+  const blocked = new Set<string>();
+  for (const op of list) {
+    if (op.state === 'queued' && op.nextAt <= now && !blocked.has(op.target)) return op;
+    blocked.add(op.target);
+  }
+  return null;
+}
+
+/** Nasa sheet na ba? Para sa bagong record na naputol ang sagot. */
+async function probeExisting(p: SyncProbe): Promise<string | null> {
+  const { data } = await getJSON<any>(`${PROD_SCRIPT_URL}?sheet=all`, { retries: 1, timeoutMs: 30000 });
+  const rows = rowsOf(
+    p.kind === 'event'
+      ? data?.events
+      : p.kind === 'request'
+      ? data?.requests
+      : Array.isArray(data)
+      ? data
+      : data?.production
+  );
+  const titleCol = p.kind === 'event' ? 'Event Title' : p.kind === 'request' ? 'Request Title' : 'Output Title';
+  const dateCol = p.kind === 'event' ? 'Event Date' : p.kind === 'request' ? 'Date Requested' : 'Date Assigned';
+  const idCol = p.kind === 'event' ? 'Event ID' : p.kind === 'request' ? 'Request ID' : 'Output ID';
+  const want = normTitle(p.title);
+  for (const r of rows) {
+    const id = String(r[idCol] || '');
+    if (!id || p.known.includes(id) || normTitle(String(r[titleCol] || '')) !== want) continue;
+    const d = parseDate(r[dateCol]);
+    if (p.date && (!d || dayKey(d) !== p.date)) continue;
+    return id;
+  }
+  return null;
+}
+
+/**
+ * Ang ipinapakitang events = ang sheet + ang mga pagbabagong nasa pila pa.
+ * Dahil galing sa pila sa device, hindi ito nabubura ng refresh, reload, o
+ * pagpatay sa app. Ang huling pagbabago sa iisang event ang nasusunod.
+ */
+function overlayEvents(
+  sheet: AVEvent[],
+  queue: SyncOp[],
+  settled: SettledOp[],
+  hidden: string[]
+): AVEvent[] {
+  const hide = hidden.length ? new Set(hidden) : null;
+  const list = hide ? sheet.filter((e) => !hide.has(e.id)) : sheet;
+  if (!queue.length && !settled.length) return list;
+  const inSheet = new Set(list.map((e) => e.id));
+  const replace = new Map<string, AVEvent>();
+  const fresh = new Map<string, AVEvent>();
+  const put = (ev: AVEvent | null | undefined, create: boolean, realId?: string) => {
+    if (!ev) return;
+    const id = realId || ev.id;
+    if (create) {
+      if (!inSheet.has(id)) fresh.set(id, realId ? { ...ev, id: realId } : ev);
+    } else if (inSheet.has(id)) {
+      replace.set(id, ev);
+    } else if (fresh.has(id)) {
+      fresh.set(id, ev);
+    }
+  };
+  settled.forEach((s) => put(s.event, s.create, s.realId));
+  queue.forEach((op) => put(op.event, op.action === 'addEvent'));
+  if (!fresh.size && !replace.size) return list;
+  const out = replace.size ? list.map((e) => replace.get(e.id) || e) : list;
+  return fresh.size ? [...Array.from(fresh.values()).reverse(), ...out] : out;
+}
+
+/* =============================================================== CONFIG ===
+   PERSONNEL AT CLIENT TIERS MULA SA BACKEND. Ang DEFAULT_TEAM,
+   DEFAULT_OFFICIAL at DEFAULT_CLIENT_TIERS ay fallback na lamang. Hinahanap
+   ang tunay na listahan sa "config" ng ?sheet=all o sa ?action=config
+   (tingnan ang AVNexusConfig.gs). Ang huling nakuha ay itinatabi sa device.
+   Kaya ang pagdagdag ng 50 bagong tauhan ng DOSTv ay sa Personnel tab ng
+   sheet na lang — hindi na sa code.
+   ====================================================================== */
+
+interface AppConfig {
+  team: TeamMember[];
+  official: Record<string, OfficialInfo>;
+  clientTiers: string[];
+  supervisor: string;
+  admins: string[];
+  crewPerEvent: number;
+}
+
+type ConfigSource = 'built-in' | 'saved' | 'sheet';
+
+const CONFIG_KEY = 'avnexus.config.v1';
+const truthy = (v: unknown) => v === true || /^(true|yes|y|1|oo)$/i.test(String(v ?? '').trim());
+const falsy = (v: unknown) => v === false || /^(false|no|n|0|hindi)$/i.test(String(v ?? '').trim());
+
+function configPart(raw: any): Record<string, unknown> {
+  const c = raw && typeof raw.config === 'object' && raw.config ? raw.config : raw || {};
+  return { personnel: c.personnel ?? c.team ?? [], clientTiers: c.clientTiers ?? [], crewPerEvent: c.crewPerEvent };
+}
+
+/** Mahigpit na pagsusuri. Kapag kulang o sira, null — at ang fallback ang gamit. */
+function parseConfig(raw: unknown): AppConfig | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const c = configPart(raw);
+  const team: TeamMember[] = [];
+  const official: Record<string, OfficialInfo> = {};
+  const admins: string[] = [];
+  let supervisor = '';
+  rowsOf(c.personnel).forEach((p) => {
+    const key = String(p.key ?? p.name ?? '').trim();
+    if (!key || key.length > 40 || falsy(p.active)) return;
+    const fullName = String(p.fullName ?? p.full_name ?? '').trim();
+    if (fullName) {
+      official[key] = {
+        fullName,
+        designation: String(p.designation ?? p.position ?? '').trim(),
+        ...(p.label ? { label: String(p.label).trim() } : {}),
+      };
+    }
+    if (!falsy(p.team) && !team.some((t) => t.name.toLowerCase() === key.toLowerCase())) {
+      team.push({ name: key, image: String(p.image ?? p.photo ?? '').trim() });
+    }
+    if (truthy(p.admin)) admins.push(key.toLowerCase());
+    if (!supervisor && truthy(p.supervisor)) supervisor = key;
+  });
+  const tiers: string[] = Array.isArray(c.clientTiers)
+    ? Array.from(new Set((c.clientTiers as unknown[]).map((t) => String(t ?? '').trim()).filter(Boolean)))
+    : [];
+  if (!team.length && tiers.length < 2) return null;
+  if (team.length && !supervisor) {
+    supervisor = 'Lotus';
+    if (!official.Lotus) official.Lotus = DEFAULT_OFFICIAL.Lotus;
+  }
+  const crew = Number(c.crewPerEvent);
+  return {
+    team: team.length ? team : DEFAULT_TEAM,
+    official: team.length ? official : DEFAULT_OFFICIAL,
+    clientTiers: tiers.length >= 2 ? tiers : [...DEFAULT_CLIENT_TIERS],
+    supervisor: team.length ? supervisor : 'Lotus',
+    admins: admins.length ? admins : ['xyrus'],
+    crewPerEvent: crew >= 1 && crew <= 20 ? Math.round(crew) : 3,
+  };
+}
+
+function applyConfig(c: AppConfig) {
+  TEAM = c.team;
+  OFFICIAL = c.official;
+  CLIENT_TIERS = c.clientTiers;
+  SUPERVISOR_KEY = c.supervisor;
+  ADMIN_NAMES = c.admins;
+  CREW_PER_EVENT = c.crewPerEvent;
+}
+
+/**
+ * useConfig — ang naka-imbak na listahan agad (walang hintay), tapos ang
+ * galing sa backend. Ang `version` ay kasama sa deps ng mga useMemo na
+ * gumagamit ng TEAM / OFFICIAL / CLIENT_TIERS.
+ */
+function useConfig() {
+  const [state, setState] = useState<{ source: ConfigSource; version: number; json: string }>(() => {
+    let saved: AppConfig | null = null;
+    try {
+      saved = parseConfig(JSON.parse(window.localStorage.getItem(CONFIG_KEY) || 'null'));
+    } catch {
+      saved = null;
+    }
+    if (!saved) return { source: 'built-in', version: 0, json: '' };
+    applyConfig(saved);
+    return { source: 'saved', version: 1, json: JSON.stringify(saved) };
+  });
+  const last = useRef(state.json);
+  /** Nakakuha na ng config mula sa live na sagot ng backend ngayong pagbukas. */
+  const liveSeen = useRef(false);
+
+  /**
+   * Tinatanggap lamang kapag buo at wasto; kung hindi, walang nagbabago.
+   * live = galing sa backend ngayon; hindi live = galing sa kopya sa device.
+   */
+  const adopt = useCallback((raw: unknown, live = true): boolean => {
+    const cfg = parseConfig(raw);
+    if (!cfg) return false;
+    const json = JSON.stringify(cfg);
+    const changed = json !== last.current;
+    if (changed) {
+      last.current = json;
+      applyConfig(cfg);
+    }
+    if (live) {
+      liveSeen.current = true;
+      try {
+        window.localStorage.setItem(CONFIG_KEY, JSON.stringify(configPart(raw)));
+      } catch {
+        /* sa susunod na lang maitatabi */
+      }
+    }
+    const source: ConfigSource = live ? 'sheet' : 'saved';
+    setState((s) =>
+      changed || s.source !== source ? { source, version: s.version + (changed ? 1 : 0), json: last.current } : s
+    );
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (!PROD_CONFIGURED) return;
+    let cancelled = false;
+    // Pagkatapos ng unang kuha ng datos — hindi sumasabay sa cold start.
+    const t = setTimeout(async () => {
+      if (liveSeen.current) return;
+      try {
+        if (Date.now() < Number(window.localStorage.getItem(`${CONFIG_KEY}.skip`) || 0)) return;
+      } catch {
+        /* tuloy */
+      }
+      try {
+        const { data } = await getJSON<unknown>(`${PROD_SCRIPT_URL}?action=config`, {
+          retries: 1,
+          timeoutMs: 20000,
+        });
+        if (cancelled || adopt(data)) return;
+        // Wala pang config route ang backend — huwag nang itanong ngayong araw.
+        try {
+          window.localStorage.setItem(`${CONFIG_KEY}.skip`, String(Date.now() + 86400000));
+        } catch {
+          /* ok lang */
+        }
+      } catch {
+        /* built-in o naka-imbak na listahan ang gamit */
+      }
+    }, 8000);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [adopt]);
+
+  return { source: state.source, version: state.version, adopt };
+}
+
+/** Ilang tao ang seksyon ngayon — sumusunod sa listahan mula sa config. */
+function crewOnHand(): number {
+  return Math.max(1, TEAM.length);
+}
+
+/** Pangalan para sa dropdown; isinasama ang kasalukuyang halaga kung wala na sa listahan. */
+function personnelOptions(current?: string): string[] {
+  const names = [...TEAM.map((t) => t.name), 'Team'];
+  return current && !names.includes(current) ? [current, ...names] : names;
+}
+
+function defaultPerson(prefer: string): string {
+  return TEAM.some((t) => t.name === prefer) ? prefer : TEAM[0]?.name || 'Team';
+}
+
+/** 'Audio Visual Aides Technician IV' → 'AVAT IV' para sa maikling label. */
+function shortRank(designation: string): string {
+  return (
+    String(designation || '')
+      .replace(/Audio Visual Aides? Technician/i, 'AVAT')
+      .replace(/Science Research Specialist/i, 'SRS')
+      .trim() || 'Staff'
+  );
+}
+
 const PRE_ARCHIVAL_LINK =
   'https://docs.google.com/spreadsheets/d/1Q2H3AelKocMLImvjkXpy9j1z89qWYYok0-BPj68QPCE/edit?gid=0#gid=0';
 const DMC_MONITORING_LINK =
@@ -182,20 +859,44 @@ const SYSTEMS: SystemApp[] = [
   },
 ];
 
-const TEAM = [
+/*
+ * PERSONNEL — ito ang FALLBACK. Ang tunay na listahan ay mula sa backend
+ * (tingnan ang CONFIG sa itaas). Binabasa ng lahat sa oras ng render, kaya
+ * pagdating ng bagong listahan, sumusunod ang buong dashboard.
+ */
+interface TeamMember {
+  name: string;
+  image: string;
+}
+
+interface OfficialInfo {
+  fullName: string;
+  designation: string;
+  /** Pangalan sa dropdown, hal. "Ma'am Lotus". */
+  label?: string;
+}
+
+const DEFAULT_TEAM: TeamMember[] = [
   { name: 'Xyrus', image: '/AVNXT-2.jpg' },
   { name: 'Marx', image: '/AVNXT-3.jpg' },
   { name: 'Reiner', image: '/AVNXT-4.jpg' },
   { name: 'Pat', image: '/AVNXT.jpg' },
 ];
 
-const OFFICIAL: Record<string, { fullName: string; designation: string }> = {
+const DEFAULT_OFFICIAL: Record<string, OfficialInfo> = {
   Xyrus: { fullName: 'Xyrus Ivan B. De Gracia', designation: 'Audio Visual Aides Technician IV' },
   Marx: { fullName: 'Marx Lenin G. Halili', designation: 'Science Research Specialist II' },
   Reiner: { fullName: 'Reiner M. Zagada', designation: 'Audio Visual Aides Technician III' },
   Pat: { fullName: 'Patrick James Lee C. Alfonso', designation: 'Photographer II' },
-  Lotus: { fullName: 'Ma. Lotuslei P. Dimagiba', designation: 'Supervising SRS' },
+  Lotus: { fullName: 'Ma. Lotuslei P. Dimagiba', designation: 'Supervising SRS', label: "Ma'am Lotus" },
 };
+
+let TEAM: TeamMember[] = DEFAULT_TEAM;
+let OFFICIAL: Record<string, OfficialInfo> = DEFAULT_OFFICIAL;
+/** Ang Supervising SRS sa OFFICIAL — siya ang "Verified by" at ang Supervisor Tally ng IPCR. */
+let SUPERVISOR_KEY = 'Lotus';
+/** Pangalang (maliit na titik) itinuturing na admin habang wala pang sagot ang server. */
+let ADMIN_NAMES: string[] = ['xyrus'];
 
 const STATUS_META: Record<
   StatusKey,
@@ -805,13 +1506,15 @@ function streamOfServices(list: string[]): Stream {
  * Ang urgent na kahilingan ay maaaring lumampas dito, PERO kailangan ng
  * nakasulat na paunawa — 'yon ang "with notice" sa PM.
  */
-const CLIENT_TIERS = [
+const DEFAULT_CLIENT_TIERS: readonly string[] = [
   'Office of the Secretary',
   'DOST Flagship Programs',
   'Office of the USEC / ASEC',
   'DOST Attached Agencies and Regional Offices',
   'Other / External',
-] as const;
+];
+/** Nababago mula sa config ng backend (useConfig); ito ang fallback. */
+let CLIENT_TIERS: readonly string[] = DEFAULT_CLIENT_TIERS;
 
 function tierRank(tier: string): number {
   const i = (CLIENT_TIERS as readonly string[]).indexOf(String(tier || '').trim());
@@ -1467,6 +2170,18 @@ function parseDate(v: unknown): Date | null {
     const d = new Date(yr, Number(mdy[1]) - 1, Number(mdy[2]));
     return isNaN(d.getTime()) ? null : d;
   }
+  // "2026-09-01" o "2026-09-01 14:30:00" na walang timezone. Tinatanggihan ng
+  // lumang Safari (iPhone) ang may espasyo, at ang date-only ay binabasa ng
+  // browser bilang UTC — alas-8 ng umaga sa Maynila, hindi hatinggabi.
+  // Kaya binabasa ito nang manu-mano bilang lokal na oras.
+  const ymd = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (ymd) {
+    const d = new Date(
+      Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]),
+      Number(ymd[4] || 0), Number(ymd[5] || 0), Number(ymd[6] || 0)
+    );
+    return isNaN(d.getTime()) ? null : d;
+  }
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -1937,7 +2652,7 @@ function roleOf(user: SignedInUser | null, actor: string): string {
   const n = (user.name || actor || '').toLowerCase();
   if (n.includes('division chief')) return 'dc';
   if (n.includes('srs') || n.includes('supervising')) return 'srs';
-  if (n.includes('xyrus')) return 'admin';
+  if (ADMIN_NAMES.some((a) => a && n.includes(a))) return 'admin';
   return 'staff';
 }
 
@@ -1983,6 +2698,8 @@ function canTriage(role: string, existing: AVEvent | null): boolean {
  */
 function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
   const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const cb = useRef(onUser);
 
   useEffect(() => {
@@ -2012,6 +2729,8 @@ function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
         },
         auto_select: true,
         cancel_on_tap_outside: false,
+        // Safari at iPhone (Intelligent Tracking Prevention).
+        itp_support: true,
       });
       setReady(true);
     };
@@ -2020,13 +2739,19 @@ function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
       init();
       return;
     }
+    setFailed(false);
     const tag = document.createElement('script');
     tag.src = 'https://accounts.google.com/gsi/client';
     tag.async = true;
     tag.defer = true;
     tag.onload = init;
+    // Offline o hinarangan sa pagbukas — ipaalam, at hayaang subukan muli.
+    tag.onerror = () => {
+      tag.remove();
+      setFailed(true);
+    };
     document.head.appendChild(tag);
-  }, []);
+  }, [attempt]);
 
   /**
    * Tahimik na paghingi ng bagong token.
@@ -2061,7 +2786,9 @@ function useGoogleSignIn(onUser: (u: SignedInUser | null) => void) {
     });
   }, []);
 
-  return { ready, prompt, refresh, renderButton };
+  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+
+  return { ready, failed, reload, prompt, refresh, renderButton };
 }
 
 /** Ang buong screen bago ka makapasok. */
@@ -2104,7 +2831,13 @@ async function probeEndpoint(name: string, url: string): Promise<ProbeResult> {
 
   let res: Response;
   try {
-    res = await fetch(url, { cache: 'no-store' });
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = setTimeout(() => ctrl?.abort(), 25000);
+    try {
+      res = await fetch(bust(url), { cache: 'no-store', credentials: 'omit', signal: ctrl?.signal });
+    } finally {
+      clearTimeout(timer);
+    }
   } catch (err) {
     return {
       name,
@@ -2112,7 +2845,8 @@ async function probeEndpoint(name: string, url: string): Promise<ProbeResult> {
       ok: false,
       detail: 'Cannot be reached',
       hint:
-        'The browser could not load this URL at all. Either the deployment was ' +
+        'The browser could not load this URL. On a phone this is often a weak or switching ' +
+        'connection — tap Test again. If it keeps failing, either the deployment was ' +
         'deleted, or it is set to "Execute as: User accessing" — which forces a ' +
         'Google login the dashboard cannot follow. It must be "Execute as: Me" ' +
         'with access "Anyone".',
@@ -2221,8 +2955,12 @@ function SignInGate({
   error,
   health,
   onRetry,
+  failed = false,
+  onReload,
 }: {
   onMount: (el: HTMLDivElement | null) => void;
+  failed?: boolean;
+  onReload?: () => void;
   ready: boolean;
   error: string;
   health: { problems: string[]; registeredAccounts: string[] } | null;
@@ -2248,8 +2986,25 @@ function SignInGate({
 
         <div ref={onMount} className="mt-6 flex justify-center" />
 
-        {!ready && (
+        {!ready && !failed && (
           <p className="mt-4 text-center text-[12px] text-slate-400">Loading sign-in…</p>
+        )}
+        {failed && (
+          <div className="mt-4 text-center">
+            <p className="text-[12px] text-slate-500">
+              Google sign-in could not load. Check the connection, then try again.
+            </p>
+            <button type="button" onClick={onReload} className="av-btn-ghost mt-2">
+              Try again
+            </button>
+          </div>
+        )}
+        {isStandalone() && (
+          <p className="mt-4 text-center text-[12px] leading-relaxed text-slate-500">
+            Opened as a home-screen app, which keeps its own sign-in, separate from the browser. On
+            iPhone, if Google sign-in does not finish here, delete this shortcut and add it again
+            from Safari with “Open as Web App” turned off.
+          </p>
         )}
 
         {error && (
@@ -2769,7 +3524,7 @@ function QuickLogModal({
     event: '',
     type: OUTPUT_TYPES[0],
     runtime: '',
-    personnel: 'Marx',
+    personnel: defaultPerson('Marx'),
     role: OUTPUT_ROLES[1],
     requestedBy: '',
     dateAssigned: today,
@@ -2851,7 +3606,7 @@ function QuickLogModal({
               value={f.personnel}
               onChange={(e) => set('personnel', e.target.value)}
             >
-              {['Marx', 'Reiner', 'Xyrus', 'Pat', 'Team'].map((n) => (
+              {personnelOptions(f.personnel).map((n) => (
                 <option key={n}>{n}</option>
               ))}
             </select>
@@ -3764,7 +4519,7 @@ function RequestModal({
     clientType: existing?.clientType || 'Internal',
     stream: existing ? STREAM_META[existing.stream].label : STREAM_META.coverage.label,
     serviceType: existing?.serviceType || SERVICE_TYPES[3],
-    personnel: existing?.personnel || 'Marx',
+    personnel: existing?.personnel || defaultPerson('Marx'),
     venue: existing?.venue ?? '',
     dateRequested: existing ? iso(existing.dateRequested) : today,
     eventDate: existing ? iso(existing.eventDate) : '',
@@ -3888,7 +4643,7 @@ function RequestModal({
               value={f.personnel}
               onChange={(e) => set('personnel', e.target.value)}
             >
-              {['Marx', 'Reiner', 'Xyrus', 'Pat', 'Team'].map((n) => (
+              {personnelOptions(f.personnel).map((n) => (
                 <option key={n}>{n}</option>
               ))}
             </select>
@@ -4319,14 +5074,14 @@ function EventCard({
   canEdit,
   onOpen,
   onStep,
-  sync = false,
+  sync = '',
 }: {
   ev: AVEvent;
   crew: Assignment[];
   canEdit: boolean;
-  onOpen: () => void;
-  onStep: (key: PipelineKey, next: PipelineState) => void;
-  sync?: boolean;
+  onOpen: (ev: AVEvent) => void;
+  onStep: (ev: AVEvent, key: PipelineKey, next: PipelineState) => void;
+  sync?: SyncBadge;
 }) {
   const f = fulfilment(ev);
   const sla = eventSLA(ev);
@@ -4365,12 +5120,25 @@ function EventCard({
       <div style={{ background: rail }} />
       <div className="p-[16px_18px]" style={{ padding: '16px 18px' }}>
         <div className="mb-2.5 flex items-start gap-4">
-          <button onClick={onOpen} className="min-w-0 flex-1 text-left">
+          <button onClick={() => onOpen(ev)} className="min-w-0 flex-1 text-left">
             <h3 className="av-title truncate">{ev.title || 'Untitled event'}</h3>
             {sync && (
-              <span className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--signal)]">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--signal)]" />
-                Saving to the sheet…
+              <span
+                className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium"
+                style={{
+                  color:
+                    sync === 'failed' ? 'var(--refused)' : sync === 'offline' ? 'var(--waiting)' : 'var(--signal)',
+                }}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${sync === 'saving' ? 'animate-pulse' : ''}`}
+                  style={{ background: 'currentColor' }}
+                />
+                {sync === 'failed'
+                  ? 'Not in the sheet yet — open the sync list to retry'
+                  : sync === 'offline'
+                  ? 'Saved on this device — syncs when back online'
+                  : 'Saving to the sheet…'}
               </span>
             )}
           </button>
@@ -4441,7 +5209,7 @@ function EventCard({
         )}
 
         <div className="av-hair flex flex-wrap items-center gap-x-4 gap-y-2 pt-2.5">
-          <PipelineTrack ev={ev} onStep={onStep} compact readOnly={!canEdit} />
+          <PipelineTrack ev={ev} onStep={(k, n) => onStep(ev, k, n)} compact readOnly={!canEdit} />
           {next && (
             <span className="av-note av-dim">
               Next: {next.label}
@@ -4705,7 +5473,7 @@ function EventModal({
     urgentNote: seed?.urgentNote ?? '',
     priority: seed ? classifyPriority(seed.priority) : 'Normal',
     reason: seed?.reason ?? '',
-    lead: seed?.lead || 'Xyrus',
+    lead: seed?.lead || defaultPerson('Xyrus'),
     team: seed?.team ?? '',
     targetDate: seed ? iso(seed.targetDate) : '',
     dateDelivered: seed ? iso(seed.dateDelivered) : '',
@@ -4743,7 +5511,7 @@ seed?.pipeline ?? {
   const [crew, setCrew] = useState<{ personnel: string; roles: string[]; status: string }[]>(
     roster && roster.length
       ? roster.map((a) => ({ personnel: a.personnel, roles: a.roles, status: a.status }))
-      : [{ personnel: 'Xyrus', roles: [], status: 'Assigned' }]
+      : [{ personnel: defaultPerson('Xyrus'), roles: [], status: 'Assigned' }]
   );
 
   const setCrewAt = (
@@ -5488,7 +6256,7 @@ seed?.pipeline ?? {
                   </div>
                   <button
                     onClick={() =>
-                      setCrew((prev) => [...prev, { personnel: 'Marx', roles: [], status: 'Assigned' }])
+                      setCrew((prev) => [...prev, { personnel: defaultPerson('Marx'), roles: [], status: 'Assigned' }])
                     }
                     className="rounded border border-slate-200 px-2.5 py-1 text-[11px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
                   >
@@ -5505,7 +6273,7 @@ seed?.pipeline ?? {
                           onChange={(e) => setCrewAt(i, { personnel: e.target.value })}
                           className="rounded border border-slate-200 bg-white px-2 py-1 text-[12px] font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                         >
-                          {['Xyrus', 'Marx', 'Reiner', 'Pat', 'Team'].map((n) => (
+                          {personnelOptions(c.personnel).map((n) => (
                             <option key={n}>{n}</option>
                           ))}
                         </select>
@@ -6128,9 +6896,8 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
  * Ito rin ang numerong hinahanap kapag hinihingi ang dagdag na plantilya:
  * hindi opinyon, kundi bilang ng araw na kulang ang tao.
  */
-const CREW_ON_HAND = TEAM.length;
 /** Karaniwang kailangan kada event: cam op, photographer, at coordinator. */
-const CREW_PER_EVENT = 3;
+let CREW_PER_EVENT = 3;
 
 function ScheduleConflictPanel({
   events,
@@ -6165,7 +6932,7 @@ function ScheduleConflictPanel({
         day,
         list,
         needed: list.length * CREW_PER_EVENT,
-        short: Math.max(0, list.length * CREW_PER_EVENT - CREW_ON_HAND),
+        short: Math.max(0, list.length * CREW_PER_EVENT - crewOnHand()),
       }))
       .sort((a, b) => (a.day < b.day ? 1 : -1));
     const scheduled = new Set<string>();
@@ -6183,7 +6950,7 @@ function ScheduleConflictPanel({
       shortDays: days.filter((d) => d.short > 0).length,
       notCommitted,
     };
-  }, [events, range]);
+  }, [events, range, TEAM.length, CREW_PER_EVENT]);
 
   if (data.daysWithWork === 0) {
     return (
@@ -6222,7 +6989,7 @@ function ScheduleConflictPanel({
             {data.shortDays}
           </div>
           <p className="l">Days short of staff</p>
-          <p className="s">Needed more than our {CREW_ON_HAND} people</p>
+          <p className="s">Needed more than our {crewOnHand()} people</p>
         </div>
         <div className="av-head">
           <div className="av-fig" style={{ color: data.notCommitted ? 'var(--waiting)' : undefined }}>
@@ -6238,7 +7005,7 @@ function ScheduleConflictPanel({
           <b>In plain words:</b> {data.affected} of {data.scheduled} event
           {data.scheduled === 1 ? '' : 's'} fell on a day with another event ({data.days.length}{' '}
           double-booked day{data.days.length === 1 ? '' : 's'}). One event usually needs about{' '}
-          {CREW_PER_EVENT} people, and the section has {CREW_ON_HAND}. On {data.shortDays} of those days we
+          {CREW_PER_EVENT} people, and the section has {crewOnHand()}. On {data.shortDays} of those days we
           needed more people than we have, and {data.notCommitted} requested service
           {data.notCommitted === 1 ? '' : 's'} could not be committed.{' '}
           <span className="av-dim">This is the basis for asking for more AV personnel.</span>
@@ -6269,7 +7036,7 @@ function ScheduleConflictPanel({
                     ))}
                   </td>
                   <td className="num whitespace-nowrap">
-                    {d.needed} of {CREW_ON_HAND}
+                    {d.needed} of {crewOnHand()}
                   </td>
                   <td className="num">
                     {d.short > 0 ? (
@@ -6536,8 +7303,11 @@ function ImportModal({
     const a = document.createElement('a');
     a.href = url;
     a.download = 'av-nexus-import-template.csv';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    // Sa iPhone, nabubura ang download kapag agad binawi ang URL.
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
 
   return (
@@ -6743,14 +7513,13 @@ function KioskMode({
     };
     window.addEventListener('keydown', onKey);
     document.body.style.overflow = 'hidden';
-    const el = document.documentElement;
-    if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    // Walang Fullscreen API sa iPhone, at sa ilang browser ay hindi Promise
+    // ang sagot — kaya ligtas na helper, hindi diretsong .catch().
+    enterFullscreen();
     return () => {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = '';
-      if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
-      }
+      exitFullscreenSafe();
     };
   }, [onClose]);
 
@@ -6835,7 +7604,7 @@ function KioskMode({
                 >
                   <div className="mb-6 flex items-center gap-5">
                     <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full border-2 border-blue-300">
-                      <img src={m.image} alt={m.name} className="h-full w-full object-cover" />
+                      <Avatar name={m.name} image={m.image} className="h-full w-full object-cover text-2xl" />
                     </div>
                     <div>
                       <p className="text-3xl font-black uppercase tracking-wider text-slate-900">
@@ -7424,7 +8193,7 @@ function PersonnelDrawer({
       <aside className="relative flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl animate-slidein">
         <div className="flex items-center gap-4 border-b border-slate-200 p-6">
           <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border-2 border-blue-400">
-            <img src={image} alt={name} className="h-full w-full object-cover" />
+            <Avatar name={name} image={image} className="h-full w-full object-cover text-lg" />
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-lg font-semibold tracking-tight text-slate-900">
@@ -7549,53 +8318,15 @@ const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
 /* ------------------------------------------------------- BACKGROUND SAVE -- */
 
 /**
- * OUTBOX — ang pag-save ng event ay hindi na humaharang sa screen.
- *
- * Dati: naghihintay ang modal sa addEvent (kasama ang email at ang Drive
- * upload sa server), saka sa setAssignments, saka pa sa buong refresh —
- * sampung segundo o higit bago mo makita ang event. Ngayon: isinasara agad
- * ang modal at lumalabas agad ang event (optimistic). Ang totoong pagsulat
- * sa sheet ay tumatakbo sa likod, sa parehong pagkakasunod-sunod gaya ng
- * dati. Kapag pumalya, ibinabalik ang dating anyo at itinatabi ang form
- * bilang draft — walang nawawala.
+ * PAG-SAVE SA LIKOD — isinasara agad ang modal at lumalabas agad ang event.
+ * Ang totoong pagsulat ay nasa SYNC QUEUE (sa itaas): naka-imbak sa device,
+ * inuulit kapag pumalya, at hindi nawawala kahit walang internet.
  */
-type OutboxItem = {
-  key: string;
-  kind: 'create' | 'update';
-  event: AVEvent;
-  before: AVEvent | null;
-  state: 'saving' | 'synced';
-};
-
 const LOCAL_PREFIX = 'LOCAL-';
 
 /** Event na sine-save pa — wala pang tunay na Event ID sa sheet. */
 function isLocalId(id: string): boolean {
   return String(id || '').startsWith(LOCAL_PREFIX);
-}
-
-/**
- * Pinapatong ang mga pag-save na tumatakbo pa sa listahang galing sa sheet,
- * para hindi sila mabura ng 30-segundong refresh habang naghihintay.
- * Kapag kumpirmado na (synced), ang sheet na ang masusunod.
- */
-function applyOutbox(list: AVEvent[], box: OutboxItem[]): AVEvent[] {
-  if (!box.length) return list;
-  const ids = new Set(list.map((e) => e.id));
-  const over = new Map(
-    box
-      .filter((o) => o.kind === 'update' && o.state === 'saving')
-      .map((o) => [o.event.id, o.event] as [string, AVEvent])
-  );
-  const fresh = box
-    .filter(
-      (o) =>
-        o.kind === 'create' &&
-        !ids.has(o.event.id) &&
-        !(o.state === 'synced' && isLocalId(o.event.id))
-    )
-    .map((o) => o.event);
-  return [...fresh, ...list.map((e) => over.get(e.id) || e)];
 }
 
 /** Ang form ng EventModal bilang AVEvent — para lumabas agad bago pa sumagot ang sheet. */
@@ -8024,7 +8755,7 @@ function reasonPhrase(reason: string): string {
  * nag-evaluate o nag-recommend; kung wala, ang gumawa ng record.
  */
 function assessorOf(ev: AVEvent): string {
-  const keys = Object.keys(OFFICIAL).filter((k) => k !== 'Lotus');
+  const keys = Object.keys(OFFICIAL).filter((k) => k !== SUPERVISOR_KEY);
   const who = (line: string) =>
     keys.find(
       (k) =>
@@ -8968,6 +9699,354 @@ function DataChecks({
   );
 }
 
+/* ------------------------------------------------------- RESILIENCE UI -- */
+
+/** Ligtas na fullscreen: wala ito sa iPhone, at sa ilang browser ay hindi Promise ang sagot. */
+function enterFullscreen() {
+  try {
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => unknown };
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (typeof req !== 'function') return;
+    const out = req.call(el) as unknown;
+    if (out && typeof (out as Promise<void>).catch === 'function') (out as Promise<void>).catch(() => {});
+  } catch {
+    /* hindi suportado — tuloy pa rin ang kiosk */
+  }
+}
+
+function exitFullscreenSafe() {
+  try {
+    const d = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => unknown };
+    if (!(d.fullscreenElement || d.webkitFullscreenElement)) return;
+    const exit = d.exitFullscreen || d.webkitExitFullscreen;
+    if (typeof exit !== 'function') return;
+    const out = exit.call(d) as unknown;
+    if (out && typeof (out as Promise<void>).catch === 'function') (out as Promise<void>).catch(() => {});
+  } catch {
+    /* wala nang magagawa */
+  }
+}
+
+/** Hinihintay munang tumigil ang pagta-type bago salain ang libo-libong record. */
+function useDebounced<T>(value: T, ms = 160): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
+/** Larawan ng tauhan; initials kapag wala o sira ang larawan (hal. bagong DOSTv staff). */
+function Avatar({ name, image, className = '' }: { name: string; image?: string; className?: string }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    setBroken(false);
+  }, [image]);
+  if (!image || broken) {
+    const ini =
+      String(name || '?')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0])
+        .join('')
+        .toUpperCase() || '?';
+    return (
+      <span
+        className={`${className} flex items-center justify-center bg-[var(--signal-soft)] font-semibold text-[var(--signal)]`}
+        aria-label={name}
+      >
+        {ini}
+      </span>
+    );
+  }
+  return (
+    <img src={image} alt={name} loading="lazy" decoding="async" className={className} onError={() => setBroken(true)} />
+  );
+}
+
+/** Hindi nire-render ang card kapag walang nagbago sa sarili nitong datos. */
+const EventCardMemo = React.memo(EventCard);
+
+type BoundaryProps = {
+  name: string;
+  children?: React.ReactNode;
+  /** Kapag nagbago (hal. paglipat ng view), sinusubukang i-render muli. */
+  resetKey?: unknown;
+  /** Buong screen — ang pinakalabas na harang. */
+  full?: boolean;
+  /** Para sa dialog: nakapatong sa screen at may Close. */
+  overlay?: boolean;
+  onClose?: () => void;
+};
+
+/**
+ * ERROR BOUNDARY — ang isang sirang hilera o component ay hindi na
+ * nagpapaputi ng buong screen. Ang bumagsak na bahagi lang ang napapalitan
+ * ng paliwanag; gumagana pa ang iba, at ligtas pa rin ang pila sa device.
+ */
+class ErrorBoundary extends React.Component<BoundaryProps, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: error instanceof Error ? error : new Error(String(error)) };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    try {
+      console.error(`[AV Nexus] ${this.props.name} crashed`, error, info?.componentStack);
+      const log = JSON.parse(window.localStorage.getItem('avnexus.crashlog') || '[]');
+      const entry = { at: new Date().toISOString(), where: this.props.name, message: netMessage(error).slice(0, 300) };
+      window.localStorage.setItem(
+        'avnexus.crashlog',
+        JSON.stringify([entry, ...(Array.isArray(log) ? log : [])].slice(0, 20))
+      );
+    } catch {
+      /* hindi dapat bumagsak ang mismong pag-log */
+    }
+  }
+
+  componentDidUpdate(prev: BoundaryProps) {
+    if (this.state.error && prev.resetKey !== this.props.resetKey) this.setState({ error: null });
+  }
+
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children ?? null;
+    const { name, full, overlay, onClose } = this.props;
+    const card = (
+      <div role="alert" className="av-card w-full max-w-xl p-6" style={{ borderColor: 'rgba(163,0,0,.35)' }}>
+        <p className="av-sec-h">{full ? 'AV Nexus stopped because of an error' : `${name} stopped because of an error`}</p>
+        <p className="av-note mt-1">
+          {full
+            ? 'Reload to continue. Changes that have not reached the sheet are kept on this device and sync after reloading.'
+            : 'The rest of the dashboard still works. Changes that have not reached the sheet are kept on this device.'}
+        </p>
+        <p className="mt-3 break-words font-mono text-[12px]" style={{ color: 'var(--refused)' }}>
+          {error.message.slice(0, 300)}
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {full ? (
+            <button type="button" className="av-btn" onClick={() => window.location.reload()}>
+              Reload AV Nexus
+            </button>
+          ) : (
+            <button type="button" className="av-btn" onClick={() => this.setState({ error: null })}>
+              Try again
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              className="av-btn-ghost"
+              onClick={() => {
+                this.setState({ error: null });
+                onClose();
+              }}
+            >
+              Close
+            </button>
+          )}
+        </div>
+      </div>
+    );
+    if (full) {
+      return (
+        <div className="av-page flex min-h-screen items-center justify-center p-6">
+          <style dangerouslySetInnerHTML={{ __html: AV_CSS }} />
+          {card}
+        </div>
+      );
+    }
+    if (overlay) {
+      return (
+        <div className="no-print fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/50 p-4">{card}</div>
+      );
+    }
+    return card;
+  }
+}
+
+function fmtStamp(ms: number): string {
+  return new Date(ms).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+/** Isang malinaw na linya tungkol sa koneksiyon at sa mga hindi pa naipapadala. */
+function NetBanner({
+  online,
+  snapAt,
+  prodError,
+  hasData,
+  pending,
+  failed,
+  onRetry,
+  onOpenSync,
+}: {
+  online: boolean;
+  snapAt: number | null;
+  prodError: string;
+  hasData: boolean;
+  pending: number;
+  failed: number;
+  onRetry: () => void;
+  onOpenSync: () => void;
+}) {
+  let tone = 'info';
+  let body: React.ReactNode = null;
+  if (!online) {
+    body = (
+      <>
+        <b>You are offline.</b>{' '}
+        {pending
+          ? `${pending} change${pending === 1 ? ' is' : 's are'} saved on this device and will sync when you are back online.`
+          : 'Anything you save stays on this device and syncs when you are back online.'}
+      </>
+    );
+  } else if (failed) {
+    tone = 'err';
+    body = (
+      <>
+        <b>
+          {failed} change{failed === 1 ? ' has' : 's have'} not reached the sheet.
+        </b>{' '}
+        They are saved on this device. Open them to retry or discard.
+      </>
+    );
+  } else if (prodError) {
+    tone = 'err';
+    body = (
+      <>
+        <b>Cannot reach the AV Nexus sheet.</b>{' '}
+        {hasData ? 'Showing the last data received. Retrying in the background.' : `Retrying in the background. ${prodError}`}
+      </>
+    );
+  } else if (snapAt) {
+    body = (
+      <>
+        <b>Showing data saved on this device</b> from {fmtStamp(snapAt)} while the latest loads.
+      </>
+    );
+  }
+  if (!body) return null;
+  return (
+    <div className={`av-alert ${tone} flex flex-wrap items-center justify-between gap-3`} role="status">
+      <p className="min-w-0 flex-1">{body}</p>
+      <div className="flex shrink-0 gap-2">
+        {(failed > 0 || pending > 0) && (
+          <button type="button" className="av-btn-ghost text-[13px]" onClick={onOpenSync}>
+            View changes
+          </button>
+        )}
+        {online && (!!prodError || failed > 0) && (
+          <button type="button" className="av-btn-ghost text-[13px]" onClick={onRetry}>
+            Retry now
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Ang pila ng mga hindi pa naipapadala — makikita, maipapadala muli, o maitatapon. */
+function SyncPanel({
+  queue,
+  online,
+  persisted,
+  onRetry,
+  onDiscard,
+  onClose,
+}: {
+  queue: SyncOp[];
+  online: boolean;
+  persisted: boolean;
+  onRetry: () => void;
+  onDiscard: (id: string) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const stateText = (o: SyncOp) =>
+    o.state === 'sending'
+      ? 'Sending now'
+      : o.state === 'failed'
+      ? 'Not synced — retry or discard'
+      : !online
+      ? 'Waiting for a connection'
+      : o.attempts
+      ? `Retrying (try ${o.attempts + 1} of ${MAX_AUTO_ATTEMPTS})`
+      : 'Waiting to send';
+
+  return (
+    <div className="no-print fixed inset-0 z-[96] flex items-start justify-center overflow-y-auto px-4 py-[8vh]">
+      <div className="fixed inset-0 bg-slate-900/50 animate-fadein" onClick={onClose} />
+      <div className="av-float animate-riseup relative w-full max-w-xl bg-white" style={{ border: '1px solid var(--rule)' }}>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
+          <div className="min-w-0">
+            <h3 className="av-sec-h">Changes not yet in the sheet</h3>
+            <p className="av-sec-p">
+              {queue.length ? `${queue.length} saved on this device. ` : 'Everything has reached the sheet. '}
+              {online ? 'They send on their own.' : 'They send when you are back online.'}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="av-iconbtn sm inline-flex">
+            <Icon name="close" size={15} />
+          </button>
+        </div>
+        {!persisted && queue.length > 0 && (
+          <p className="av-alert err mx-6 mt-4">
+            This device could not keep a backup copy (storage is full or blocked). Keep this tab open until
+            these changes are sent.
+          </p>
+        )}
+        <div className="custom-scrollbar max-h-[55vh] divide-y divide-[var(--rule-soft)] overflow-y-auto">
+          {queue.map((o) => (
+            <div key={o.id} className="flex items-start gap-3 px-6 py-3">
+              <span
+                className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                style={{
+                  background:
+                    o.state === 'failed' ? 'var(--refused)' : o.state === 'sending' ? 'var(--signal)' : 'var(--waiting)',
+                }}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] font-semibold text-[var(--ink)]">{o.label}</p>
+                <p className="av-note av-dim">
+                  {stateText(o)}, saved {fmtStamp(o.createdAt)}
+                </p>
+                {o.lastError && (
+                  <p className="av-note mt-0.5" style={{ color: 'var(--refused)' }}>
+                    {o.lastError}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                className="av-btn-ghost shrink-0 text-[12px]"
+                disabled={o.state === 'sending'}
+                onClick={() => onDiscard(o.id)}
+              >
+                Discard
+              </button>
+            </div>
+          ))}
+          {!queue.length && <p className="av-note av-dim px-6 py-8 text-center">Nothing waiting.</p>}
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <p className="av-note av-dim">Discarding keeps the form as a draft where possible.</p>
+          <button type="button" className="av-btn" disabled={!queue.length || !online} onClick={onRetry}>
+            Retry now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------ APP SHELL -- */
 
 /** Sidebar grouping. Ang VIEWS pa rin ang pinagmumulan ng label at hint. */
@@ -9007,7 +10086,9 @@ const ROLE_LABEL: Record<string, string> = {
 
 /* ============================================================== MAIN APP == */
 
-export default function App() {
+function AppMain() {
+  // Personnel, client tiers at iba pa — mula sa backend, may fallback.
+  const cfg = useConfig();
   const [coverages, setCoverages] = useState<Coverage[]>([]);
   const [lastUpdated, setLastUpdated] = useState('');
   const [conn, setConn] = useState<'connecting' | 'live' | 'error'>('connecting');
@@ -9024,7 +10105,9 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState<'ALL' | StatusKey>('ALL');
   const [visibleCount, setVisibleCount] = useState(8);
 
-  const [events, setEvents] = useState<AVEvent[]>([]);
+  /** Ang events mula sa sheet. Ang ipinapakita (`events`) ay ito + ang nasa pila sa device. */
+  const [rawEvents, setRawEvents] = useState<AVEvent[]>([]);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [evModal, setEvModal] = useState<{
     open: boolean;
@@ -9054,6 +10137,13 @@ export default function App() {
   const [reqQuery, setReqQuery] = useState('');
   const [reqStatusFilter, setReqStatusFilter] = useState<'ALL' | ReqStatus>('ALL');
   const [reqStreamFilter, setReqStreamFilter] = useState<'ALL' | Stream>('ALL');
+  // Hinihintay ang pagta-type — walang lag kahit libo-libo ang record.
+  const queryD = useDebounced(query, 160);
+  const evQueryD = useDebounced(evQuery, 160);
+  const reqQueryD = useDebounced(reqQuery, 160);
+  // Unti-unting pag-render ng mahabang listahan.
+  const [evLimit, setEvLimit] = useState(60);
+  const [reqLimit, setReqLimit] = useState(100);
   const [view, setView] = useState<ViewKey>('events');
   // UI lamang: ang sidebar drawer sa maliliit na screen.
   const [navOpen, setNavOpen] = useState(false);
@@ -9175,8 +10265,7 @@ export default function App() {
   const checkHealth = useCallback(async () => {
     if (!PROD_CONFIGURED) return;
     try {
-      const res = await fetch(`${PROD_SCRIPT_URL}?action=health`, { cache: 'no-store' });
-      const out = await res.json();
+      const { data: out } = await getJSON<any>(`${PROD_SCRIPT_URL}?action=health`, { retries: 3, timeoutMs: 20000 });
 
       // Ang pinakakaraniwang sanhi ng "not issued for AV Nexus": magkaiba
       // ang client ID sa dalawang file. Nahuhuli ito bago pa mag-sign in.
@@ -9224,7 +10313,7 @@ export default function App() {
   }, []);
   const gateRef = useRef<HTMLDivElement | null>(null);
 
-  const { ready: gsiReady, renderButton } = useGoogleSignIn((u) => {
+  const { ready: gsiReady, failed: gsiFailed, reload: gsiReload, renderButton } = useGoogleSignIn((u) => {
     setUser(u);
     setAuthError('');
     if (u) setActor(u.name);
@@ -9279,10 +10368,19 @@ export default function App() {
     if (AUTH_ENABLED && !user && gsiReady) renderButton(gateRef.current);
   }, [gsiReady, user, renderButton]);
 
+  // Hindi nag-load ang Google sign-in (offline sa pagbukas) → subukan muli pagbalik ng internet.
+  useEffect(() => {
+    if (!gsiFailed) return;
+    const on = () => gsiReload();
+    window.addEventListener('online', on);
+    return () => window.removeEventListener('online', on);
+  }, [gsiFailed, gsiReload]);
+
+  // Ang probes ay tumatakbo lang kapag may pumalyang kuha (feedFailed) — hindi na sa
+  // bawat pagbukas, para hindi dumoble ang cold start sa mobile data.
   useEffect(() => {
     checkHealth();
-    runProbes();
-  }, [checkHealth, runProbes]);
+  }, [checkHealth]);
 
   const signOut = useCallback(() => {
     const w = window as any;
@@ -9326,33 +10424,33 @@ export default function App() {
   }, [user?.email]);
 
   const authedPost = useCallback(
-    async (body: Record<string, unknown>) => {
-      const send = async () => {
-        const res = await fetch(PROD_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
+    async (body: Record<string, unknown>, opts: NetOptions = {}) => {
+      let out: any;
+      try {
+        ({ data: out } = await postJSON<any>(
+          PROD_SCRIPT_URL,
+          {
             ...body,
             actor,
             // Ang session ang pangunahing patunay. Ang Google token ay
             // ginagamit lang sa unang pagkakataon o kapag expired na.
             session: sessionRef.current?.token || '',
             idToken: userRef.current?.idToken || '',
-          }),
-        });
-        const text = await res.text();
-        try {
-          return JSON.parse(text);
-        } catch {
-          // HTML ang isinagot — halos palaging sign-in page ito.
-          throw new Error(
+          },
+          { retries: 3, timeoutMs: 45000, ...opts }
+        ));
+      } catch (err) {
+        if (err instanceof NetError && err.kind === 'html') {
+          throw new NetError(
+            'html',
             'The backend returned a web page instead of data. The deployment must be ' +
-              '"Execute as: Me" with access "Anyone".'
+              '"Execute as: Me" with access "Anyone".',
+            0,
+            true
           );
         }
-      };
-
-      const out = await send();
+        throw err;
+      }
 
       // Bagong session mula sa server — itago para sa susunod na labindalawang oras.
       if (out && out.ok && out.session) {
@@ -9377,7 +10475,12 @@ export default function App() {
           setUser(null);
           endSession();
         }
-        throw new Error(out.error || 'The server rejected this change.');
+        // auth = mag-sign in muli (nananatili sa pila); setup = mali ang backend
+        // (nananatili, 'failed'); server = tinanggihan talaga ang pagbabago.
+        throw new NetError(
+          out.needsSignIn ? 'auth' : out.serverError ? 'setup' : 'server',
+          out.error || 'The server rejected this change.'
+        );
       }
       return out;
     },
@@ -9398,14 +10501,70 @@ export default function App() {
   const [drawerPerson, setDrawerPerson] = useState<{ name: string; image: string } | null>(null);
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: string }[]>([]);
 
-  // OUTBOX — mga pag-save na tumatakbo pa sa likod (tingnan ang submitEvent).
-  const [outbox, setOutbox] = useState<OutboxItem[]>([]);
-  const outboxRef = useRef<OutboxItem[]>([]);
-  const putOutbox = useCallback((fn: (prev: OutboxItem[]) => OutboxItem[]) => {
-    outboxRef.current = fn(outboxRef.current);
-    setOutbox(outboxRef.current);
+  // SYNC QUEUE — ang pila ng mga pagsulat, naka-imbak sa device (tingnan sa itaas).
+  const [queue, setQueue] = useState<SyncOp[]>(() => readQueue());
+  const queueRef = useRef<SyncOp[]>(queue);
+  const [queueSaved, setQueueSaved] = useState(true);
+  const [settled, setSettled] = useState<SettledOp[]>([]);
+  const [online, setOnline] = useState(isOnline);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [snapAt, setSnapAt] = useState<number | null>(null);
+  const [prodError, setProdError] = useState('');
+  const flushRef = useRef<(force?: boolean) => void>(() => {});
+
+  const commitQueue = useCallback((fn: (list: SyncOp[]) => SyncOp[]) => {
+    const next = mutateQueue(fn);
+    queueRef.current = next;
+    setQueue(next);
+    setQueueSaved(queuePersisted);
+    return next;
   }, []);
-  const savingCount = outbox.filter((o) => o.state === 'saving').length;
+
+  // Binago ng ibang tab ang pila → sundan dito.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== QUEUE_KEY) return;
+      const next = readQueue();
+      queueRef.current = next;
+      setQueue(next);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  /** Ang ipinapakitang events: ang sheet + ang nasa pila pa. Hindi nabubura ng refresh. */
+  const events = useMemo(
+    () => overlayEvents(rawEvents, queue, settled, hiddenIds),
+    [rawEvents, queue, settled, hiddenIds]
+  );
+
+  /** Nasa pila pa ba ang event — at bakit. */
+  const syncByEvent = useMemo(() => {
+    const m = new Map<string, SyncBadge>();
+    queue.forEach((op) => {
+      const id =
+        op.event?.id ||
+        (op.action === 'setAssignments' ? String(op.body.eventId || '') : '') ||
+        (op.action === 'updateEvent' ? String(op.body.id || '') : '');
+      if (!id || m.get(id) === 'failed') return;
+      m.set(id, op.state === 'failed' ? 'failed' : online ? 'saving' : 'offline');
+    });
+    return m;
+  }, [queue, online]);
+
+  /** Isang Map, hindi filter bawat card — O(n) sa halip na O(n × m). */
+  const crewByEvent = useMemo(() => {
+    const m = new Map<string, Assignment[]>();
+    assignments.forEach((a) => {
+      const list = m.get(a.eventId);
+      if (list) list.push(a);
+      else m.set(a.eventId, [a]);
+    });
+    return m;
+  }, [assignments]);
+
+  const unloadRisk = queue.some((o) => o.state === 'sending') || (!queueSaved && queue.length > 0);
+
   // Para sa ibang bukas na tab ng AV Nexus sa parehong browser.
   const channelRef = useRef<BroadcastChannel | null>(null);
   // Mga bagong import na dapat markahang tapos pagdating nila mula sa sheet.
@@ -9425,40 +10584,78 @@ export default function App() {
   }, []);
 
   /* ------------------------------------------------------------- FETCH -- */
+  // Isang kuha lang bawat feed nang sabay; ang huling sagot, para malaman kung may nagbago.
+  const inflight = useRef({ dmc: false, prod: false, forms: false });
+  const lastText = useRef({ dmc: '', prod: '', forms: '' });
+  const failNoticed = useRef<Record<string, boolean>>({});
+  const probedAt = useRef(0);
+
+  const feedOk = useCallback((feed: string) => {
+    failNoticed.current[feed] = false;
+  }, []);
+
+  /** Isang toast bawat sunod-sunod na pagkabigo — hindi tuwing 30 segundo. */
+  const feedFailed = useCallback(
+    (feed: string, err: unknown) => {
+      if (err instanceof NetError && err.kind === 'offline') return;
+      if (!failNoticed.current[feed]) {
+        failNoticed.current[feed] = true;
+        toast(`Cannot reach the ${feed}. ${netMessage(err)} Retrying in the background.`, 'err');
+      }
+      // Saka lang sinusuri isa-isa ang mga endpoint — hindi na sa bawat pagbukas.
+      if (Date.now() - probedAt.current > 120000) {
+        probedAt.current = Date.now();
+        void runProbes();
+      }
+    },
+    [toast, runProbes]
+  );
+
+  /** Inilalapat ang sagot ng DMC sheet — mula sa live na kuha o sa kopya sa device. */
+  const applyCoverage = useCallback(
+    (data: unknown, announce: boolean) => {
+      const formatted: Coverage[] = rowsOf(data)
+        .filter((row: any) => row['Coverage Details'] || row['Coverage ID'])
+        .map((row: any) => {
+          const rawDate = row['Date Uploaded'];
+          const d = parseDate(rawDate);
+          return {
+            id: String(row['Coverage ID'] ?? ''),
+            details: String(row['Coverage Details'] ?? ''),
+            personnel: String(row['Assigned Personnel'] || 'Unassigned'),
+            gdrive: String(row['GDrive Link'] || ''),
+            socialMediaLink: String(row['Social Media Link'] || ''),
+            status: String(row['DMC Status'] || 'Upcoming'),
+            date: d ? dayKey(d) : String(rawDate || ''),
+            dateObj: d,
+          };
+        })
+        .reverse();
+
+      if (announce && bootedRef.current) {
+        const fresh = formatted.filter((c) => c.id && !seenIds.current.has(c.id));
+        if (fresh.length === 1) toast(`New record: ${fresh[0].details.slice(0, 60)}`, 'new');
+        else if (fresh.length > 1) toast(`${fresh.length} new records came in`, 'new');
+      }
+      formatted.forEach((c) => c.id && seenIds.current.add(c.id));
+      setCoverages(formatted);
+    },
+    [toast]
+  );
+
   const fetchTasks = useCallback(
     async (manual = false) => {
+      if (inflight.current.dmc) return;
+      inflight.current.dmc = true;
       if (manual) setRefreshing(true);
       try {
-        const res = await fetch(SCRIPT_URL, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-
-        const formatted: Coverage[] = (Array.isArray(data) ? data : [])
-          .filter((row: any) => row['Coverage Details'] || row['Coverage ID'])
-          .map((row: any) => {
-            const rawDate = row['Date Uploaded'];
-            const d = parseDate(rawDate);
-            return {
-              id: String(row['Coverage ID'] ?? ''),
-              details: String(row['Coverage Details'] ?? ''),
-              personnel: String(row['Assigned Personnel'] || 'Unassigned'),
-              gdrive: String(row['GDrive Link'] || ''),
-              socialMediaLink: String(row['Social Media Link'] || ''),
-              status: String(row['DMC Status'] || 'Upcoming'),
-              date: d ? dayKey(d) : String(rawDate || ''),
-              dateObj: d,
-            };
-          })
-          .reverse();
-
-        if (bootedRef.current) {
-          const fresh = formatted.filter((c) => c.id && !seenIds.current.has(c.id));
-          if (fresh.length === 1) toast(`New record: ${fresh[0].details.slice(0, 60)}`, 'new');
-          else if (fresh.length > 1) toast(`${fresh.length} new records came in`, 'new');
+        const { data, text } = await getJSON<unknown>(SCRIPT_URL, { retries: 3, timeoutMs: 25000 });
+        // Walang nagbago mula sa huling kuha → walang re-render ng buong dashboard.
+        if (text !== lastText.current.dmc) {
+          applyCoverage(data, true);
+          lastText.current.dmc = text;
+          writeSnap('dmc', text);
         }
-        formatted.forEach((c) => c.id && seenIds.current.add(c.id));
-
-        setCoverages(formatted);
         setConn('live');
         setErrMsg('');
         setLastUpdated(
@@ -9469,36 +10666,35 @@ export default function App() {
             second: '2-digit',
           })
         );
+        feedOk('DMC sheet');
         if (manual) toast('Records refreshed', 'ok');
-      } catch (error: any) {
+      } catch (error) {
         setConn('error');
-        setErrMsg(error?.message || 'Could not reach the Apps Script endpoint.');
-        if (manual) toast('Refresh failed — check the Apps Script URL', 'err');
+        setErrMsg(netMessage(error));
+        feedFailed('DMC sheet', error);
+        if (manual) toast(`Refresh failed — ${netMessage(error)}`, 'err');
       } finally {
+        inflight.current.dmc = false;
         bootedRef.current = true;
         setBooted(true);
         setRefreshing(false);
       }
     },
-    [toast]
+    [toast, applyCoverage, feedOk, feedFailed]
   );
 
-  const fetchProduction = useCallback(async () => {
-    try {
-      if (!PROD_CONFIGURED) {
-        setProdReady('missing');
-        return;
-      }
-      const res = await fetch(`${PROD_SCRIPT_URL}?sheet=all`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const raw = await res.json();
-
+  /**
+   * Inilalapat ang sagot ng ?sheet=all — mula sa live na kuha O sa kopyang
+   * naka-imbak sa device. Ang sirang hilera ay nilalaktawan (rowsOf).
+   */
+  const applyProduction = useCallback(
+    (raw: any, live = true): boolean => {
       // Bagong backend → { requests, production }. Lumang backend → array lang.
       const data = Array.isArray(raw) ? raw : raw?.production;
-      const reqRows = Array.isArray(raw?.requests) ? raw.requests : [];
+      const reqRows = rowsOf(raw?.requests);
 
-      const evRows = Array.isArray(raw?.events) ? raw.events : [];
-      const asgRows = Array.isArray(raw?.assignments) ? raw.assignments : [];
+      const evRows = rowsOf(raw?.events);
+      const asgRows = rowsOf(raw?.assignments);
 
       setAssignments(
         asgRows
@@ -9582,8 +10778,8 @@ export default function App() {
           })
           .reverse()
       );
-      // Ang mga pag-save na tumatakbo pa ay hindi binubura ng refresh.
-      setEvents(applyOutbox(sheetEvents.filter((e) => !isReplaced(e)), outboxRef.current));
+      // Ang pila sa device ay ipinapatong sa `events` (overlayEvents), hindi dito.
+      setRawEvents(sheetEvents.filter((e) => !isReplaced(e)));
 
       setRequests(
         reqRows
@@ -9620,12 +10816,13 @@ export default function App() {
       if (!Array.isArray(data)) throw new Error('unexpected shape');
 
       // Luma pang Apps Script? Coverage rows ang babalik — walang Output ID.
-      if (data.length > 0 && !('Output ID' in data[0]) && !('Output Title' in data[0])) {
+      const first = rowsOf(data)[0];
+      if (first && !('Output ID' in first) && !('Output Title' in first)) {
         setProdReady('missing');
-        return;
+        return false;
       }
 
-      const mapped: Output[] = data
+      const mapped: Output[] = rowsOf(data)
         .filter((r: any) => r['Output Title'] || r['Output ID'])
         .map((r: any) => {
           const runtime = String(r['Runtime'] ?? '');
@@ -9655,42 +10852,320 @@ export default function App() {
 
       setOutputs(mapped);
       setProdReady('ok');
+      // May personnel config sa sagot? Gamitin; kung wala, walang nagbabago.
+      cfg.adopt(raw, live);
+      return true;
+    },
+    [cfg.adopt]
+  );
+
+  const fetchProduction = useCallback(async (): Promise<boolean> => {
+    if (!PROD_CONFIGURED) {
+      setProdReady('missing');
+      return false;
+    }
+    if (inflight.current.prod) return false;
+    inflight.current.prod = true;
+    const started = Date.now();
+    try {
+      const { data: raw, text } = await getJSON<any>(`${PROD_SCRIPT_URL}?sheet=all`, {
+        retries: 3,
+        timeoutMs: 30000,
+      });
+      // Walang nagbago → walang re-render ng buong dashboard.
+      if (text !== lastText.current.prod) {
+        const ok = applyProduction(raw);
+        lastText.current.prod = text;
+        if (ok) writeSnap('prod', text);
+      }
       loadedOnce.current = true;
       setStale(false);
-    } catch {
-      // Kapag may nakuha na tayong data dati, huwag burahin ang screen dahil
-      // lang sa isang sablay na poll — ipakita ang huling nakuha at markahang
-      // stale. 'Missing' lang kapag talagang hindi pa nakakakuha kahit minsan.
+      setProdError('');
+      setSnapAt(null);
+      feedOk('AV Nexus sheet');
+      // Ang kinumpirma BAGO nagsimula ang kuhang ito ay nasa sheet na.
+      setSettled((prev) => (prev.length ? prev.filter((x) => x.at > started) : prev));
+      return true;
+    } catch (err) {
+      // Kapag may nakuha na dati, huwag burahin ang screen — ipakita ang huling
+      // nakuha at markahang stale. Hindi na "not connected" dahil lang sa isang
+      // sablay na kuha sa mobile data.
       if (loadedOnce.current) setStale(true);
-      else setProdReady('missing');
+      setProdError(netMessage(err));
+      feedFailed('AV Nexus sheet', err);
+      return false;
+    } finally {
+      inflight.current.prod = false;
     }
+  }, [applyProduction, feedOk, feedFailed]);
+
+  /* ------------------------------------------------------- SYNC ENGINE -- */
+  const flushing = useRef(false);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleFlush = useCallback((ms: number) => {
+    if (flushTimer.current) clearTimeout(flushTimer.current);
+    flushTimer.current = setTimeout(() => {
+      flushTimer.current = null;
+      flushRef.current();
+    }, Math.max(250, ms));
   }, []);
 
+  /** Isang refresh pagkatapos ng sunod-sunod na pag-save — hindi isa bawat save. */
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    const tick = () => {
+      if (inflight.current.prod) {
+        refreshTimer.current = setTimeout(tick, 1500);
+        return;
+      }
+      refreshTimer.current = null;
+      void fetchProduction();
+    };
+    refreshTimer.current = setTimeout(tick, 1200);
+  }, [fetchProduction]);
+
+  /** Tapos na — alisin sa pila at ipaalam ang resulta gaya ng dati. */
+  const onOpDone = useCallback(
+    (op: SyncOp, out: any) => {
+      const made = op.action === 'addEvent' || op.action === 'addOutput' || op.action === 'addRequest';
+      const realId = made && out?.id ? String(out.id) : '';
+      commitQueue((list) => {
+        const rest = list.filter((o) => o.id !== op.id);
+        // Ang crew ng bagong event ay isinusulat kapag may Event ID na.
+        if (op.roster && realId) {
+          rest.push(
+            makeOp(
+              'setAssignments',
+              { action: 'setAssignments', eventId: realId, rows: op.roster },
+              op.label.replace(/^Create/, 'Crew for'),
+              realId
+            )
+          );
+        }
+        return rest;
+      });
+      if (op.event) {
+        const ev = op.event;
+        setSettled((prev) => [
+          ...prev,
+          { at: Date.now(), create: op.action === 'addEvent', event: ev, realId: realId || undefined },
+        ]);
+      }
+      const fields = (op.body.payload || op.body.patch || {}) as Record<string, unknown>;
+      const status = String(fields.approvalStatus || '');
+      if (op.notice === 'event-create') {
+        if (out?.recovered) toast('Event saved — confirmed in the sheet after a dropped connection', 'ok');
+        else if (out?.emailed) toast(`Event created — approval email sent to ${out.emailTo || 'the Division Chief'}`, 'ok');
+        else toast(status === 'For Evaluation' ? 'Event created — queued for AV evaluation' : 'Event created', 'ok');
+        if (out?.emailError) {
+          setLastError({
+            what: 'Approval email',
+            detail: `The event was saved, but the approval email was not sent. ${out.emailError}`,
+          });
+        }
+      } else if (op.notice === 'event-update') {
+        if (out?.emailed) toast(`Event updated — email sent to ${out.emailTo}`, 'ok');
+        else toast(status === 'For Evaluation' ? 'Saved — still with the AV Team for evaluation' : 'Event updated', 'ok');
+        if (out?.emailError) {
+          setLastError({ what: 'Approval email', detail: `The change was saved, but no email went out. ${out.emailError}` });
+        }
+      } else if (op.doneText) {
+        toast(op.doneText, 'ok');
+      }
+      // Hindi naisave ang sulat kahit naisave ang event (hal. walang Drive permission).
+      if (out?.letterWarning) setLastError({ what: 'Request letter', detail: String(out.letterWarning) });
+      try {
+        channelRef.current?.postMessage('changed');
+      } catch {
+        /* sarado na ang channel */
+      }
+      scheduleRefresh();
+    },
+    [commitQueue, toast, scheduleRefresh]
+  );
+
+  /** Pumalya — ulitin mamaya, o itigil kapag tinanggihan talaga ng server. */
+  const onOpError = useCallback(
+    (op: SyncOp, err: unknown) => {
+      const msg = netMessage(err);
+      const kind = err instanceof NetError ? err.kind : 'network';
+      if (kind === 'server') {
+        // Tinanggihan (hal. walang pahintulot, kulang na field): walang saysay
+        // ulitin. Ibinabalik ang form bilang draft para walang mawala.
+        commitQueue((list) => list.filter((o) => o.id !== op.id));
+        if (op.draftKey && op.draft) {
+          try {
+            window.localStorage.setItem(op.draftKey, op.draft);
+          } catch {
+            /* puno ang storage */
+          }
+        }
+        toast(`${op.label}: ${msg}${op.draft ? ' Your form was kept as a draft.' : ''}`, 'err');
+        setLastError({ what: op.label, detail: msg });
+        return;
+      }
+      // Walang koneksiyon o kailangang mag-sign in: maghintay lang, hindi bilang na pagkabigo.
+      const counts = kind !== 'offline' && kind !== 'auth';
+      const attempts = op.attempts + (counts ? 1 : 0);
+      const failed = kind === 'setup' || attempts >= MAX_AUTO_ATTEMPTS;
+      const ambiguous = op.ambiguous || (err instanceof NetError && err.ambiguous);
+      commitQueue((list) =>
+        list.map(
+          (o): SyncOp =>
+            o.id === op.id
+              ? {
+                  ...o,
+                  state: failed ? 'failed' : 'queued',
+                  attempts,
+                  nextAt: Date.now() + (counts ? backoffMs(attempts, 2000, 60000) : 0),
+                  lastError: msg,
+                  ambiguous,
+                  sendingSince: undefined,
+                }
+              : o
+        )
+      );
+      if (failed) {
+        toast(`${op.label} did not reach the sheet. It is saved on this device — open the sync list to retry.`, 'err');
+      }
+    },
+    [commitQueue, toast]
+  );
+
+  /** Ipinapadala ang pila, isa-isa, sa tamang pagkakasunod. Iisang tab lang ang gumagawa nito. */
+  const flushQueue = useCallback(
+    async (force = false) => {
+      if (flushing.current || !PROD_CONFIGURED) return;
+      if (!isOnline() && !force) return;
+      // Kailangan ng pagkakakilanlan para sumulat; hihintayin ang pag-sign in.
+      if (AUTH_ENABLED && !sessionRef.current && !userRef.current) return;
+      if (!readQueue().length) return;
+      if (!takeLease()) {
+        scheduleFlush(20000);
+        return;
+      }
+      flushing.current = true;
+      try {
+        const now = Date.now();
+        commitQueue((list) =>
+          list.map((o): SyncOp => {
+            // Naputol habang ipinapadala (sinara ang tab, namatay ang baterya):
+            // baka naisulat na, kaya susuriin muna ang sheet bago ulitin.
+            if (o.state === 'sending' && (o.sendingSince || 0) < now - 45000) {
+              return { ...o, state: 'queued', ambiguous: true, sendingSince: undefined };
+            }
+            // "Retry now" o bumalik ang internet: subukan agad ang lahat.
+            if (force && o.state !== 'sending') {
+              return { ...o, state: 'queued', nextAt: 0, attempts: o.state === 'failed' ? 0 : o.attempts };
+            }
+            return o;
+          })
+        );
+        for (let guard = 0; guard < 60; guard++) {
+          if (!isOnline() || !takeLease()) break;
+          const op = nextSendable(readQueue(), Date.now());
+          if (!op) break;
+          commitQueue((list) =>
+            list.map((o): SyncOp => (o.id === op.id ? { ...o, state: 'sending', sendingSince: Date.now() } : o))
+          );
+          try {
+            let out: any = null;
+            // Hindi alam kung naisulat ang naunang subok → silipin muna ang sheet.
+            if (op.ambiguous && op.probe) {
+              const found = await probeExisting(op.probe);
+              if (found) out = { ok: true, id: found, recovered: true };
+            }
+            if (!out) out = await authedPost(op.body, { retries: 0, timeoutMs: 45000 });
+            onOpDone(op, out);
+          } catch (err) {
+            onOpError(op, err);
+            if (err instanceof NetError && (err.kind === 'offline' || err.kind === 'auth')) break;
+          }
+        }
+      } finally {
+        flushing.current = false;
+        dropLease();
+        const later = readQueue().filter((o) => o.state === 'queued' && o.nextAt > Date.now());
+        if (later.length) scheduleFlush(Math.min(...later.map((o) => o.nextAt)) - Date.now());
+      }
+    },
+    [authedPost, commitQueue, onOpDone, onOpError, scheduleFlush]
+  );
+  flushRef.current = (force?: boolean) => {
+    void flushQueue(force);
+  };
+
+  /** Idinaragdag sa pila (naka-imbak agad sa device), saka sinusubukang ipadala. */
+  const enqueue = useCallback(
+    (ops: SyncOp[], opts: { silentOffline?: boolean } = {}) => {
+      commitQueue((list) => [...list, ...ops]);
+      if (!queuePersisted) {
+        toast('This device could not keep a backup copy (storage full or blocked). Keep this tab open until it syncs.', 'err');
+      } else if (!isOnline()) {
+        if (!opts.silentOffline) toast('Saved on this device. It will sync to the sheet when you are back online.', 'info');
+      } else if (AUTH_ENABLED && !sessionRef.current && !userRef.current) {
+        toast('Saved on this device. Sign in to send it to the sheet.', 'info');
+      }
+      flushRef.current();
+    },
+    [commitQueue, toast]
+  );
+
+  /** Itapon ang isang hindi pa naipapadalang pagbabago; ang form ay ibinabalik bilang draft. */
+  const discardOp = useCallback(
+    (id: string) => {
+      const op = readQueue().find((o) => o.id === id);
+      if (!op) return;
+      if (op.state === 'sending') {
+        toast('That change is being sent right now. Wait a moment.', 'info');
+        return;
+      }
+      const note = op.draft ? ' The form will be kept as a draft.' : '';
+      if (!window.confirm(`Discard "${op.label}"? It has not reached the sheet.${note}`)) return;
+      commitQueue((list) => list.filter((o) => o.id !== id));
+      if (op.draftKey && op.draft) {
+        try {
+          window.localStorage.setItem(op.draftKey, op.draft);
+        } catch {
+          /* puno ang storage */
+        }
+      }
+      toast('Change discarded', 'info');
+    },
+    [commitQueue, toast]
+  );
+
+  // Pagka-sign in: ipadala ang naghihintay.
+  useEffect(() => {
+    if (session || user) flushRef.current();
+  }, [session, user]);
+
   const submitOutput = useCallback(
-    async (payload: Record<string, string | number>) => {
+    (payload: Record<string, string | number>) => {
       if (!PROD_CONFIGURED) {
         toast('Set PROD_SCRIPT_URL in App.tsx before logging entries.', 'err');
         return;
       }
-      setSubmitting(true);
-      try {
-        await authedPost({ action: 'addOutput', payload });
-        toast('Output saved to the Production Log', 'ok');
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Could not save.';
-        toast(msg, 'err');
-        setLastError({ what: 'Log video output', detail: msg });
-      } finally {
-        setSubmitting(false);
-        setLogOpen(false);
-        setTimeout(() => fetchProduction(), 1400);
-      }
+      const title = String(payload.title || 'output');
+      const date = String(payload.dateAssigned || '');
+      const known = outputs
+        .filter((o) => normTitle(o.title) === normTitle(title) && (o.assigned ? dayKey(o.assigned) : '') === date)
+        .map((o) => o.id);
+      enqueue([
+        makeOp('addOutput', { action: 'addOutput', payload }, `Log output “${title}”`, `new:${newOpId()}`, {
+          probe: { kind: 'output', title, date, known },
+          doneText: 'Output saved to the Production Log',
+        }),
+      ]);
+      setLogOpen(false);
     },
-    [fetchProduction, toast]
+    [toast, enqueue, outputs]
   );
 
   const submitEvent = useCallback(
-    async (
+    (
       form: Record<string, string>,
       id: string | null,
       roster?: { personnel: string; roles: string[]; status: string }[]
@@ -9699,9 +11174,9 @@ export default function App() {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
-      // Ang event na sine-save pa lang ay wala pang tunay na ID sa sheet.
+      // Ang event na nasa pila pa ay wala pang tunay na Event ID sa sheet.
       if (id && isLocalId(id)) {
-        toast('This event is still being saved — try again in a moment.', 'info');
+        toast('This event has not reached the sheet yet — try again once it has synced.', 'info');
         return;
       }
 
@@ -9721,7 +11196,7 @@ export default function App() {
         requestedServices: form.requestedServices,
         agreedServices: form.agreedServices || '',
         reopen: form.reopen === 'yes',
-        requestLetter: form.requestLetter ? JSON.parse(form.requestLetter) : undefined,
+        requestLetter: letterOf(form.requestLetter),
         deliveredServices: form.deliveredServices,
         reason: form.reason,
         approvalStatus: normalisedStatus,
@@ -9767,14 +11242,13 @@ export default function App() {
           }
         : { action: 'addEvent', payload: { ...payload, actor } };
 
-      // OPTIMISTIC — isara agad ang modal at ipakita agad ang resulta. Ang
-      // pagsulat sa sheet ay tumatakbo sa likod at hindi na hinihintay ng
-      // screen; puwede ka nang lumipat ng view o tab habang nagse-save.
-      const key = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      const localId = id || `${LOCAL_PREFIX}${key}`;
+      // Isinasara agad ang modal at lumalabas agad ang event. Ang pagsulat ay
+      // nasa pila sa device — walang nawawala kahit walang internet.
+      const asApprover = !!id && canDecide(myRole);
+      const localId = id || `${LOCAL_PREFIX}${newOpId()}`;
       const base = id ? events.find((e) => e.id === id) ?? null : null;
       const optimistic: AVEvent =
-        id && base && canDecide(myRole)
+        asApprover && base
           ? { ...base, approval: statusKey, approvalRaw: normalisedStatus, reason: form.reason ?? base.reason }
           : eventFromForm(form, localId, base, myName);
       const dKey = form._draftKey || draftKeyFor(id);
@@ -9784,124 +11258,39 @@ export default function App() {
       } catch {
         /* private mode */
       }
+      // Ang pila na ang may hawak ng datos; kapag tinanggihan ng server, ibabalik ang draft.
       writeDraft(dKey, null);
-      const item: OutboxItem = {
-        key,
-        kind: id ? 'update' : 'create',
-        event: optimistic,
-        before: base,
-        state: 'saving',
-      };
-      putOutbox((prev) => [...prev.filter((o) => !(id && o.event.id === id)), item]);
-      setEvents((prev) => applyOutbox(prev, [item]));
-      setEvModal({ open: false, editing: null });
-
-      try {
-        const out = await authedPost(body);
-
-        // The roster is a separate write — it needs the Event ID first.
-        // Approvers do not touch the crew list, so skip it for them.
-        const eventId = id || (out && out.id ? String(out.id) : null);
-        if (eventId && roster && !canDecide(myRole)) {
-          await authedPost({
-            action: 'setAssignments',
-            eventId,
-            rows: roster.filter((r) => r.personnel && r.roles.length),
-          });
-        }
-        // Huwag sabihing naipadala ang email kung hindi naman.
-        if (id) {
-          if (out?.emailed) {
-            toast(`Event updated — email sent to ${out.emailTo}`, 'ok');
-          } else {
-            toast(
-              normalisedStatus === 'For Evaluation'
-                ? 'Saved — still with the AV Team for evaluation'
-                : 'Event updated',
-              'ok'
-            );
-            if (out?.emailError) {
-              setLastError({
-                what: 'Approval email',
-                detail: `The change was saved, but no email went out. ${out.emailError}`,
-              });
-            }
+      const crew = roster && !canDecide(myRole) ? roster : undefined;
+      const title = form.title || base?.title || 'event';
+      const sameKey = (e: AVEvent) =>
+        normTitle(e.title) === normTitle(form.title) &&
+        (e.eventDate ? dayKey(e.eventDate) : '') === (form.eventDate || '');
+      const ops: SyncOp[] = [
+        makeOp(
+          String(body.action),
+          body as Record<string, unknown>,
+          id ? `Update “${title}”` : `Create “${title}”`,
+          id || localId,
+          {
+            event: optimistic,
+            roster: id ? undefined : crew,
+            probe: id
+              ? undefined
+              : { kind: 'event', title: form.title, date: form.eventDate || '', known: rawEvents.filter(sameKey).map((e) => e.id) },
+            draftKey: dKey,
+            draft: stash,
+            notice: id ? 'event-update' : 'event-create',
           }
-        }
-        // Ang sulat ay maaaring hindi maisave kahit na-save ang event —
-        // kapag wala pang Drive permission ang script. Dapat malaman agad.
-        if (out?.letterWarning) {
-          setLastError({ what: 'Request letter', detail: String(out.letterWarning) });
-        }
-        if (id) {
-          /* nasa itaas na ang mensahe para sa update */
-        } else if (out?.emailed) {
-          toast(`Event created — approval email sent to ${out.emailTo || 'the Division Chief'}`, 'ok');
-        } else {
-          toast(
-            normalisedStatus === 'For Evaluation'
-              ? 'Event created — queued for AV evaluation'
-              : 'Event created',
-            'ok'
-          );
-          if (out?.emailError) {
-            setLastError({
-              what: 'Approval email',
-              detail:
-                `The event was saved, but the approval email was not sent. ${out.emailError}`,
-            });
-          }
-        }
-
-        // Kumpirmado na ng sheet. Kinukuha ng placeholder ang totoong Event
-        // ID, para pagdating ng refresh ay mapalitan ito nang walang kurap.
-        if (!id && eventId) {
-          setEvents((prev) => prev.map((e) => (e.id === localId ? { ...e, id: eventId } : e)));
-        }
-        putOutbox((prev) =>
-          prev.map((o) =>
-            o.key === key
-              ? {
-                  ...o,
-                  state: 'synced' as const,
-                  event: !id && eventId ? { ...o.event, id: eventId } : o.event,
-                }
-              : o
-          )
-        );
-        try {
-          channelRef.current?.postMessage('changed');
-        } catch {
-          /* sarado na ang channel */
-        }
-        setTimeout(async () => {
-          await fetchProduction();
-          putOutbox((prev) => prev.filter((o) => o.key !== key));
-        }, 1400);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Could not save.';
-        // Hindi pumasok. Ibalik ang dating anyo, at ibalik ang form bilang
-        // draft — pagbukas muli ng modal, nandoon pa ang lahat ng tinype.
-        if (outboxRef.current.some((o) => o.key === key)) {
-          putOutbox((prev) => prev.filter((o) => o.key !== key));
-          setEvents((prev) =>
-            id
-              ? prev.map((e) => (e.id === id && base ? base : e))
-              : prev.filter((e) => e.id !== localId)
-          );
-        }
-        if (stash) {
-          try {
-            window.localStorage.setItem(dKey, stash);
-          } catch {
-            /* puno o private mode */
-          }
-        }
-        toast(`${msg} Your form was kept as a draft.`, 'err');
-        setLastError({ what: id ? 'Update event' : 'Create event', detail: msg });
+        ),
+      ];
+      // Crew ng umiiral na event: kasunod ng update, parehong target → tamang pagkakasunod.
+      if (id && crew) {
+        ops.push(makeOp('setAssignments', { action: 'setAssignments', eventId: id, rows: crew }, `Crew for “${title}”`, id));
       }
+      setEvModal({ open: false, editing: null });
+      enqueue(ops);
     },
-    [fetchProduction, toast, actor, myRole, myName, events, authedPost, putOutbox]
+    [toast, actor, myRole, myName, events, rawEvents, enqueue]
   );
 
   const importEvents = useCallback(
@@ -9910,9 +11299,13 @@ export default function App() {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
+      if (!isOnline()) {
+        toast('You are offline. Importing needs a connection — your file is still here, try again when you are back online.', 'err');
+        return;
+      }
       setSubmitting(true);
       try {
-        const out = await authedPost({ action: 'importEvents', rows });
+        const out = await authedPost({ action: 'importEvents', rows }, { retries: 2 });
         const made = Number(out?.created || 0);
         const skipped = Number(out?.skipped || 0);
         toast(
@@ -9951,7 +11344,12 @@ export default function App() {
         return;
       }
       try {
-        const out = await authedPost({ action: 'notify', id });
+        if (!isOnline()) {
+          toast('You are offline. The approval email needs a connection — try again when you are back online.', 'err');
+          return;
+        }
+        // Hindi inuulit nang kusa — baka madoble ang email.
+        const out = await authedPost({ action: 'notify', id }, { retries: 0 });
         toast(out?.to ? `Approval email sent to ${out.to}` : 'Approval email sent', 'ok');
       } catch (err) {
         // Ang server ay nagsasabi ng eksaktong dahilan. Huwag itong itapon.
@@ -9964,7 +11362,7 @@ export default function App() {
   );
 
   const stepEvent = useCallback(
-    async (ev: AVEvent, key: PipelineKey, next: PipelineState) => {
+    (ev: AVEvent, key: PipelineKey, next: PipelineState) => {
       if (!PROD_CONFIGURED) {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
@@ -9972,33 +11370,37 @@ export default function App() {
       // Pag-tick ng Client delivery: itala rin ang petsa kung wala pa, para
       // masukat ang turnaround. Hindi na kailangang punan nang hiwalay.
       const stampDate = key === 'delivery' && next === 'done' && !ev.dateDelivered;
-      setEvents((prev) =>
-        prev.map((x) =>
-          x.id === ev.id
-            ? {
-                ...x,
-                pipeline: { ...x.pipeline, [key]: next },
-                dateDelivered: stampDate ? new Date() : x.dateDelivered,
-              }
-            : x
-        )
-      );
-      try {
-        const patch: Record<string, string> = { [stepField(key)]: PIPELINE_META[next].label };
-        if (stampDate) patch.dateDelivered = dayKey(new Date());
-        await authedPost({
-            action: 'updateEvent',
-            id: ev.id,
-            patch,
-          });
-      } catch (err) {
-        // Ang optimistic na pagbabago ay bumalik sa dating anyo kapag
-        // tinanggihan — dapat makita ng tao kung bakit.
-        toast(err instanceof Error ? err.message : 'Could not update.', 'err');
-      }
-      setTimeout(() => fetchProduction(), 1600);
+      const patch: Record<string, string> = { [stepField(key)]: PIPELINE_META[next].label };
+      if (stampDate) patch.dateDelivered = dayKey(new Date());
+      const step = PIPELINE_STEPS.find((s) => s.key === key)?.label || key;
+      enqueue([
+        makeOp('updateEvent', { action: 'updateEvent', id: ev.id, patch }, `${step} on “${ev.title || ev.id}”`, ev.id, {
+          event: {
+            ...ev,
+            pipeline: { ...ev.pipeline, [key]: next },
+            dateDelivered: stampDate ? new Date() : ev.dateDelivered,
+          },
+        }),
+      ]);
     },
-    [fetchProduction, toast, authedPost]
+    [toast, enqueue]
+  );
+
+  /** Matatag na callbacks para sa EventCardMemo — hindi nire-render ang lahat ng card. */
+  const openEvent = useCallback(
+    (ev: AVEvent) => {
+      if (isLocalId(ev.id)) toast('Not in the sheet yet — open it again once it has synced.', 'info');
+      else setEvModal({ open: true, editing: ev });
+    },
+    [toast]
+  );
+
+  const stepFromCard = useCallback(
+    (ev: AVEvent, key: PipelineKey, next: PipelineState) => {
+      if (isLocalId(ev.id)) toast('Not in the sheet yet — try again once it has synced.', 'info');
+      else stepEvent(ev, key, next);
+    },
+    [toast, stepEvent]
   );
 
   /** Import sa pamamagitan ng importEvents — ibinabalik ang resulta. */
@@ -10008,8 +11410,12 @@ export default function App() {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return null;
       }
+      if (!isOnline()) {
+        toast(`You are offline. ${label} needs a connection — try again when you are back online.`, 'err');
+        return null;
+      }
       try {
-        const out = await authedPost({ action: 'importEvents', rows });
+        const out = await authedPost({ action: 'importEvents', rows }, { retries: 2 });
         const created = Number(out?.created || 0);
         const skipped = Number(out?.skipped || 0);
         if (created) toast(`${label}${created > 1 ? ` (${created})` : ''}`, 'ok');
@@ -10047,15 +11453,17 @@ export default function App() {
    * araw), hindi tayo mag-iimbento ng petsa — hindi na lang susukatin ang TAT.
    */
   const markDone = useCallback(
-    async (ev: AVEvent, quiet = false) => {
+    (ev: AVEvent, quiet = false) => {
       if (!PROD_CONFIGURED) {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
       if (isLocalId(ev.id)) {
-        toast('Still saving to the sheet — try again in a moment.', 'info');
+        toast('Not in the sheet yet — try again once it has synced.', 'info');
         return;
       }
+      // Lumang event (lampas 30 araw): huwag lagyan ng petsa ngayon ang
+      // naihatid — sisira iyon sa turnaround. Hayaang blangko.
       const today0 = new Date();
       today0.setHours(0, 0, 0, 0);
       const end = ev.endDate || ev.eventDate;
@@ -10069,24 +11477,17 @@ export default function App() {
         patch[stepField(st.key)] = PIPELINE_META.done.label;
       });
       if (!ev.dateDelivered && deliveredOn) patch.dateDelivered = dayKey(deliveredOn);
-      setEvents((prev) => prev.map((x) => (x.id === ev.id ? { ...x, pipeline, dateDelivered: deliveredOn } : x)));
-      try {
-        await authedPost({ action: 'updateEvent', id: ev.id, patch });
-        if (!quiet) toast(`Marked as done: ${ev.title || ev.id}`, 'ok');
-        try {
-          channelRef.current?.postMessage('changed');
-        } catch {
-          /* sarado na ang channel */
-        }
-      } catch (err) {
-        setEvents((prev) => prev.map((x) => (x.id === ev.id ? ev : x)));
-        const msg = err instanceof Error ? err.message : 'Could not mark as done.';
-        toast(msg, 'err');
-        setLastError({ what: 'Mark as done', detail: msg });
-      }
-      setTimeout(() => fetchProduction(), 1600);
+      enqueue(
+        [
+          makeOp('updateEvent', { action: 'updateEvent', id: ev.id, patch }, `Mark “${ev.title || ev.id}” as done`, ev.id, {
+            event: { ...ev, pipeline, dateDelivered: deliveredOn },
+            doneText: quiet ? '' : `Marked as done: ${ev.title || ev.id}`,
+          }),
+        ],
+        { silentOffline: quiet }
+      );
     },
-    [authedPost, toast, fetchProduction]
+    [toast, enqueue]
   );
 
   // Ang bagong import ay minamarkahang tapos pagdating mula sa sheet, at
@@ -10108,14 +11509,15 @@ export default function App() {
           )
           .map((a) => ({ personnel: a.personnel, roles: a.roles, status: a.status }));
         if (rows.length) {
-          authedPost({ action: 'setAssignments', eventId: ev.id, rows }).catch(() =>
-            toast('Could not copy the crew to the new record. Add them inside the event.', 'err')
+          enqueue(
+            [makeOp('setAssignments', { action: 'setAssignments', eventId: ev.id, rows }, `Copy crew to “${ev.title}”`, ev.id)],
+            { silentOffline: true }
           );
         }
       }
       if (!isClosed(ev)) markDone(ev, true);
     });
-  }, [events, assignments, markDone, authedPost, toast]);
+  }, [events, assignments, markDone, enqueue]);
 
   /**
    * Ang triage record ng event na tapos na: papalitan ng completed past
@@ -10123,6 +11525,10 @@ export default function App() {
    */
   const recordPast = useCallback(
     async (ev: AVEvent) => {
+      if (!isOnline()) {
+        toast('You are offline. Recording a past event needs a connection — try again when you are back online.', 'err');
+        return;
+      }
       if (!ev.eventDate || !ev.requested.length) {
         toast('Add the event date and at least one requested service first.', 'err');
         return;
@@ -10154,7 +11560,7 @@ export default function App() {
       }
       // 3. Pumasok na ang bago: kanselahin ang luma bilang doble at itago.
       pendingDone.current.set(marker, { crewFrom: ev.id });
-      setEvents((prev) => prev.filter((x) => x.id !== ev.id));
+      setHiddenIds((h) => (h.includes(ev.id) ? h : [...h, ev.id]));
       try {
         await authedPost({
           action: 'updateEvent',
@@ -10166,6 +11572,7 @@ export default function App() {
           },
         });
       } catch (err) {
+        setHiddenIds((h) => h.filter((x) => x !== ev.id));
         const msg = err instanceof Error ? err.message : 'Could not close the old triage record.';
         toast(msg, 'err');
         setLastError({ what: 'Close the old triage record', detail: msg });
@@ -10206,12 +11613,11 @@ export default function App() {
   );
 
   const submitRequest = useCallback(
-    async (form: Record<string, string>, id: string | null) => {
+    (form: Record<string, string>, id: string | null) => {
       if (!PROD_CONFIGURED) {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
-      setSubmitting(true);
       const body = id
         ? {
             action: 'updateRequest',
@@ -10228,23 +11634,30 @@ export default function App() {
             },
           }
         : { action: 'addRequest', payload: form };
-
-      try {
-        await authedPost(body);
-        toast(id ? 'Request updated' : 'Request logged', 'ok');
-      } catch (err) {
-        toast(err instanceof Error ? err.message : 'Could not save.', 'err');
-      } finally {
-        setSubmitting(false);
-        setReqModal({ open: false, editing: null });
-        setTimeout(() => fetchProduction(), 1400);
-      }
+      const title = form.title || 'request';
+      const date = form.dateRequested || '';
+      const known = requests
+        .filter((r) => normTitle(r.title) === normTitle(title) && (r.dateRequested ? dayKey(r.dateRequested) : '') === date)
+        .map((r) => r.id);
+      enqueue([
+        makeOp(
+          body.action,
+          body,
+          id ? `Update request “${title}”` : `Log request “${title}”`,
+          id ? `req:${id}` : `new:${newOpId()}`,
+          {
+            probe: id ? undefined : { kind: 'request', title, date, known },
+            doneText: id ? 'Request updated' : 'Request logged',
+          }
+        ),
+      ]);
+      setReqModal({ open: false, editing: null });
     },
-    [fetchProduction, toast, actor, authedPost]
+    [toast, enqueue, requests]
   );
 
   const advanceStage = useCallback(
-    async (o: Output) => {
+    (o: Output) => {
       const i = STAGE_ORDER.indexOf(o.stage);
       const next = STAGE_ORDER[Math.min(STAGE_ORDER.length - 1, i + 1)];
       if (next === o.stage) return;
@@ -10253,72 +11666,146 @@ export default function App() {
         return;
       }
       setBusyId(o.id);
+      // Lumilipat agad sa screen; ang pila ang magpapadala.
       setOutputs((prev) =>
         prev.map((x) => (x.id === o.id ? { ...x, stage: next, stageRaw: STAGE_META[next].label } : x))
       );
-      try {
-        await authedPost({ action: 'updateStage', id: o.id, stage: STAGE_META[next].label });
-      } catch (err) {
-        toast(err instanceof Error ? err.message : 'Could not update.', 'err');
-      }
-      setTimeout(() => {
-        fetchProduction();
-        setBusyId(null);
-      }, 1400);
+      enqueue([
+        makeOp(
+          'updateStage',
+          { action: 'updateStage', id: o.id, stage: STAGE_META[next].label },
+          `Move “${o.title}” to ${STAGE_META[next].label}`,
+          `out:${o.id}`,
+          { doneText: `Moved to ${STAGE_META[next].label}` }
+        ),
+      ]);
+      setTimeout(() => setBusyId(null), 700);
     },
-    [fetchProduction, toast, authedPost]
+    [toast, enqueue]
   );
 
-  const fetchForms = useCallback(async () => {
-    if (!FORMS_BRIDGE_URL) return;
-    try {
-      const res = await fetch(FORMS_BRIDGE_URL, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (!data || data.ok === false) throw new Error((data && data.error) || 'Bridge error');
-      setIntake(parseIntake(data.requests));
-      setCsmRows(parseCSMRows(data.csm));
-      setFormsState('ok');
-    } catch {
-      // May lumang datos pa — huwag burahin dahil lang pumalya ang isang refresh.
-      setFormsState((st) => (st === 'ok' ? 'ok' : 'error'));
+  /** Inilalapat ang sagot ng forms bridge — mula sa live na kuha o sa kopya sa device. */
+  const applyForms = useCallback((data: any) => {
+    if (!data || data.ok === false) {
+      throw new NetError('server', (data && data.error) || 'The forms bridge reported an error.');
     }
+    setIntake(parseIntake(data.requests));
+    setCsmRows(parseCSMRows(data.csm));
+    setFormsState('ok');
   }, []);
 
+  const fetchForms = useCallback(async () => {
+    if (!FORMS_BRIDGE_URL || inflight.current.forms) return;
+    inflight.current.forms = true;
+    try {
+      const { data, text } = await getJSON<any>(FORMS_BRIDGE_URL, { retries: 3, timeoutMs: 25000 });
+      if (text !== lastText.current.forms) {
+        applyForms(data);
+        lastText.current.forms = text;
+        writeSnap('forms', text);
+      } else {
+        setFormsState('ok');
+      }
+      feedOk('forms bridge');
+    } catch (err) {
+      // May lumang datos pa — huwag burahin dahil lang pumalya ang isang refresh.
+      setFormsState((st) => (st === 'ok' ? 'ok' : 'error'));
+      feedFailed('forms bridge', err);
+    } finally {
+      inflight.current.forms = false;
+    }
+  }, [applyForms, feedOk, feedFailed]);
+
   useEffect(() => {
-    let last = Date.now();
-    const pull = () => {
-      last = Date.now();
-      fetchTasks();
-      fetchProduction();
-      fetchForms();
+    // INSTANT NA PAGBUKAS — lalo na mula sa home screen: ang huling datos na
+    // naka-imbak sa device ang lumalabas agad, habang kinukuha ang bago.
+    let oldest = 0;
+    const hydrate = (key: 'prod' | 'dmc' | 'forms', apply: (d: any) => void) => {
+      if (lastText.current[key]) return;
+      const snap = readSnap(key);
+      if (!snap) return;
+      try {
+        apply(JSON.parse(snap.text));
+        lastText.current[key] = snap.text;
+        oldest = oldest ? Math.min(oldest, snap.at) : snap.at;
+      } catch {
+        /* sirang kopya — hintayin ang live */
+      }
     };
-    fetchTasks();
-    fetchProduction();
-    fetchForms();
+    hydrate('prod', (d) => {
+      if (applyProduction(d, false)) loadedOnce.current = true;
+    });
+    hydrate('dmc', (d) => {
+      applyCoverage(d, false);
+      setBooted(true);
+    });
+    hydrate('forms', (d) => applyForms(d));
+    if (oldest) setSnapAt(oldest);
+
+    let alive = true;
+    let last = 0;
+    const pull = (force = false) => {
+      if (!alive || (!force && Date.now() - last < 10000)) return;
+      last = Date.now();
+      // Magkakasunod, hindi sabay: mas kaunting sabay-sabay na cold start →
+      // mas kaunting "Load failed" sa mobile data.
+      void fetchProduction();
+      setTimeout(() => {
+        if (alive) void fetchTasks();
+      }, 600);
+      setTimeout(() => {
+        if (alive) void fetchForms();
+      }, 1400);
+    };
+    pull(true);
     // Habang nakatago ang tab, hindi humihila — sayang sa quota ng Apps Script.
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') pull();
+      if (document.visibilityState === 'visible') pull(true);
     }, 30000);
-    // Pagbalik sa tab o window: kunin agad ang pinakabago.
+    // Pagbalik sa tab, app, o window: kunin agad ang bago at ipadala ang naiwan.
     const onBack = () => {
-      if (document.visibilityState === 'visible' && Date.now() - last > 10000) pull();
+      if (document.visibilityState !== 'visible') return;
+      pull();
+      flushRef.current();
     };
+    // Bumalik mula sa back/forward cache (iOS Safari at home-screen app).
+    const onShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      pull(true);
+      flushRef.current();
+    };
+    const onOnline = () => {
+      setOnline(true);
+      pull(true);
+      flushRef.current(true);
+    };
+    const onOffline = () => setOnline(false);
     document.addEventListener('visibilitychange', onBack);
+    document.addEventListener('resume', onBack);
     window.addEventListener('focus', onBack);
+    window.addEventListener('pageshow', onShow);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
     // Nag-save sa ibang tab ng AV Nexus → mag-refresh din dito, agad.
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel('avnexus-sync');
-      channel.onmessage = () => pull();
+      channel.onmessage = () => pull(true);
       channelRef.current = channel;
     } catch {
       /* lumang browser — ang 30-segundong refresh pa rin ang sasalo */
     }
+    // Anumang naiwan sa pila mula sa huling pagbukas.
+    flushRef.current();
     return () => {
+      alive = false;
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onBack);
+      document.removeEventListener('resume', onBack);
       window.removeEventListener('focus', onBack);
+      window.removeEventListener('pageshow', onShow);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
       channel?.close();
       channelRef.current = null;
     };
@@ -10327,14 +11814,14 @@ export default function App() {
 
   // Huwag hayaang maisara ang tab habang may sine-save pa.
   useEffect(() => {
-    if (!savingCount) return;
+    if (!unloadRisk) return;
     const warn = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [savingCount]);
+  }, [unloadRisk]);
 
   /* ------------------------------------------------------- DERIVED DATA -- */
   const stats = useMemo(() => {
@@ -10410,7 +11897,7 @@ export default function App() {
         const out = tasks.filter((t) => t.person.toLowerCase() === n).length;
         return { name: m.name, cov, out, count: cov + out };
       }).sort((a, b) => b.count - a.count),
-    [coverages, tasks]
+    [coverages, tasks, cfg.version]
   );
 
   /**
@@ -10470,7 +11957,7 @@ export default function App() {
         top: Array.from(byRole.entries()).sort((a, b) => b[1] - a[1]).slice(0, 4),
       };
     }).sort((a, b) => b.roleCount - a.roleCount || b.active - a.active);
-  }, [assignments, events, pRange, tasks]);
+  }, [assignments, events, pRange, tasks, cfg.version]);
 
   const prodSummary = useMemo(() => {
     const live = outputs.filter((o) => o.stage !== 'published' && o.stage !== 'approved');
@@ -10513,7 +12000,7 @@ export default function App() {
   );
 
   const filteredEvents = useMemo(() => {
-    const q = evQuery.trim().toLowerCase();
+    const q = evQueryD.trim().toLowerCase();
     const list = events.filter((ev) => {
       if (evApproval !== 'ALL' && ev.approval !== evApproval) return false;
       if (evFulfil !== 'ALL' && fulfilment(ev) !== evFulfil) return false;
@@ -10563,7 +12050,7 @@ export default function App() {
         sorted.sort((a, b) => queueRank(a) - queueRank(b));
     }
     return sorted;
-  }, [events, evQuery, evApproval, evFulfil, evPriority, evYear, evMonth, evClient, evSort]);
+  }, [events, evQueryD, evApproval, evFulfil, evPriority, evYear, evMonth, evClient, evSort, cfg.version]);
 
   /** Nasa AV team pa — sila ang dapat kumilos, hindi ang DC. */
   const triageQueue = useMemo(
@@ -10578,7 +12065,7 @@ export default function App() {
           const bt = b.eventDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
           return at - bt;
         }),
-    [events]
+    [events, cfg.version]
   );
 
   /** Nasa approver na — DC o SRS ang naghahawak. */
@@ -10587,7 +12074,7 @@ export default function App() {
       events
         .filter((ev) => awaitingAction(ev) && ev.approval !== 'for-evaluation')
         .sort((a, b) => queueRank(a) - queueRank(b)),
-    [events]
+    [events, cfg.version]
   );
 
   /**
@@ -10683,8 +12170,15 @@ export default function App() {
         ...csmRows.map((c) => c.submitted),
       ].filter((d): d is Date => !!d);
       if (ds.length) {
-        from = new Date(Math.min(...ds.map((d) => d.getTime())));
-        to = new Date(Math.max(...ds.map((d) => d.getTime())));
+        let lo = Infinity;
+        let hi = -Infinity;
+        ds.forEach((d) => {
+          const t = d.getTime();
+          if (t < lo) lo = t;
+          if (t > hi) hi = t;
+        });
+        from = new Date(lo);
+        to = new Date(hi);
       }
     }
     const end = to && to.getTime() > now.getTime() ? now : to;
@@ -10742,7 +12236,7 @@ export default function App() {
   }, [isoP, csmP, formsState]);
 
   const filteredRequests = useMemo(() => {
-    const q = reqQuery.trim().toLowerCase();
+    const q = reqQueryD.trim().toLowerCase();
     return requests.filter((r) => {
       if (reqStatusFilter !== 'ALL' && r.status !== reqStatusFilter) return false;
       if (reqStreamFilter !== 'ALL' && r.stream !== reqStreamFilter) return false;
@@ -10750,7 +12244,7 @@ export default function App() {
         return false;
       return true;
     });
-  }, [requests, reqQuery, reqStatusFilter, reqStreamFilter]);
+  }, [requests, reqQueryD, reqStatusFilter, reqStreamFilter]);
 
   const reqCounts = useMemo(() => {
     const base = {} as Record<ReqStatus, number>;
@@ -10766,7 +12260,7 @@ export default function App() {
   }, [coverages]);
 
   const filteredRecords = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = queryD.trim().toLowerCase();
     return coverages.filter((c) => {
       if (filterPerson !== 'ALL' && !(c.personnel || '').toLowerCase().includes(filterPerson.toLowerCase()))
         return false;
@@ -10774,9 +12268,11 @@ export default function App() {
       if (q && !`${c.details} ${c.personnel} ${c.status}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [coverages, query, filterPerson, filterStatus]);
+  }, [coverages, queryD, filterPerson, filterStatus]);
 
   useEffect(() => setVisibleCount(8), [query, filterPerson, filterStatus]);
+  useEffect(() => setEvLimit(60), [evQueryD, evApproval, evFulfil, evPriority, evYear, evMonth, evClient, evSort]);
+  useEffect(() => setReqLimit(100), [reqQueryD, reqStatusFilter, reqStreamFilter]);
 
   const upNext = useMemo(() => {
     // Status-based: lahat ng naka-UPCOMING sa DMC sheet, pinakaluma muna —
@@ -10793,7 +12289,7 @@ export default function App() {
 
   const ipcrRecords = useMemo(() => {
     let base: Coverage[];
-    if (selectedIPCRPersonnel === 'Lotus') {
+    if (selectedIPCRPersonnel === SUPERVISOR_KEY) {
       base = coverages.filter((c) => {
         const k = classifyStatus(c.status);
         return k === 'checked' || k === 'transferred' || k === 'archived';
@@ -10810,11 +12306,11 @@ export default function App() {
       const bt = b.dateObj ? b.dateObj.getTime() : 0;
       return at - bt;
     });
-  }, [coverages, selectedIPCRPersonnel, ipcrYear]);
+  }, [coverages, selectedIPCRPersonnel, ipcrYear, cfg.version]);
 
   const ipcrOutputs = useMemo(() => {
     let base: Output[];
-    if (selectedIPCRPersonnel === 'Lotus') {
+    if (selectedIPCRPersonnel === SUPERVISOR_KEY) {
       base = [...outputs, ...crewEventOutputs].filter(
         (o) => o.stage === 'approved' || o.stage === 'published'
       );
@@ -10834,7 +12330,7 @@ export default function App() {
       const bt = (b.delivered || b.target || b.assigned)?.getTime() ?? 0;
       return at - bt;
     });
-  }, [crewOutputs, crewEventOutputs, outputs, selectedIPCRPersonnel, ipcrYear]);
+  }, [crewOutputs, crewEventOutputs, outputs, selectedIPCRPersonnel, ipcrYear, cfg.version]);
 
   const ipcrQQT = useMemo(() => {
     const rated = ipcrOutputs.map(deliveredOnTime).filter((v) => v !== null) as boolean[];
@@ -10852,7 +12348,7 @@ export default function App() {
 
   const ipcrRequests = useMemo(() => {
     let base: ServiceRequest[];
-    if (selectedIPCRPersonnel === 'Lotus') {
+    if (selectedIPCRPersonnel === SUPERVISOR_KEY) {
       base = requests.filter((r) => r.status === 'completed');
     } else {
       base = requests.filter((r) =>
@@ -10870,11 +12366,11 @@ export default function App() {
       const bt = (b.dateDelivered || b.dateRequested)?.getTime() ?? 0;
       return at - bt;
     });
-  }, [requests, selectedIPCRPersonnel, ipcrYear]);
+  }, [requests, selectedIPCRPersonnel, ipcrYear, cfg.version]);
 
   /** Ang mga papel na hinawakan ng piniling tao — Part D ng IPCR. */
   const ipcrRoles = useMemo(() => {
-    if (selectedIPCRPersonnel === 'Lotus') return [];
+    if (selectedIPCRPersonnel === SUPERVISOR_KEY) return [];
     const mine = assignments.filter(
       (a) => a.personnel.toLowerCase() === selectedIPCRPersonnel.toLowerCase()
     );
@@ -10890,7 +12386,7 @@ export default function App() {
       const bt = (b.dateCompleted || b.dateAssigned)?.getTime() ?? 0;
       return at - bt;
     });
-  }, [assignments, selectedIPCRPersonnel, ipcrYear]);
+  }, [assignments, selectedIPCRPersonnel, ipcrYear, cfg.version]);
 
   const ipcrRoleTally = useMemo(() => {
     const m = new Map<string, number>();
@@ -10926,7 +12422,7 @@ export default function App() {
     const y = ipcrYear === 'ALL' ? new Date().getFullYear() : ipcrYear;
     const n = ipcrRecords.length + ipcrOutputs.length + ipcrRequests.length;
     return `BDMS-AV-${y}-${initials}-${String(n).padStart(3, '0')}`;
-  }, [selectedIPCRPersonnel, ipcrYear, ipcrRecords.length, ipcrOutputs.length, ipcrRequests.length]);
+  }, [selectedIPCRPersonnel, ipcrYear, ipcrRecords.length, ipcrOutputs.length, ipcrRequests.length, cfg.version]);
 
   /* ------------------------------------------------------------ ACTIONS -- */
   const scrollTo = (ref: { current: HTMLElement | null }) =>
@@ -10973,8 +12469,11 @@ export default function App() {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${controlNo}.csv`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    // Sa iPhone, nabubura ang download kapag agad binawi ang URL.
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
     toast('CSV exported', 'ok');
   }, [ipcrRecords, ipcrOutputs, controlNo, toast]);
 
@@ -11177,7 +12676,7 @@ export default function App() {
       })
     );
     return list;
-  }, [coverages, outputs, requests, events, exportCSV, fetchTasks, fetchProduction, printSheet]);
+  }, [coverages, outputs, requests, events, exportCSV, fetchTasks, fetchProduction, printSheet, cfg.version]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -11206,6 +12705,28 @@ export default function App() {
         error: { dot: 'bg-slate-400', label: 'Offline', short: 'Offline' },
       }[conn];
 
+  // Ang status pill: ang pila sa device muna, saka ang koneksiyon.
+  const failedOps = queue.filter((o) => o.state === 'failed').length;
+  const sendingNow = queue.some((o) => o.state === 'sending');
+  const syncLabel = failedOps
+    ? `${failedOps} not synced`
+    : queue.length
+    ? online
+      ? `Saving ${queue.length}…`
+      : `${queue.length} on device`
+    : !online
+    ? 'Offline'
+    : refreshing
+    ? 'Syncing'
+    : connMeta.short;
+  const syncDot = failedOps ? 'bg-red-600' : queue.length || !online ? 'bg-amber-500' : connMeta.dot;
+  const retryAll = () => {
+    fetchTasks(true);
+    fetchProduction();
+    fetchForms();
+    flushRef.current(true);
+  };
+
   /* --------------------------------------------------------------- VIEW -- */
 
   // Walang makikita hangga't hindi naka-sign in, kapag naka-on ang auth.
@@ -11221,6 +12742,8 @@ export default function App() {
           if (gsiReady) renderButton(el);
         }}
         ready={gsiReady}
+        failed={gsiFailed}
+        onReload={gsiReload}
         error={authError}
         health={health}
         onRetry={checkHealth}
@@ -11324,6 +12847,12 @@ export default function App() {
           DOST-STII Broadcast &amp; Digital Media Section
           <br />
           PM-CRPD-AV-08-04 Rev 7
+          <br />
+          {cfg.source === 'sheet'
+            ? 'Personnel list from the sheet'
+            : cfg.source === 'saved'
+            ? 'Personnel list saved on this device'
+            : 'Built-in personnel list'}
         </div>
       </aside>
       {navOpen && <div className="av-scrim no-print lg:hidden" onClick={() => setNavOpen(false)} />}
@@ -11378,15 +12907,13 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => { fetchTasks(true); fetchProduction(); fetchForms(); }}
-                title={connMeta.label}
-                className="av-sync hidden md:inline-flex"
+                onClick={() => (queue.length ? setSyncOpen(true) : retryAll())}
+                title={queue.length ? 'Changes waiting to reach the sheet — open to see them' : connMeta.label}
+                className={`av-sync ${queue.length || !online ? 'inline-flex' : 'hidden md:inline-flex'}`}
               >
-                <span className={`h-2 w-2 rounded-full ${connMeta.dot}`} />
-                <span>
-                  {savingCount ? `Saving ${savingCount}…` : refreshing ? 'Syncing' : connMeta.short}
-                </span>
-                <Icon name="refresh" size={14} className={refreshing || savingCount ? 'animate-spin' : ''} />
+                <span className={`h-2 w-2 rounded-full ${syncDot}`} />
+                <span>{syncLabel}</span>
+                <Icon name="refresh" size={14} className={refreshing || sendingNow ? 'animate-spin' : ''} />
               </button>
 
               <button
@@ -11559,6 +13086,18 @@ export default function App() {
         <div className="no-print space-y-6">
 
           <main className="mx-auto max-w-[1400px] space-y-9">
+            <NetBanner
+              online={online}
+              snapAt={snapAt}
+              prodError={prodError}
+              hasData={loadedOnce.current}
+              pending={queue.length}
+              failed={failedOps}
+              onRetry={retryAll}
+              onOpenSync={() => setSyncOpen(true)}
+            />
+            {/* Ang isang sirang view ay hindi na nagpapaputi ng buong dashboard. */}
+            <ErrorBoundary name={VIEWS.find((v) => v.key === view)?.label || 'This view'} resetKey={view}>
             {healthChecked && health && health.problems.length > 0 && (
               <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] leading-relaxed text-amber-800">
                 <div className="mb-2 flex items-center justify-between gap-3">
@@ -11794,9 +13333,9 @@ export default function App() {
                     >
                       <div className="mb-4 flex items-center gap-4">
                         <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-slate-200 transition-colors duration-300 group-hover:border-blue-500">
-                          <img
-                            src={member.image}
-                            alt={member.name}
+                          <Avatar
+                            name={member.name}
+                            image={member.image}
                             className="h-full w-full transform object-cover transition-transform duration-500 group-hover:scale-110"
                           />
                         </div>
@@ -12010,10 +13549,15 @@ export default function App() {
                             )}
                             <button
                               onClick={() => {
-                                navigator.clipboard?.writeText(
-                                  `[${fmtDate(cov.dateObj, cov.date)}] ${cov.details} — ${cov.personnel} — ${cov.status}`
-                                );
-                                toast('Copied to clipboard', 'ok');
+                                const line = `[${fmtDate(cov.dateObj, cov.date)}] ${cov.details} — ${cov.personnel} — ${cov.status}`;
+                                if (!navigator.clipboard) {
+                                  toast('Copying is not available in this browser', 'err');
+                                  return;
+                                }
+                                navigator.clipboard
+                                  .writeText(line)
+                                  .then(() => toast('Copied to clipboard', 'ok'))
+                                  .catch(() => toast('Could not copy — the browser blocked it', 'err'));
                               }}
                               className="text-xs text-slate-400 transition-colors hover:text-slate-600"
                             >
@@ -12414,31 +13958,34 @@ export default function App() {
                           </button>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-                          {filteredEvents.map((ev) => (
-                            <EventCard
-                              key={ev.id}
-                              ev={ev}
-                              crew={assignments.filter((a) => a.eventId === ev.id)}
-                              canEdit={
-                                ev.approval === 'for-evaluation'
-                                  ? myRole === 'admin' || myRole === 'staff'
-                                  : can('edit', myRole, ev.createdBy, myName)
-                              }
-                              sync={outbox.some((o) => o.event.id === ev.id && o.state === 'saving')}
-                              onOpen={() =>
-                                isLocalId(ev.id)
-                                  ? toast('Still saving to the sheet — open it again in a moment.', 'info')
-                                  : setEvModal({ open: true, editing: ev })
-                              }
-                              onStep={(k, next) =>
-                                isLocalId(ev.id)
-                                  ? toast('Still saving to the sheet — try again in a moment.', 'info')
-                                  : stepEvent(ev, k, next)
-                              }
-                            />
-                          ))}
-                        </div>
+                        <>
+                          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                            {filteredEvents.slice(0, evLimit).map((ev) => (
+                              <EventCardMemo
+                                key={ev.id}
+                                ev={ev}
+                                crew={crewByEvent.get(ev.id) || NO_CREW}
+                                canEdit={
+                                  ev.approval === 'for-evaluation'
+                                    ? myRole === 'admin' || myRole === 'staff'
+                                    : can('edit', myRole, ev.createdBy, myName)
+                                }
+                                sync={syncByEvent.get(ev.id) || ''}
+                                onOpen={openEvent}
+                                onStep={stepFromCard}
+                              />
+                            ))}
+                          </div>
+                          {filteredEvents.length > evLimit && (
+                            <button
+                              type="button"
+                              onClick={() => setEvLimit((n) => n + 60)}
+                              className="av-btn-ghost mt-3 w-full justify-center py-3 text-[13px]"
+                            >
+                              Show 60 more ({filteredEvents.length - evLimit} not shown)
+                            </button>
+                          )}
+                        </>
                       )}
                     </>
                   )}
@@ -12541,9 +14088,18 @@ export default function App() {
                       </div>
 
                       <RequestTable
-                        requests={filteredRequests}
+                        requests={filteredRequests.slice(0, reqLimit)}
                         onEdit={(r) => setReqModal({ open: true, editing: r })}
                       />
+                      {filteredRequests.length > reqLimit && (
+                        <button
+                          type="button"
+                          onClick={() => setReqLimit((n) => n + 100)}
+                          className="av-btn-ghost mt-3 w-full justify-center py-3 text-[13px]"
+                        >
+                          Show 100 more ({filteredRequests.length - reqLimit} not shown)
+                        </button>
+                      )}
                     </>
                   )}
                 </section>
@@ -12821,11 +14377,13 @@ export default function App() {
                       onChange={(e) => setSelectedIPCRPersonnel(e.target.value)}
                       className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     >
-                      <option value="Xyrus">Xyrus (AVAT IV)</option>
-                      <option value="Marx">Marx (SRS II)</option>
-                      <option value="Reiner">Reiner (AVAT III)</option>
-                      <option value="Pat">Pat (Photographer II)</option>
-                      <option value="Lotus">Ma'am Lotus (Supervisor Tally)</option>
+                      {Object.keys(OFFICIAL).map((k) => (
+                        <option key={k} value={k}>
+                          {`${OFFICIAL[k].label || k} (${
+                            k === SUPERVISOR_KEY ? 'Supervisor Tally' : shortRank(OFFICIAL[k].designation)
+                          })`}
+                        </option>
+                      ))}
                     </select>
                     <select
                       value={ipcrYear}
@@ -12877,7 +14435,7 @@ export default function App() {
                     <p className="text-base font-bold uppercase text-slate-900">
                       {OFFICIAL[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel} — TOTAL:{' '}
                       {ipcrRecords.length}{' '}
-                      {selectedIPCRPersonnel === 'Lotus' ? 'VERIFIED / CHECKED' : 'COVERAGES CATERED'}
+                      {selectedIPCRPersonnel === SUPERVISOR_KEY ? 'VERIFIED / CHECKED' : 'COVERAGES CATERED'}
                     </p>
                     <p className="text-slate-400">
                       --------------------------------------------------
@@ -12970,6 +14528,7 @@ export default function App() {
                 DOST-STII · CRPD · Broadcast &amp; Digital Media Section
               </p>
             </footer>
+            </ErrorBoundary>
           </main>
         </div>
 
@@ -12980,7 +14539,7 @@ export default function App() {
             <p className="text-sm font-bold uppercase">Department of Science and Technology</p>
             <p className="text-xs uppercase">Science and Technology Information Institute</p>
             <h1 className="mt-3 text-2xl font-bold uppercase tracking-wide">
-              {selectedIPCRPersonnel === 'Lotus'
+              {selectedIPCRPersonnel === SUPERVISOR_KEY
                 ? 'Supervisory Verification Report'
                 : 'AV Production Services Coverage Report'}
             </h1>
@@ -12999,7 +14558,7 @@ export default function App() {
                 Position: {OFFICIAL[selectedIPCRPersonnel]?.designation}
               </p>
               <p className="mt-3 text-lg font-bold uppercase">
-                {selectedIPCRPersonnel === 'Lotus'
+                {selectedIPCRPersonnel === SUPERVISOR_KEY
                   ? 'Total verified / checked:'
                   : 'Total catered operations:'}{' '}
                 <span className="underline">
@@ -13282,13 +14841,13 @@ export default function App() {
                 {OFFICIAL[selectedIPCRPersonnel]?.designation}
               </p>
             </div>
-            {selectedIPCRPersonnel !== 'Lotus' && (
+            {selectedIPCRPersonnel !== SUPERVISOR_KEY && (
               <div>
                 <p>Verified by:</p>
                 <div className="mt-10 w-64 border-b border-black text-center font-bold uppercase">
-                  {OFFICIAL['Lotus'].fullName}
+                  {OFFICIAL[SUPERVISOR_KEY]?.fullName || '—'}
                 </div>
-                <p className="mt-1 text-xs text-gray-600">{OFFICIAL['Lotus'].designation}</p>
+                <p className="mt-1 text-xs text-gray-600">{OFFICIAL[SUPERVISOR_KEY]?.designation}</p>
               </div>
             )}
           </div>
@@ -13367,6 +14926,23 @@ export default function App() {
         ))}
       </div>
 
+      {/* Mga dialog: kapag may bumagsak, maisasara ito nang hindi nawawala ang dashboard. */}
+      <ErrorBoundary
+        name="This window"
+        overlay
+        resetKey={`${!!openApp}${paletteOpen}${kioskOn}${evModal.open}${importOpen}${reqModal.open}${logOpen}${!!drawerPerson}${syncOpen}`}
+        onClose={() => {
+          setOpenApp(null);
+          setPaletteOpen(false);
+          setKioskOn(false);
+          setEvModal({ open: false, editing: null });
+          setImportOpen(false);
+          setReqModal({ open: false, editing: null });
+          setLogOpen(false);
+          setDrawerPerson(null);
+          setSyncOpen(false);
+        }}
+      >
       {openApp && <AppWindow app={openApp} onClose={() => setOpenApp(null)} />}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {kioskOn && (
@@ -13453,8 +15029,33 @@ export default function App() {
         />
       )}
 
+      {syncOpen && (
+        <SyncPanel
+          queue={queue}
+          online={online}
+          persisted={queueSaved}
+          onRetry={() => flushRef.current(true)}
+          onDiscard={discardOp}
+          onClose={() => setSyncOpen(false)}
+        />
+      )}
+      </ErrorBoundary>
+
       <style dangerouslySetInnerHTML={{ __html: AV_CSS }} />
     </div>
+  );
+}
+
+/**
+ * Ang pinakalabas na harang. Kapag may bumagsak na hindi nasalo ng mga
+ * section boundary, ito ang lalabas sa halip na puting screen — at ang pila
+ * ng mga hindi pa naipapadalang pagbabago ay nananatili sa device.
+ */
+export default function App() {
+  return (
+    <ErrorBoundary name="AV Nexus" full>
+      <AppMain />
+    </ErrorBoundary>
   );
 }
 

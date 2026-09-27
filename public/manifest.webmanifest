@@ -1,0 +1,16 @@
+{
+  "name": "AV Nexus — DOST-STII Broadcast & Digital Media",
+  "short_name": "AV Nexus",
+  "description": "AV coverage, production and DMC monitoring for the DOST-STII Broadcast & Digital Media Section.",
+  "id": ".",
+  "start_url": ".",
+  "scope": ".",
+  "display": "browser",
+  "background_color": "#FFFFFF",
+  "theme_color": "#427AA1",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

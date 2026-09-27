@@ -2,15 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>AV Coverage Dashboard</title>
     <meta property="og:title" content="AVDMT" />
-<meta property="og:description" content="AV Coverage and DMC Monitoring Tool" />
-<meta property="og:type" content="website" />
+    <meta property="og:description" content="AV Coverage and DMC Monitoring Tool" />
+    <meta property="og:type" content="website" />
+
+    <!--
+      HOME-SCREEN SHORTCUT (iOS + Android): tamang pangalan, icon at kulay.
+      Sadyang "display": "browser" sa manifest at WALANG apple-mobile-web-app-capable:
+      sa iPhone, hindi natatapos ang Google sign-in popup sa loob ng home-screen
+      web app. Sa browser bumubukas ang shortcut, kung saan gumagana ang sign-in.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#427AA1" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="AV Nexus" />
+
+    <!-- Mas mabilis ang unang kuha sa mobile data: DNS + TLS habang naglo-load pa ang app. -->
+    <link rel="preconnect" href="https://script.google.com" crossorigin />
+    <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
