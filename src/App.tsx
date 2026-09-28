@@ -2479,7 +2479,7 @@ function HeroStat({
         </span>
       </Ring>
       <span className="min-w-0 flex-1">
-        <span className="l block truncate">{label}</span>
+        <span className="l block break-words">{label}</span>
         <span className="v block">
           {shown}
           {suffix}
@@ -2935,7 +2935,7 @@ function ConnectionPanel({
                   {pr.detail}
                 </span>
               </div>
-              <p className="truncate font-mono text-[10px] text-slate-400">
+              <p className="line-clamp-2 break-words font-mono text-[10px] text-slate-400">
                 {shortUrl(pr.url)}
               </p>
               {pr.hint && (
@@ -3091,7 +3091,7 @@ function StatTile({
   return (
     <div className="av-kpi flat">
       <div className="min-w-0 flex-1">
-        <p className="l truncate">{label}</p>
+        <p className="l break-words">{label}</p>
         <p className="v">{shown}</p>
         <p className="s">{sub}</p>
       </div>
@@ -3801,7 +3801,7 @@ function KPIRing({
           target {target}%
         </text>
       </svg>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[11rem] flex-1">
         <p className="av-sec-h">{label}</p>
         <p className="av-note av-dim mt-1">{sub}</p>
         <span
@@ -4124,7 +4124,7 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
                   className="av-card flex items-center justify-between gap-3 px-3 py-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-slate-700">{r.title}</p>
+                    <p className="line-clamp-2 break-words text-xs font-semibold text-slate-700" title={r.title}>{r.title}</p>
                     <p className="font-mono text-[10px] text-slate-400">
                       {r.id} · {r.personnel || 'Unassigned'} ·{' '}
                       {STREAM_META[r.stream].short}
@@ -4425,7 +4425,7 @@ function RequestTable({
                 className="border-b border-slate-200 transition-colors last:border-0 hover:bg-slate-50"
               >
                 <td className="p-3">
-                  <p className="max-w-[260px] truncate font-semibold text-slate-800">{r.title}</p>
+                  <p className="max-w-[260px] line-clamp-2 break-words font-semibold text-slate-800" title={r.title}>{r.title}</p>
                   <p className="font-mono text-[10px] text-slate-400">
                     {r.id}
                     {r.serviceType ? ` · ${r.serviceType}` : ''}
@@ -5007,8 +5007,8 @@ function PipelineTrack({
     const pct = pipelineProgress(ev);
     const nxt = nextPipelineStep(ev);
     return (
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <div className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-slate-100">
+      <div className="flex min-w-[12rem] flex-1 items-center gap-2">
+        <div className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-slate-100 sm:w-24">
           <div
             className="h-full rounded-full transition-all duration-700"
             style={{
@@ -5018,7 +5018,7 @@ function PipelineTrack({
           />
         </div>
         <span className="shrink-0 font-mono text-[10px] text-slate-400">{pct}%</span>
-        <span className="truncate text-[10px] text-slate-900">
+        <span className="line-clamp-2 min-w-0 text-[10px] leading-tight text-slate-900">
           {locked ? 'awaiting approval' : nxt ? nxt.label : 'complete'}
         </span>
       </div>
@@ -5121,7 +5121,9 @@ function EventCard({
       <div className="p-[16px_18px]" style={{ padding: '16px 18px' }}>
         <div className="mb-2.5 flex items-start gap-4">
           <button onClick={() => onOpen(ev)} className="min-w-0 flex-1 text-left">
-            <h3 className="av-title truncate">{ev.title || 'Untitled event'}</h3>
+            <h3 className="av-title line-clamp-3 break-words sm:line-clamp-2" title={ev.title || undefined}>
+              {ev.title || 'Untitled event'}
+            </h3>
             {sync && (
               <span
                 className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium"
@@ -7567,7 +7569,7 @@ function KioskMode({
             {titles[slide]}
           </span>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3 sm:gap-6">
           <div className="text-right">
             <p className="font-mono text-2xl font-black text-slate-900 tabular-nums md:text-3xl">
               {now.toLocaleTimeString('en-PH', { hour12: false })}
@@ -8128,13 +8130,13 @@ function CommandPalette({ commands, onClose }: { commands: Cmd[]; onClose: () =>
                   }`}
                 >
                   <span
-                    className={`truncate text-sm ${
+                    className={`min-w-0 line-clamp-2 break-words text-sm ${
                       i === active ? 'font-semibold text-slate-900' : 'text-slate-600'
                     }`}
                   >
                     {c.label}
                   </span>
-                  <span className="shrink-0 truncate font-mono text-[10px] uppercase tracking-wider text-slate-400">
+                  <span className="hidden shrink-0 truncate font-mono text-[10px] uppercase tracking-wider text-slate-400 sm:inline">
                     {c.hint}
                   </span>
                 </button>
@@ -9498,7 +9500,7 @@ function CrewBoard({
                       <p className="line-clamp-2 text-[14px] font-semibold leading-snug text-[var(--ink)]">
                         {c.ev.title || 'Untitled event'}
                       </p>
-                      <p className="mt-0.5 truncate text-[12.5px] text-[var(--ink-3)]">
+                      <p className="mt-0.5 line-clamp-2 break-words text-[12.5px] text-[var(--ink-3)]">
                         {c.ev.client || 'No client'} · {dateSpan(c.ev.eventDate, c.ev.endDate)}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -12923,10 +12925,11 @@ function AppMain() {
                   setEvModal({ open: true, editing: null });
                 }}
                 title="New event request"
+                aria-label="New event request"
                 className="av-btn relative hidden items-center gap-2 sm:inline-flex"
               >
                 <Icon name="plus" size={16} stroke={2.2} />
-                New event
+                <span className="hidden lg:inline">New event</span>
                 {approvalQueue.length > 0 && (
                   <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white" />
                 )}
@@ -12939,7 +12942,7 @@ function AppMain() {
                   ) : (
                     <span className="av-avatar">{(myName || '?').slice(0, 1)}</span>
                   )}
-                  <div className="hidden min-w-0 md:block">
+                  <div className="hidden min-w-0 xl:block">
                     <p className="n">{myName}</p>
                     <p className="r">{ROLE_LABEL[myRole] || myRole}</p>
                   </div>
@@ -13724,12 +13727,12 @@ function AppMain() {
                                       className="min-w-0 flex-1 text-left"
                                     >
                                       <div className="flex flex-wrap items-center gap-2">
-                                        <p className="truncate text-xs font-semibold text-slate-800">
+                                        <p className="line-clamp-2 break-words text-xs font-semibold text-slate-800">
                                           {ev.title}
                                         </p>
                                         <PriorityBadge priority={ev.priority} dense />
                                       </div>
-                                      <p className="truncate font-mono text-[10px] text-slate-400">
+                                      <p className="line-clamp-2 break-words font-mono text-[10px] text-slate-400">
                                         #{tierRank(ev.clientTier) + 1} {ev.clientTier || 'Unranked'} ·{' '}
                                         {fmtDate(ev.eventDate)} · {ev.requested.length} requested
                                       </p>
@@ -13784,12 +13787,12 @@ function AppMain() {
                                   className="min-w-0 flex-1 text-left"
                                 >
                                   <div className="flex flex-wrap items-center gap-2">
-                                    <p className="truncate text-xs font-semibold text-slate-800">
+                                    <p className="line-clamp-2 break-words text-xs font-semibold text-slate-800">
                                       {ev.title}
                                     </p>
                                     <PriorityBadge priority={ev.priority} dense />
                                   </div>
-                                  <p className="truncate font-mono text-[10px] text-slate-400">
+                                  <p className="line-clamp-2 break-words font-mono text-[10px] text-slate-400">
                                     #{tierRank(ev.clientTier) + 1} {ev.clientTier || 'Unranked'} ·{' '}
                                     {ev.requested.length} requested · with {awaitingWho(ev)}
                                   </p>
@@ -14884,7 +14887,7 @@ function AppMain() {
             className="av-mobtab relative"
           >
             <Icon name={m.g} size={20} />
-            {m.label}
+            <span className="av-mobtab-l">{m.label}</span>
             {m.badge > 0 && <span className="b">{m.badge}</span>}
           </button>
         ))}
@@ -15814,5 +15817,54 @@ html [class~="text-yellow-800"] { color: #6B4500; }
 .av-tcard.late { border-color: rgba(163,0,0,.35); box-shadow: inset 3px 0 0 var(--brand-red); }
 details.av-card > summary { list-style: none; }
 details.av-card > summary::-webkit-details-marker { display: none; }
+
+/* ------------------------------------------ responsive: every screen --- */
+/* Walang page na mas malapad sa screen: sa phone, walang pakaliwa-pakanang
+   pag-scroll ng buong page. Ang malalapad na table lang ang may sariling scroll. */
+.av-page { overflow-wrap: break-word; }
+.av-page img, .av-page video, .av-page iframe { max-width: 100%; }
+@supports (overflow: clip) { html, body { overflow-x: clip; } }
+
+/* Top bar: ang pangalan ay lumiliit bago lumampas ang kahit ano. */
+.av-top-in > .av-wordmark { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.av-search { min-width: 0; flex: 1 1 0%; }
+@media (max-width: 639px) {
+  .av-top-in { padding: 0 10px; gap: 6px; }
+  .av-top-in > .ml-auto { gap: 6px; }
+}
+
+/* Sidebar: buo ang laman sa loob ng 264px, at talagang nakatago kapag sarado
+   (dati, sumisilip ang close button at dulo ng pangalan sa kaliwang gilid,
+   at naaabot pa ng Tab key ang mga link na hindi nakikita). */
+.av-side-brand .av-wordmark { min-width: 0; }
+.av-side-brand .av-wordmark small { white-space: normal; }
+@media (max-width: 1023px) {
+  .av-side { visibility: hidden; transition: transform .22s cubic-bezier(.16,1,.3,1), visibility 0s linear .22s; }
+  .av-side.open { visibility: visible; transition: transform .22s cubic-bezier(.16,1,.3,1), visibility 0s; }
+}
+
+/* Bottom nav ng phone: 12px na label na hindi lumalampas sa sariling tab. */
+.av-mobnav { gap: 0; padding-left: 4px; padding-right: 4px; }
+.av-mobtab { min-width: 0; padding-left: 0; padding-right: 0; }
+.av-mobtab-l { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Walang text na mas maliit sa 12px sa screen (dugtong sa naunang tuntunin). */
+@media screen {
+  .av-pill.sm { font-size: 12px; }
+  .av-wordmark small { font-size: 12px; }
+  .av-mobtab { font-size: 12px; }
+  .av-mobtab .b { font-size: 12px; min-width: 18px; height: 18px; padding: 0 5px; }
+  .av-nav .ct, .av-side-foot, .av-state-s, .av-step .w, .av-kbd { font-size: 12px; }
+}
+.av-kpi .s { white-space: normal; overflow: visible; text-overflow: clip; }
+/* Pinakamaliit na phone (320–359px): itinatago ang pangalan sa top bar sa halip
+   na maging "AV N…", at bahagyang pinaglalapit ang mga titik ng bottom nav para
+   buo ang "Compliance". */
+@media (max-width: 359px) {
+  .av-top-in > .av-wordmark { display: none; }
+  .av-mobtab { letter-spacing: -0.03em; }
+}
+/* Sa phone na mas makitid sa 375px, 11px ang label ng bottom nav (gaya ng tab bar ng iOS). */
+@media screen and (max-width: 374px) { .av-mobtab { font-size: 11px; } }
 
 `;
