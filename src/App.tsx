@@ -915,7 +915,7 @@ const SYSTEMS: SystemApp[] = [
     id: 'gatepass',
     name: 'Equipment Gate Pass',
     role: 'Releasing & inventory control',
-    url: 'https://bdms-gpass.vercel.app',
+    url: 'https://bdmsgatekeeper.vercel.app',
     tag: 'OPERATIONS',
     accent: CYAN,
     glyph: 'GP',
