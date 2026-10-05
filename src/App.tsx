@@ -211,6 +211,11 @@ interface NetOptions {
   timeoutMs?: number;
   /** Bagong cache-buster sa bawat subok (para sa GET). */
   fresh?: boolean;
+  /**
+   * false = huwag ulitin kapag baka nakarating na sa server (timeout, putol na
+   * sagot). Para sa mga gumagawa ng bagong record: ang pag-ulit ay puwedeng magdoble.
+   */
+  retryAmbiguous?: boolean;
 }
 
 async function fetchText(url: string, init: RequestInit, timeoutMs: number): Promise<string> {
@@ -261,7 +266,7 @@ function parseJSONText(text: string): unknown {
       'html',
       /unusual traffic|\/sorry\/|captcha/i.test(t)
         ? 'Google briefly paused requests from this network (unusual-traffic check).'
-        : 'The server returned a web page instead of data — usually a Google sign-in page.',
+        : 'Got a web page instead of data. On venue Wi-Fi this is usually the Wi-Fi login page; otherwise a Google sign-in page.',
       0,
       true
     );
@@ -288,6 +293,7 @@ async function requestJSON<T = any>(
     } catch (err) {
       last = err;
       if (!isRetryable(err) || attempt === retries) break;
+      if (opts.retryAmbiguous === false && err instanceof NetError && err.ambiguous) break;
       await new Promise((r) => setTimeout(r, backoffMs(attempt)));
       if (!isOnline()) break;
     }
@@ -326,6 +332,87 @@ function letterOf(v: string | undefined): unknown {
     return JSON.parse(v);
   } catch {
     return undefined;
+  }
+}
+
+/** Mga aksiyong ligtas ulitin: pareho ang resulta kahit maipadala nang dalawang beses. */
+const REPEATABLE_ACTIONS = new Set(['signIn', 'whoami', 'updateEvent', 'updateRequest', 'updateStage', 'setAssignments']);
+
+/** Pinakamalaking request letter na ipinapadala sa server. */
+const MAX_LETTER_BYTES = 500 * 1024;
+
+function fmtFileSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('That file could not be read.'));
+    r.onload = () => {
+      const s = String(r.result || '');
+      const i = s.indexOf(',');
+      resolve(i > -1 ? s.slice(i + 1) : s);
+    };
+    r.readAsDataURL(blob);
+  });
+}
+
+/**
+ * REQUEST LETTER: hanggang 500 KB. Ang screenshot o litrato na mas malaki ay
+ * kusang pinaliliit dito sa device (JPEG, puting background, hanggang 2200px ang
+ * pinakamahabang gilid) bago ipadala: mas mabilis at mas tiyak na makarating sa
+ * mahinang signal. Ang JPG na pasok na sa 500 KB ay hindi ginagalaw.
+ */
+async function shrinkLetter(file: File): Promise<{ data: string; name: string; shrunk: boolean }> {
+  const isJpeg = /^image\/jpe?g$/i.test(file.type);
+  const base = file.name.replace(/\.[^.]+$/, '') || 'request-letter';
+  if (isJpeg && file.size <= MAX_LETTER_BYTES) return { data: await blobToBase64(file), name: file.name, shrunk: false };
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('That image could not be opened. Use a JPG or PNG.'));
+      el.src = url;
+    });
+    let scale = Math.min(1, 2200 / (Math.max(img.naturalWidth, img.naturalHeight) || 1));
+    for (let pass = 0; pass < 5; pass++) {
+      const w = Math.max(1, Math.round(img.naturalWidth * scale));
+      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) break;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      for (const q of [0.86, 0.76, 0.66]) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', q));
+        if (blob && blob.size <= MAX_LETTER_BYTES) return { data: await blobToBase64(blob), name: `${base}.jpg`, shrunk: true };
+      }
+      scale *= 0.75;
+    }
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  throw new Error(`That image is ${fmtFileSize(file.size)} and could not be brought under 500 KB. Crop it to the letter only and try again.`);
+}
+
+/** Ang kopya ng form sa pila ay walang malaking attachment; ang letter ay nasa mismong request na. */
+function slimDraft(raw: string | null): string | null {
+  if (!raw || raw.length < 150000) return raw;
+  try {
+    const strip = (v: unknown, depth: number): unknown => {
+      if (typeof v === 'string') return v.length > 100000 ? '' : v;
+      if (!v || typeof v !== 'object' || depth > 3) return v;
+      if (Array.isArray(v)) return v.map((x) => strip(x, depth + 1));
+      return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, strip(x, depth + 1)]));
+    };
+    return JSON.stringify(strip(JSON.parse(raw), 0));
+  } catch {
+    return null;
   }
 }
 
@@ -828,7 +915,7 @@ const SYSTEMS: SystemApp[] = [
     id: 'gatepass',
     name: 'Equipment Gate Pass',
     role: 'Releasing & inventory control',
-    url: 'https://bdmsgatekeeper.vercel.app',
+    url: 'https://bdms-gpass.vercel.app',
     tag: 'OPERATIONS',
     accent: CYAN,
     glyph: 'GP',
@@ -5610,7 +5697,7 @@ seed?.pipeline ?? {
   const reasonMissing = reasonRequired && !f.reason.trim();
 
   /**
-   * ANG SULAT NG KAHILINGAN — isang JPG, hanggang 100 KB.
+   * ANG SULAT NG KAHILINGAN — isang JPG, hanggang 500 KB.
    * Sinusuri dito ang uri at laki para agad makita ng tao ang problema,
    * pero sinusuri rin ito sa server — malalampasan ng curl ang browser.
    * Ang larawan ay ikinakabit sa endorsement at sa approval email, kaya
@@ -5618,30 +5705,28 @@ seed?.pipeline ?? {
    */
   const [letter, setLetter] = useState<{ data: string; name: string; mime: string } | null>(null);
   const [letterErr, setLetterErr] = useState('');
+  const [letterBusy, setLetterBusy] = useState(false);
+  const [letterNote, setLetterNote] = useState('');
 
-  const pickLetter = useCallback((file: File | null) => {
+  const pickLetter = useCallback(async (file: File | null) => {
     setLetterErr('');
     setLetter(null);
+    setLetterNote('');
     if (!file) return;
-    const mime = file.type.toLowerCase();
-    if (mime !== 'image/jpeg' && mime !== 'image/jpg') {
-      setLetterErr('The request letter must be a JPG image.');
+    if (!/^image\//i.test(file.type) && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
+      setLetterErr('The request letter must be an image (JPG or PNG).');
       return;
     }
-    if (file.size > 100 * 1024) {
-      setLetterErr(
-        `That file is ${Math.round(file.size / 1024)} KB. The limit is 100 KB — export the JPG at a lower quality.`
-      );
-      return;
+    setLetterBusy(true);
+    try {
+      const out = await shrinkLetter(file);
+      setLetter({ data: out.data, name: out.name, mime: 'image/jpeg' });
+      if (out.shrunk) setLetterNote(`shrunk from ${fmtFileSize(file.size)}`);
+    } catch (err) {
+      setLetterErr(netMessage(err));
+    } finally {
+      setLetterBusy(false);
     }
-    const reader = new FileReader();
-    reader.onerror = () => setLetterErr('That file could not be read.');
-    reader.onload = () => {
-      const out = String(reader.result || '');
-      const comma = out.indexOf(',');
-      setLetter({ data: comma > -1 ? out.slice(comma + 1) : out, name: file.name, mime: 'image/jpeg' });
-    };
-    reader.readAsDataURL(file);
   }, []);
 
   /** Ilang araw tumatakbo ang event — pang-ipakita lang, isa pa rin ang bilang. */
@@ -5985,19 +6070,21 @@ seed?.pipeline ?? {
             */}
             <div className="md:col-span-2">
               <label className={lab}>
-                Request letter <span className="av-dim">— JPG, up to 100 KB</span>
+                Request letter <span className="av-dim">— JPG or PNG, up to 500 KB</span>
               </label>
               <div className="flex flex-wrap items-center gap-3">
                 <input
                   type="file"
-                  accept="image/jpeg"
+                  accept="image/*"
                   disabled={readOnly || approvalOnly || frozen}
                   onChange={(e) => pickLetter(e.target.files?.[0] ?? null)}
                   className="av-note av-file file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
                 />
+                {letterBusy && <span className="av-chip">Shrinking the image…</span>}
                 {letter && (
                   <span className="av-chip ok">
                     {letter.name} · {Math.round(letter.data.length * 0.75 / 1024)} KB
+                    {letterNote ? ` (${letterNote})` : ''}
                   </span>
                 )}
                 {!letter && existing?.requestLetter && (
@@ -9980,7 +10067,7 @@ function SyncPanel({
       : !online
       ? 'Waiting for a connection'
       : o.attempts
-      ? `Retrying (try ${o.attempts + 1} of ${MAX_AUTO_ATTEMPTS})`
+      ? `Retrying, try ${o.attempts + 1}`
       : 'Waiting to send';
 
   return (
@@ -10381,7 +10468,9 @@ function AppMain() {
   // Ang probes ay tumatakbo lang kapag may pumalyang kuha (feedFailed) — hindi na sa
   // bawat pagbukas, para hindi dumoble ang cold start sa mobile data.
   useEffect(() => {
-    checkHealth();
+    // Pagkatapos ng unang kuha ng datos — hindi sumasabay sa cold start.
+    const t = setTimeout(() => checkHealth(), 4000);
+    return () => clearTimeout(t);
   }, [checkHealth]);
 
   const signOut = useCallback(() => {
@@ -10439,14 +10528,14 @@ function AppMain() {
             session: sessionRef.current?.token || '',
             idToken: userRef.current?.idToken || '',
           },
-          { retries: 3, timeoutMs: 45000, ...opts }
+          { retries: 3, timeoutMs: 45000, retryAmbiguous: REPEATABLE_ACTIONS.has(String(body.action)), ...opts }
         ));
       } catch (err) {
         if (err instanceof NetError && err.kind === 'html') {
           throw new NetError(
             'html',
-            'The backend returned a web page instead of data. The deployment must be ' +
-              '"Execute as: Me" with access "Anyone".',
+            'Got a web page instead of data. On venue Wi-Fi, open any website once to finish the Wi-Fi login. ' +
+              'If it keeps happening on a normal connection, the deployment must be "Execute as: Me" with access "Anyone".',
             0,
             true
           );
@@ -10866,7 +10955,8 @@ function AppMain() {
       setProdReady('missing');
       return false;
     }
-    if (inflight.current.prod) return false;
+    // Kumukuha na ngayon — hindi ito pagkabigo.
+    if (inflight.current.prod) return true;
     inflight.current.prod = true;
     const started = Date.now();
     try {
@@ -11011,7 +11101,10 @@ function AppMain() {
       // Walang koneksiyon o kailangang mag-sign in: maghintay lang, hindi bilang na pagkabigo.
       const counts = kind !== 'offline' && kind !== 'auth';
       const attempts = op.attempts + (counts ? 1 : 0);
-      const failed = kind === 'setup' || attempts >= MAX_AUTO_ATTEMPTS;
+      // MAHINANG SIGNAL SA FIELD: hindi sumusuko ang pila. Humahaba lang ang
+      // pagitan ng subok (hanggang 5 minuto). Tumitigil lang kapag mali ang setup
+      // ng backend o tiyak na tinanggihan ang address (hal. HTTP 404).
+      const failed = kind === 'setup' || (kind === 'http' && !isRetryable(err));
       const ambiguous = op.ambiguous || (err instanceof NetError && err.ambiguous);
       commitQueue((list) =>
         list.map(
@@ -11021,7 +11114,7 @@ function AppMain() {
                   ...o,
                   state: failed ? 'failed' : 'queued',
                   attempts,
-                  nextAt: Date.now() + (counts ? backoffMs(attempts, 2000, 60000) : 0),
+                  nextAt: Date.now() + (counts ? backoffMs(attempts, 2000, 300000) : 0),
                   lastError: msg,
                   ambiguous,
                   sendingSince: undefined,
@@ -11031,6 +11124,8 @@ function AppMain() {
       );
       if (failed) {
         toast(`${op.label} did not reach the sheet. It is saved on this device — open the sync list to retry.`, 'err');
+      } else if (attempts === MAX_AUTO_ATTEMPTS) {
+        toast(`${op.label} is taking longer than usual (weak connection). It is saved on this device and will keep retrying.`, 'info');
       }
     },
     [commitQueue, toast]
@@ -11256,7 +11351,7 @@ function AppMain() {
       const dKey = form._draftKey || draftKeyFor(id);
       let stash: string | null = null;
       try {
-        stash = window.localStorage.getItem(dKey);
+        stash = slimDraft(window.localStorage.getItem(dKey));
       } catch {
         /* private mode */
       }
@@ -11746,12 +11841,17 @@ function AppMain() {
 
     let alive = true;
     let last = 0;
+    // Sunod-sunod na pumalyang kuha → mas madalang na subok (hanggang 5 minuto).
+    let misses = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const pull = (force = false) => {
       if (!alive || (!force && Date.now() - last < 10000)) return;
       last = Date.now();
       // Magkakasunod, hindi sabay: mas kaunting sabay-sabay na cold start →
       // mas kaunting "Load failed" sa mobile data.
-      void fetchProduction();
+      void fetchProduction().then((ok) => {
+        misses = ok ? 0 : misses + 1;
+      });
       setTimeout(() => {
         if (alive) void fetchTasks();
       }, 600);
@@ -11759,15 +11859,34 @@ function AppMain() {
         if (alive) void fetchForms();
       }, 1400);
     };
-    pull(true);
-    // Habang nakatago ang tab, hindi humihila — sayang sa quota ng Apps Script.
-    const interval = setInterval(() => {
+    /**
+     * Gaano kadalas kumuha: 30 segundo karaniwan; 2 minuto sa Data Saver o
+     * mabagal na signal (Android); dumodoble kapag pumapalya ang server, hanggang
+     * 5 minuto. Para hindi maubos ang load ng phone sa field, at hindi mapuno ang
+     * quota ng Apps Script kapag may problema ang backend.
+     */
+    const nextDelay = () => {
+      const c = (navigator as unknown as { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+      const slow = !!c && (c.saveData === true || ['slow-2g', '2g', '3g'].includes(String(c.effectiveType)));
+      const base = slow ? 120000 : 30000;
+      return misses ? Math.min(300000, base * 2 ** Math.min(misses, 4)) : base;
+    };
+    const tick = () => {
+      if (!alive) return;
+      // Habang nakatago ang tab, hindi humihila — sayang sa quota ng Apps Script.
       if (document.visibilityState === 'visible') pull(true);
-    }, 30000);
+      timer = setTimeout(tick, nextDelay());
+    };
+    pull(true);
+    timer = setTimeout(tick, nextDelay());
     // Pagbalik sa tab, app, o window: kunin agad ang bago at ipadala ang naiwan.
     const onBack = () => {
       if (document.visibilityState !== 'visible') return;
       pull();
+      // Bumalik sa app: subukan agad ang mga naghihintay, hindi na hihintayin ang pagitan.
+      if (readQueue().some((o) => o.state === 'queued' && o.nextAt > Date.now())) {
+        commitQueue((list) => list.map((o): SyncOp => (o.state === 'queued' ? { ...o, nextAt: 0 } : o)));
+      }
       flushRef.current();
     };
     // Bumalik mula sa back/forward cache (iOS Safari at home-screen app).
@@ -11777,6 +11896,7 @@ function AppMain() {
       flushRef.current();
     };
     const onOnline = () => {
+      misses = 0;
       setOnline(true);
       pull(true);
       flushRef.current(true);
@@ -11801,7 +11921,7 @@ function AppMain() {
     flushRef.current();
     return () => {
       alive = false;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onBack);
       document.removeEventListener('resume', onBack);
       window.removeEventListener('focus', onBack);
