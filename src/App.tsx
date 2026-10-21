@@ -340,6 +340,21 @@ const REPEATABLE_ACTIONS = new Set(['signIn', 'whoami', 'updateEvent', 'updateRe
 
 /** Pinakamalaking request letter na ipinapadala sa server. */
 const MAX_LETTER_BYTES = 500 * 1024;
+/**
+ * Ang aktwal na target ng pagpapaliit. Mas mababa sa 500 KB para may palugit:
+ * ang base64 na ipinapadala ay mas malaki nang 4/3, at kapag ang server ay
+ * sumusukat sa haba ng base64 (hindi sa bytes), ang 450 KB na JPG ay
+ * tatanggihan. Sa 360 KB, pasado sa alinmang paraan ng pagsukat.
+ */
+const LETTER_TARGET_BYTES = 360 * 1024;
+
+/** Drive file ID o buong URL — alinman ang naisulat ng backend sa sheet. */
+function letterHref(v: string): string {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://drive.google.com/file/d/${encodeURIComponent(s)}/view`;
+}
 
 function fmtFileSize(bytes: number): string {
   return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
@@ -367,13 +382,20 @@ function blobToBase64(blob: Blob): Promise<string> {
 async function shrinkLetter(file: File): Promise<{ data: string; name: string; shrunk: boolean }> {
   const isJpeg = /^image\/jpe?g$/i.test(file.type);
   const base = file.name.replace(/\.[^.]+$/, '') || 'request-letter';
-  if (isJpeg && file.size <= MAX_LETTER_BYTES) return { data: await blobToBase64(file), name: file.name, shrunk: false };
+  if (isJpeg && file.size <= LETTER_TARGET_BYTES) return { data: await blobToBase64(file), name: file.name, shrunk: false };
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
       el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error('That image could not be opened. Use a JPG or PNG.'));
+      el.onerror = () =>
+        reject(
+          new Error(
+            /\.(heic|heif)$/i.test(file.name) || /hei[cf]/i.test(file.type)
+              ? 'This is an iPhone HEIC photo, which this browser cannot open. On the iPhone, attach it from Safari (it converts to JPG on its own), or take a screenshot of the letter and attach that.'
+              : 'That image could not be opened. Use a JPG or PNG.'
+          )
+        );
       el.src = url;
     });
     let scale = Math.min(1, 2200 / (Math.max(img.naturalWidth, img.naturalHeight) || 1));
@@ -390,14 +412,14 @@ async function shrinkLetter(file: File): Promise<{ data: string; name: string; s
       ctx.drawImage(img, 0, 0, w, h);
       for (const q of [0.86, 0.76, 0.66]) {
         const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', q));
-        if (blob && blob.size <= MAX_LETTER_BYTES) return { data: await blobToBase64(blob), name: `${base}.jpg`, shrunk: true };
+        if (blob && blob.size <= LETTER_TARGET_BYTES) return { data: await blobToBase64(blob), name: `${base}.jpg`, shrunk: true };
       }
       scale *= 0.75;
     }
   } finally {
     URL.revokeObjectURL(url);
   }
-  throw new Error(`That image is ${fmtFileSize(file.size)} and could not be brought under 500 KB. Crop it to the letter only and try again.`);
+  throw new Error(`That image is ${fmtFileSize(file.size)} and could not be made small enough to send. Crop it to the letter only and try again.`);
 }
 
 /** Ang kopya ng form sa pila ay walang malaking attachment; ang letter ay nasa mismong request na. */
@@ -1263,6 +1285,30 @@ const NON_WORKING_DAYS = new Set<string>([
   // TANDAAN: ang Feb 25 (EDSA) ay special WORKING day sa 2026 — hindi holiday.
 ]);
 
+/** Pangalan ng bawat araw sa itaas — pang-ipakita lang sa deployment calendar. */
+const HOLIDAY_NAMES: Record<string, string> = {
+  '2026-01-01': "New Year's Day",
+  '2026-02-17': 'Chinese New Year',
+  '2026-03-20': "Eid'l Fitr",
+  '2026-04-02': 'Maundy Thursday',
+  '2026-04-03': 'Good Friday',
+  '2026-04-04': 'Black Saturday',
+  '2026-04-09': 'Araw ng Kagitingan',
+  '2026-05-01': 'Labor Day',
+  '2026-05-27': "Eid'l Adha",
+  '2026-06-12': 'Independence Day',
+  '2026-08-21': 'Ninoy Aquino Day',
+  '2026-08-31': 'National Heroes Day',
+  '2026-11-01': "All Saints' Day",
+  '2026-11-02': "All Souls' Day",
+  '2026-11-30': 'Bonifacio Day',
+  '2026-12-08': 'Immaculate Conception',
+  '2026-12-24': 'Christmas Eve',
+  '2026-12-25': 'Christmas Day',
+  '2026-12-30': 'Rizal Day',
+  '2026-12-31': 'Last Day of the Year',
+};
+
 function isWorkingDay(d: Date): boolean {
   const day = d.getDay();
   if (day === 0 || day === 6) return false;
@@ -1972,7 +2018,27 @@ function capacityGap(ev: AVEvent): string[] {
  */
 function deliveryGap(ev: AVEvent): string[] {
   if (!isAuthorised(ev) || isDelivered(ev)) return [];
+  // FIX: dati, LAHAT ng aprubadong event na hindi pa naihahatid ay "kulang" —
+  // pati ang kaaaprub pa lang para sa susunod na linggo. Kaya humihingi ng
+  // dahilan ang modal sa bawat save, at pula ang chips ng normal na trabaho.
+  // Kakulangan lang ito kapag lampas na sa target date at hindi pa naihahatid.
+  if (eventSLA(ev) !== 'overdue') return [];
   return agreedVolume(ev);
+}
+
+/** Aprubado, hindi pa naihahatid, at hindi pa lampas sa target — nasa produksiyon. */
+function inProduction(ev: AVEvent): boolean {
+  return isAuthorised(ev) && !isDelivered(ev) && eventSLA(ev) !== 'overdue';
+}
+
+/**
+ * Ang naihatid na serbisyo. Hindi na isinusulat ng modal ang "Delivered
+ * Services" — ang pipeline na ang nagsasabi. Kaya kapag Done ang Client
+ * delivery at blangko ang column, ang pinangako ang naihatid.
+ */
+function deliveredServicesOf(ev: AVEvent): string[] {
+  if (!isDelivered(ev)) return [];
+  return ev.delivered.length ? ev.delivered : agreedVolume(ev);
 }
 
 /** Naibigay pero hindi orihinal na hiniling — dagdag na serbisyo. */
@@ -4387,7 +4453,7 @@ function ComplianceScorecard({
           const undelivered = decided.reduce((a, ev) => a + deliveryGap(ev).length, 0);
           const base = `Demand ${tracked} · rendered ${served} · unmet ${unmet.length}.`;
           return asked > 0
-            ? `${base} At service level: ${asked} requested, ${noCap} could not be agreed for lack of capacity, ${undelivered} agreed but not delivered. The capacity figure is the direct basis for personnel augmentation.`
+            ? `${base} At service level: ${asked} requested, ${noCap} could not be agreed for lack of capacity, ${undelivered} agreed but past the target date and not yet delivered. The capacity figure is the direct basis for personnel augmentation.`
             : `${base} The monthly comparison is in the Demand vs Capacity panel.`;
         })(),
       },
@@ -4998,15 +5064,19 @@ function ServiceLedger({ ev, compact = false }: { ev: AVEvent; compact?: boolean
         {ev.requested.map((svc) => {
           const notAgreed = capSet.has(svc.toLowerCase());
           const missing = gapSet.has(svc.toLowerCase());
+          // Hindi pa naihahatid pero nasa oras pa — neutral, hindi berde o pula.
+          const working = !notAgreed && !missing && !isDelivered(ev);
           return (
             <span
               key={svc}
-              className={`av-chip ${notAgreed ? 'nocap' : missing ? 'gap' : 'ok'}`}
+              className={`av-chip ${notAgreed ? 'nocap' : missing ? 'gap' : working ? '' : 'ok'}`}
               title={
                 notAgreed
                   ? 'Requested but not agreed — no capacity'
                   : missing
-                  ? 'Agreed but not delivered'
+                  ? 'Agreed but not delivered — past the target date'
+                  : working
+                  ? 'Agreed — in production'
                   : 'Agreed and delivered'
               }
             >
@@ -5522,9 +5592,18 @@ function EventModal({
   roster,
   role,
   canEdit,
+  intent,
+  onLogPast,
 }: {
   existing: AVEvent | null;
   prefill?: AVEvent | null;
+  /** Galing sa online form at hindi na para sa triage: tapos na, aprubado, tinanggihan o kinansela. */
+  intent?: IntakeMode;
+  onLogPast?: (
+    payload: Record<string, string>,
+    crew: { personnel: string; roles: string[]; status: string }[],
+    intent: IntakeMode
+  ) => void;
   onMarkDone?: (ev: AVEvent) => void;
   onRecordPast?: (ev: AVEvent) => void;
   onClose: () => void;
@@ -5545,6 +5624,12 @@ function EventModal({
 
   // Ang laman sa simula: ang record mismo, o ang sagot sa request form.
   const seed = existing ?? prefill;
+  /**
+   * FIX: dati, ang "Review first" ng isang tapos nang request mula sa form ay
+   * laging napupunta sa triage — walang paraan para i-save ito bilang tapos
+   * mula sa modal. Ngayon, dala ng modal ang layunin at sa import ito dumadaan.
+   */
+  const pastIntent: IntakeMode | null = !existing && intent && intent !== 'triage' ? intent : null;
   const [f, setF] = useState({
     title: seed?.title ?? '',
     client: seed?.client ?? '',
@@ -5554,7 +5639,9 @@ function EventModal({
     eventDate: seed ? iso(seed.eventDate) : '',
     endDate: seed ? iso(seed.endDate) : '',
     // Bagong record → dumadaan muna sa AV triage, kapareho ng galing sa Form.
-    approvalStatus: seed
+    approvalStatus: pastIntent
+      ? APPROVAL_META[PAST_STATUS[pastIntent]].label
+      : seed
       ? APPROVAL_META[seed.approval].label
       : APPROVAL_META['for-evaluation'].label,
     approvalRemarks: seed?.approvalRemarks ?? '',
@@ -5692,8 +5779,13 @@ seed?.pipeline ?? {
    *   3. may pinangako na hindi naihatid (approved o endorsed) ← PM 2.1
    */
   const authorisedNow = approvalKey === 'approved';
-  const reasonRequired =
-    notApproved || capGap.length > 0 || (authorisedNow && delGap.length > 0);
+  // FIX: dati, kasama rito ang "(authorisedNow && delGap.length > 0)" — kaya
+  // bawat save ng aprubadong event na hindi pa naihahatid (pag-aprub ng DC,
+  // pagdagdag ng crew, pag-tick ng step) ay hinaharang hangga't walang dahilan.
+  const reasonRequired = notApproved || capGap.length > 0;
+  /** Lampas na sa target at hindi pa naihahatid — paalala, hindi harang. */
+  const lateNow =
+    !!existing && authorisedNow && delGap.length > 0 && eventSLA(existing) === 'overdue';
   const reasonMissing = reasonRequired && !f.reason.trim();
 
   /**
@@ -5708,10 +5800,20 @@ seed?.pipeline ?? {
   const [letterBusy, setLetterBusy] = useState(false);
   const [letterNote, setLetterNote] = useState('');
 
+  const letterInput = useRef<HTMLInputElement | null>(null);
+  const clearLetter = useCallback(() => {
+    setLetter(null);
+    setLetterErr('');
+    setLetterNote('');
+    // Para gumana ulit ang onChange kahit parehong file ang piliin.
+    if (letterInput.current) letterInput.current.value = '';
+  }, []);
+
   const pickLetter = useCallback(async (file: File | null) => {
     setLetterErr('');
     setLetter(null);
     setLetterNote('');
+    if (letterInput.current) letterInput.current.value = '';
     if (!file) return;
     if (!/^image\//i.test(file.type) && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
       setLetterErr('The request letter must be an image (JPG or PNG).');
@@ -5790,7 +5892,7 @@ seed?.pipeline ?? {
   const frozen = closed && !reopen;
 
   const inTriage = canTriage(role, existing);
-  const canChangeApproval = (canDecide(role) || inTriage) && !frozen;
+  const canChangeApproval = (canDecide(role) || inTriage) && !frozen && !pastIntent;
 
   /** Hindi maaaring lagdaan ng AV team ang sarili nilang request. */
   const approvalOptions = useMemo<ApprovalKey[]>(
@@ -5831,6 +5933,8 @@ seed?.pipeline ?? {
     !reasonMissing &&
     !submitting &&
     !frozen &&
+    // FIX: dati, puwedeng i-save habang pinapaliit pa ang larawan — walang sulat na naisasama.
+    !letterBusy &&
     strayDelivered.length === 0 &&
     (approvalOnly || (canEdit && missingFields.length === 0));
 
@@ -5843,10 +5947,16 @@ seed?.pipeline ?? {
   const submit = () => {
     // Itabi muna ang form — kapag pumalya ang pag-save, dito ito babalikan.
     writeDraft(draftKey, { ...JSON.parse(snapshot), savedAt: Date.now() });
-    onSubmit(
+    const send = (
+      payload: Record<string, string>,
+      id: string | null,
+      roster: { personnel: string; roles: string[]; status: string }[]
+    ) => (pastIntent && onLogPast ? onLogPast(payload, roster, pastIntent) : onSubmit(payload, id, roster));
+    send(
       {
         ...f,
         _draftKey: draftKey,
+        _ref: prefill?.id ?? '',
         lead: crew.find((c) => c.roles.length)?.personnel || f.lead,
         team: crew.map((c) => c.personnel).filter(Boolean).join(', '),
         requestedServices: requested.join(', '),
@@ -5893,6 +6003,26 @@ seed?.pipeline ?? {
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto custom-scrollbar">
+          {pastIntent && (
+            <div className="mx-6 mt-5 rounded-[12px] border border-[var(--rule)] bg-[var(--tint-blue)] px-4 py-3">
+              <p className="av-note">
+                <b>
+                  {pastIntent === 'done'
+                    ? 'Logging a finished request from the online form.'
+                    : pastIntent === 'approved'
+                    ? 'Logging a request already approved outside AV Nexus.'
+                    : pastIntent === 'declined'
+                    ? 'Logging a request the Division Chief declined.'
+                    : 'Logging a request the requesting office cancelled.'}
+                </b>{' '}
+                {pastIntent === 'done'
+                  ? 'It goes straight to Delivered — not to triage. DMC transfer and the CSM form stay as separate steps on the production board.'
+                  : pastIntent === 'approved'
+                  ? 'It goes straight to production — not to triage. No approval email is sent.'
+                  : 'It is recorded with its reason, not sent to triage.'}
+              </p>
+            </div>
+          )}
           {draftAt && (
             <div className="mx-6 mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-blue-200 bg-blue-50 px-4 py-3">
               <p className="av-note min-w-0 flex-1" style={{ color: '#1E3A8A' }}>
@@ -6074,22 +6204,17 @@ seed?.pipeline ?? {
               </label>
               <div className="flex flex-wrap items-center gap-3">
                 <input
+                  ref={letterInput}
                   type="file"
-                  accept="image/*"
-                  disabled={readOnly || approvalOnly || frozen}
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+                  disabled={readOnly || approvalOnly || frozen || letterBusy}
                   onChange={(e) => pickLetter(e.target.files?.[0] ?? null)}
                   className="av-note av-file file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
                 />
-                {letterBusy && <span className="av-chip">Shrinking the image…</span>}
-                {letter && (
-                  <span className="av-chip ok">
-                    {letter.name} · {Math.round(letter.data.length * 0.75 / 1024)} KB
-                    {letterNote ? ` (${letterNote})` : ''}
-                  </span>
-                )}
+                {letterBusy && <span className="av-chip">Preparing the image… wait before saving</span>}
                 {!letter && existing?.requestLetter && (
                   <a
-                    href={`https://drive.google.com/file/d/${existing.requestLetter}/view`}
+                    href={letterHref(existing.requestLetter)}
                     target="_blank"
                     rel="noreferrer"
                     className="av-chip"
@@ -6098,6 +6223,26 @@ seed?.pipeline ?? {
                   </a>
                 )}
               </div>
+              {letter && (
+                <div className="mt-3 flex items-center gap-3 rounded-[12px] border border-[var(--rule)] bg-[var(--surface-2)] p-2.5">
+                  <img
+                    src={`data:${letter.mime};base64,${letter.data}`}
+                    alt="Request letter to be attached"
+                    className="h-20 w-16 shrink-0 rounded-md border border-[var(--rule)] bg-white object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13.5px] font-semibold text-[var(--ink)]">{letter.name}</p>
+                    <p className="av-note av-dim">
+                      {Math.round((letter.data.length * 0.75) / 1024)} KB
+                      {letterNote ? `, ${letterNote}` : ''}. Sent with the record when you save
+                      {existing?.requestLetter ? ' — replaces the letter on file' : ''}.
+                    </p>
+                  </div>
+                  <button type="button" className="av-btn-ghost shrink-0 text-[12px]" onClick={clearLetter}>
+                    Remove
+                  </button>
+                </div>
+              )}
               {letterErr ? (
                 <p className="av-note mt-1.5" style={{ color: 'var(--refused)' }}>
                   {letterErr}
@@ -6282,7 +6427,7 @@ seed?.pipeline ?? {
                       <option key={k}>{APPROVAL_META[k].label}</option>
                     ))}
                   </select>
-                  {!canChangeApproval && (
+                  {!canChangeApproval && !pastIntent && (
                     <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
                       This request has left AV evaluation, so only the Division Chief and
                       the Supervising SRS can change it. Send them the approval email
@@ -6315,10 +6460,27 @@ seed?.pipeline ?? {
               {existing && canEdit && isAuthorised(existing) && !isClosed(existing) && (
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-[var(--rule)] bg-[var(--surface-2)] px-4 py-3">
                   <p className="av-note min-w-0 flex-1">
-                    <b>Finished with this event?</b> One click marks every step done and records the delivery.
+                    {!isDelivered(existing) ? (
+                      <>
+                        <b>Delivered to the client?</b> One click marks every production step done and
+                        records the delivery. DMC transfer and the CSM form stay as their own steps.
+                      </>
+                    ) : existing.pipeline.archiving !== 'done' ? (
+                      <>
+                        <b>Footage handed over to DMC?</b> Marking it moves the record to the Archive.
+                      </>
+                    ) : (
+                      <>
+                        <b>Transferred to DMC.</b> Mark the CSM form as given to close the record.
+                      </>
+                    )}
                   </p>
                   <button type="button" className="av-btn" onClick={() => onMarkDone?.(existing)}>
-                    Mark event as done
+                    {!isDelivered(existing)
+                      ? 'Mark as delivered'
+                      : existing.pipeline.archiving !== 'done'
+                      ? 'Mark DMC transferred'
+                      : 'CSM form given'}
                   </button>
                 </div>
               )}
@@ -6444,15 +6606,22 @@ seed?.pipeline ?? {
                 </div>
               )}
 
-              {reasonRequired && (
+              {(reasonRequired || lateNow) && (
                 <div className="mt-4 animate-fadein">
                   <label className={lab}>
-                    <span className="text-red-600">
-                      Reason * —{' '}
-                      {notApproved
-                        ? `required when ${APPROVAL_META[approvalKey].label}`
-                        : 'required when services were not served'}
-                    </span>
+                    {reasonRequired ? (
+                      <span className="text-red-600">
+                        Reason * —{' '}
+                        {notApproved
+                          ? `required when ${APPROVAL_META[approvalKey].label}`
+                          : 'required when requested services were not agreed'}
+                      </span>
+                    ) : (
+                      <span className="text-amber-700">
+                        Reason for the delay — this is past its target date and not yet delivered
+                        (Audit Item 40). You can still save without it.
+                      </span>
+                    )}
                   </label>
                   {/* HINDI ginagamit ang `field` dito. Ang `field` ay
                       pointer-events-none para sa approver — kaya dati,
@@ -6592,6 +6761,10 @@ seed?.pipeline ?? {
               ? `Still required: ${missingFields.join(', ')}.`
               : reasonMissing
               ? 'A reason is required before saving.'
+              : letterBusy
+              ? 'Wait — the request letter is still being prepared.'
+              : pastIntent
+              ? 'Saved straight to the Events sheet as a past record. It skips triage and no approval email is sent.'
               : pushingUp
               ? 'Saving will email the Supervising SRS with your recommendation and a schedule-conflict scan.'
               : 'Saved directly to the Events sheet.'}
@@ -6612,6 +6785,8 @@ seed?.pipeline ?? {
                 ? 'Saving…'
                 : approvalOnly
                 ? 'Record decision'
+                : pastIntent
+                ? PAST_LABEL[pastIntent]
                 : pushingUp
                 ? 'Send to Supervising SRS'
                 : existing
@@ -6658,7 +6833,11 @@ function ServiceGapPanel({
         });
         return;
       }
-      const got = new Set(ev.delivered.map((x) => x.toLowerCase()));
+      // FIX: dati'y `ev.delivered` lang — blangko na ito mula nang ang pipeline
+      // ang nagsasabi ng paghahatid, kaya lahat ng naihatid ay "not served".
+      // At ang nasa produksiyon pa (hindi pa lampas sa target) ay hindi kulang.
+      if (inProduction(ev)) return;
+      const got = new Set(deliveredServicesOf(ev).map((x) => x.toLowerCase()));
       const promised = new Set(agreedVolume(ev).map((x) => x.toLowerCase()));
       ev.requested.forEach((svc) => {
         const cur = map.get(svc) || { asked: 0, given: 0, missed: 0 };
@@ -9312,7 +9491,7 @@ function IntakeInbox({
         )}
       </div>
       <p className="av-note av-dim border-t border-[var(--rule-soft)] px-5 py-3">
-        <b>Log as done</b> — already served: saved as a completed past record, skipping triage.{' '}
+        <b>Log as done</b> — already served: skips triage and lands in Delivered on the production board, where you mark the DMC transfer.{' '}
         <b>Log as approved</b> — approved outside AV Nexus: goes straight to production.{' '}
         <b>Log for triage</b> — a new request: goes to AV evaluation.
       </p>
@@ -9346,8 +9525,8 @@ interface CrewTask {
 const TASK_STAGES: { key: TaskStage; label: string; hint: string; hex: string }[] = [
   { key: 'assigned', label: 'Assigned', hint: 'Crew is set, work has not started', hex: '#87919B' },
   { key: 'progress', label: 'In progress', hint: 'Coordination, shoot or editing under way', hex: '#B07A00' },
-  { key: 'done', label: 'Completed', hint: 'Delivered to the client', hex: '#1F8A5B' },
-  { key: 'dmc', label: 'Transferred to DMC', hint: 'Handed over to the Digital Media Archive', hex: '#427AA1' },
+  { key: 'done', label: 'Delivered', hint: 'Delivered to the client — waiting for DMC transfer', hex: '#1F8A5B' },
+  { key: 'dmc', label: 'Transferred to DMC', hint: 'Handed over to the Digital Media Archive — now in the Archive', hex: '#427AA1' },
 ];
 const STAGE_RANK: Record<TaskStage, number> = { assigned: 0, progress: 1, done: 2, dmc: 3 };
 
@@ -9495,21 +9674,153 @@ function intakeAction(q: IntakeRequest): { mode: IntakeMode; label: string; read
   return { mode: 'triage', label: 'Log for triage', ready: true };
 }
 
-/** Ang production board — isang card bawat event, apat na yugto. */
+/** Ang status na isusulat sa sheet para sa bawat paraan ng pag-log mula sa form. */
+const PAST_STATUS: Record<IntakeMode, ApprovalKey> = {
+  done: 'approved',
+  approved: 'approved',
+  declined: 'declined',
+  cancelled: 'cancelled',
+  triage: 'for-evaluation',
+};
+
+const PAST_LABEL: Record<IntakeMode, string> = {
+  done: 'Save as delivered',
+  approved: 'Save as approved',
+  declined: 'Save as declined',
+  cancelled: 'Save as cancelled',
+  triage: 'Log for triage',
+};
+
+/**
+ * Eksaktong ref sa loob ng remarks. Dati'y `remarks.includes(ref)` — kaya ang
+ * "REQ-12" ay tumatama rin sa "REQ-123", at puwedeng maling event ang
+ * markahang tapos o maling sagot sa form ang maitago sa inbox.
+ */
+function hasRef(text: string, ref: string): boolean {
+  const r = String(ref || '').trim();
+  if (!r) return false;
+  const esc = r.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Za-z0-9])${esc}($|[^A-Za-z0-9])`).test(String(text || ''));
+}
+
+/** Ang sagot sa form, handa nang buksan sa modal ayon sa gagawin dito. */
+function intakePrefill(q: IntakeRequest, mode: IntakeMode): AVEvent {
+  const ev = eventFromIntake(q);
+  if (mode === 'declined' || mode === 'cancelled') ev.reason = q.notes;
+  if (mode === 'done') {
+    const steps = stepsFor(q.stream);
+    PIPELINE_STEPS.forEach((st) => {
+      if (st.key === 'archiving' || st.key === 'csm') return;
+      ev.pipeline[st.key] = steps.some((x) => x.key === st.key) ? 'done' : 'na';
+    });
+  }
+  return ev;
+}
+
+/*
+ * PAST RECORDS NA NAGHIHINTAY NG KUMPIRMASYON.
+ * Ang import ay hindi nagbabalik ng Event ID, kaya hinahanap ang bagong record
+ * sa susunod na kuha (ref sa remarks, o pamagat + petsa), saka tinatapos:
+ * markahang naihatid, isulat ang crew at ang sulat. Naka-imbak sa device —
+ * hindi na nawawala kapag nag-reload bago dumating ang record.
+ */
+interface PendingPast {
+  marker: string;
+  title: string;
+  /** yyyy-MM-dd ng event */
+  date: string;
+  expect: ApprovalKey;
+  done: boolean;
+  crewFrom?: string;
+  crew?: { personnel: string; roles: string[]; status: string }[];
+  at: number;
+}
+
+const PENDING_KEY = 'avnexus.pendingPast.v1';
+
+function readPending(): PendingPast[] {
+  try {
+    const list = JSON.parse(window.localStorage.getItem(PENDING_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((p) => p && typeof p.marker === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePending(list: PendingPast[]) {
+  try {
+    if (list.length) window.localStorage.setItem(PENDING_KEY, JSON.stringify(list));
+    else window.localStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* private mode — sa memory na lang */
+  }
+}
+
+function findPast(events: AVEvent[], p: PendingPast): AVEvent | null {
+  const live = events.filter((e) => !isLocalId(e.id));
+  return (
+    live.find((e) => hasRef(e.remarks, p.marker)) ||
+    live.find(
+      (e) =>
+        normTitle(e.title) === normTitle(p.title) &&
+        (e.eventDate ? dayKey(e.eventDate) : '') === p.date &&
+        e.approval === p.expect
+    ) ||
+    null
+  );
+}
+
+/** Yugto ng event mismo — para sa aprubadong event na wala pang crew. */
+function eventStage(ev: AVEvent): TaskStage {
+  if (isDelivered(ev)) return ev.pipeline.archiving === 'done' ? 'dmc' : 'done';
+  return Object.values(ev.pipeline).some((v) => v === 'in-progress' || v === 'done') ? 'progress' : 'assigned';
+}
+
+type BoardCard = {
+  ev: AVEvent;
+  stage: TaskStage;
+  crew: CrewTask[];
+  overdue: boolean;
+  due: Date | null;
+  next: string | null;
+};
+
+/**
+ * Ang production board — isang card bawat event, apat na yugto, at ang
+ * susunod na hakbang ay pinipindot mismo sa card:
+ *   Assigned / In progress → Mark delivered → Delivered → Mark DMC transferred
+ *   → Transferred to DMC (lumalabas na sa Archive) → CSM form given → sarado.
+ *
+ * FIX: dati'y crew lang ang pinagmumulan — ang aprubadong event na walang crew
+ * (at ang lahat ng "Log as done" mula sa form) ay hindi lumalabas dito, kaya
+ * hindi tugma ang "In production" sa itaas at ang laman ng board.
+ */
 function CrewBoard({
   tasks,
+  events,
   person,
+  canEditEv,
+  dmcMatch,
   onOpen,
+  onDeliver,
+  onArchive,
+  onCsm,
 }: {
   tasks: CrewTask[];
+  events: AVEvent[];
   person: string;
+  canEditEv: (ev: AVEvent) => boolean;
+  dmcMatch: (ev: AVEvent) => Coverage | null;
   onOpen: (ev: AVEvent) => void;
+  onDeliver: (ev: AVEvent) => void;
+  onArchive: (ev: AVEvent) => void;
+  onCsm: (ev: AVEvent) => void;
 }) {
   const [showOld, setShowOld] = useState(false);
   const mine = person === 'ALL' ? tasks : tasks.filter((t) => t.person.toLowerCase() === person.toLowerCase());
 
   // Isang card bawat event. Ang pinakamabagal na miyembro ang nagtatakda ng yugto.
-  const map = new Map<string, { ev: AVEvent; stage: TaskStage; crew: CrewTask[]; overdue: boolean; due: Date | null; next: string | null }>();
+  const map = new Map<string, BoardCard>();
   mine.forEach((t) => {
     const cur = map.get(t.ev.id);
     if (!cur) {
@@ -9520,6 +9831,23 @@ function CrewBoard({
       cur.overdue = cur.overdue || t.overdue;
     }
   });
+  if (person === 'ALL') {
+    const today0 = new Date();
+    today0.setHours(0, 0, 0, 0);
+    events.forEach((ev) => {
+      if (!isAuthorised(ev) || map.has(ev.id)) return;
+      const stage = eventStage(ev);
+      const due = eventTarget(ev);
+      map.set(ev.id, {
+        ev,
+        stage,
+        crew: [],
+        overdue: (stage === 'assigned' || stage === 'progress') && !!due && due.getTime() < today0.getTime(),
+        due,
+        next: nextPipelineStep(ev)?.label ?? null,
+      });
+    });
+  }
   const cards = Array.from(map.values());
   const recentCut = new Date();
   recentCut.setDate(recentCut.getDate() - 60);
@@ -9530,32 +9858,101 @@ function CrewBoard({
   const count = (st: TaskStage) => cards.filter((c) => c.stage === st).length;
   const active = count('assigned') + count('progress');
   const overdue = cards.filter((c) => c.overdue).length;
+  const noCrew = cards.filter((c) => !c.crew.length && (c.stage === 'assigned' || c.stage === 'progress')).length;
   const hiddenOld = cards.filter((c) => (c.stage === 'done' || c.stage === 'dmc') && isOld(c)).length;
+  const matchedWaiting = cards.filter((c) => c.stage === 'done' && canEditEv(c.ev) && dmcMatch(c.ev));
 
   if (!cards.length) {
     return (
       <div className="av-card px-6 py-10 text-center">
-        <p className="av-sec-h">No crew assignments yet{person === 'ALL' ? '' : ` for ${person}`}.</p>
+        <p className="av-sec-h">Nothing in production yet{person === 'ALL' ? '' : ` for ${person}`}.</p>
         <p className="av-note av-dim mx-auto mt-1 max-w-lg">
-          Open an event and add people under Crew &amp; roles. They show up here on their own, and on each
-          person&rsquo;s profile.
+          Approved events show up here on their own. Add people under Crew &amp; roles inside an event and
+          it also shows on each person&rsquo;s profile.
         </p>
       </div>
     );
   }
 
+  const action = (c: BoardCard) => {
+    const ev = c.ev;
+    if (!isAuthorised(ev)) return <span className="av-note av-dim">Waiting for approval</span>;
+    if (!canEditEv(ev)) return <span className="av-note av-dim">View only{ev.createdBy ? ` — ${ev.createdBy}'s record` : ''}</span>;
+    if (c.stage === 'assigned' || c.stage === 'progress') {
+      return (
+        <>
+          {!c.crew.length && (
+            <button type="button" className="av-btn-ghost text-[12.5px]" onClick={() => onOpen(ev)}>
+              Assign crew
+            </button>
+          )}
+          <button type="button" className="av-btn text-[12.5px]" onClick={() => onDeliver(ev)}>
+            Mark delivered
+          </button>
+        </>
+      );
+    }
+    if (c.stage === 'done') {
+      return (
+        <button type="button" className="av-btn text-[12.5px]" onClick={() => onArchive(ev)}>
+          Mark DMC transferred
+        </button>
+      );
+    }
+    if (ev.pipeline.csm !== 'done' && ev.pipeline.csm !== 'na') {
+      return (
+        <button type="button" className="av-btn-ghost text-[12.5px]" onClick={() => onCsm(ev)}>
+          CSM form given
+        </button>
+      );
+    }
+    return <span className="av-note" style={{ color: 'var(--served)', fontWeight: 600 }}>Closed</span>;
+  };
+
+  const status = (c: BoardCard) => {
+    const ev = c.ev;
+    if (c.stage === 'assigned' || c.stage === 'progress') {
+      return (
+        <p className="mt-2 text-[12.5px]" style={{ color: c.overdue ? 'var(--refused)' : 'var(--ink-3)', fontWeight: c.overdue ? 600 : 400 }}>
+          {c.overdue ? 'Overdue since ' : 'Due '}
+          {c.due ? fmtDate(c.due) : '—'}
+          {c.next ? ` · Next: ${c.next}` : ''}
+        </p>
+      );
+    }
+    if (c.stage === 'done') {
+      const m = dmcMatch(ev);
+      return (
+        <p className="mt-2 text-[12.5px] text-[var(--ink-3)]">
+          Delivered {ev.dateDelivered ? fmtDate(ev.dateDelivered) : '(date not recorded)'}
+          {m ? (
+            <span style={{ color: 'var(--served)' }}> · Found in the DMC sheet</span>
+          ) : (
+            <span> · Waiting for DMC transfer</span>
+          )}
+        </p>
+      );
+    }
+    return (
+      <p className="mt-2 text-[12.5px] text-[var(--ink-3)]">
+        In the Archive · CSM form{' '}
+        {ev.pipeline.csm === 'done' ? 'given' : ev.pipeline.csm === 'na' ? 'not needed' : 'not yet given'}
+      </p>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <StatTile label="To do or ongoing" value={active} sub="Events still being worked on" accent="#2F5F82" bar={cards.length ? (active / cards.length) * 100 : 0} />
+        <StatTile label="To do or ongoing" value={active} sub={noCrew ? `${noCrew} with no crew yet` : 'Every one has a crew'} accent="#2F5F82" bar={cards.length ? (active / cards.length) * 100 : 0} />
         <StatTile label="In progress" value={count('progress')} sub="Work has started" accent="#B07A00" bar={cards.length ? (count('progress') / cards.length) * 100 : 0} />
-        <StatTile label="Completed" value={count('done')} sub="Delivered to the client" accent="#1F8A5B" bar={cards.length ? (count('done') / cards.length) * 100 : 0} />
-        <StatTile label="Transferred to DMC" value={count('dmc')} sub="Archived with DMC" accent="#427AA1" bar={cards.length ? (count('dmc') / cards.length) * 100 : 0} />
+        <StatTile label="Delivered" value={count('done')} sub="Waiting for DMC transfer" accent="#1F8A5B" bar={cards.length ? (count('done') / cards.length) * 100 : 0} />
+        <StatTile label="Transferred to DMC" value={count('dmc')} sub="Now in the Archive" accent="#427AA1" bar={cards.length ? (count('dmc') / cards.length) * 100 : 0} />
         <StatTile label="Overdue" value={overdue} sub="Past the SLA target" accent="#A30000" bar={active ? (overdue / active) * 100 : 0} />
       </div>
 
       <div className="custom-scrollbar overflow-x-auto pb-2">
-        <div className="grid min-w-[980px] grid-cols-4 gap-3">
+        <div className="grid min-w-[1020px] grid-cols-4 gap-3">
           {TASK_STAGES.map((st) => {
             const lane = cards
               .filter((c) => c.stage === st.key)
@@ -9567,29 +9964,40 @@ function CrewBoard({
               );
             return (
               <div key={st.key} className="av-lane">
-                <div className="mb-2.5 flex items-center justify-between px-1 pt-1">
-                  <span className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--ink)]">
-                    <span className="h-2 w-2 rounded-full" style={{ background: st.hex }} />
-                    {st.label}
+                <div className="mb-2.5 flex items-center justify-between gap-2 px-1 pt-1">
+                  <span className="flex min-w-0 items-center gap-2 text-[13.5px] font-semibold text-[var(--ink)]">
+                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: st.hex }} />
+                    <span className="truncate">{st.label}</span>
                   </span>
                   <span className="av-pill sm" style={{ background: 'var(--card)', color: 'var(--ink-3)' }}>
                     {lane.length}
                   </span>
                 </div>
+                <p className="mb-2 px-1 text-[12px] leading-snug text-[var(--ink-3)]">{st.hint}</p>
+                {st.key === 'done' && matchedWaiting.length > 1 && (
+                  <button
+                    type="button"
+                    className="av-btn-ghost mb-2 w-full text-[12.5px]"
+                    onClick={() => {
+                      if (window.confirm(`Mark ${matchedWaiting.length} delivered events as transferred to DMC? Each one was found in the DMC sheet.`)) {
+                        matchedWaiting.forEach((c) => onArchive(c.ev));
+                      }
+                    }}
+                  >
+                    Transfer {matchedWaiting.length} found in the DMC sheet
+                  </button>
+                )}
                 <div className="space-y-2">
                   {lane.slice(0, 12).map((c) => (
-                    <button
-                      key={c.ev.id}
-                      type="button"
-                      onClick={() => onOpen(c.ev)}
-                      className={`av-tcard ${c.overdue ? 'late' : ''}`}
-                    >
-                      <p className="line-clamp-2 text-[14px] font-semibold leading-snug text-[var(--ink)]">
-                        {c.ev.title || 'Untitled event'}
-                      </p>
-                      <p className="mt-0.5 line-clamp-2 break-words text-[12.5px] text-[var(--ink-3)]">
-                        {c.ev.client || 'No client'} · {dateSpan(c.ev.eventDate, c.ev.endDate)}
-                      </p>
+                    <div key={c.ev.id} className={`av-tcard ${c.overdue ? 'late' : ''}`}>
+                      <button type="button" onClick={() => onOpen(c.ev)} className="block w-full text-left">
+                        <p className="line-clamp-2 text-[14px] font-semibold leading-snug text-[var(--ink)]">
+                          {c.ev.title || 'Untitled event'}
+                        </p>
+                        <p className="mt-0.5 line-clamp-2 break-words text-[12.5px] text-[var(--ink-3)]">
+                          {c.ev.client || 'No client'} · {dateSpan(c.ev.eventDate, c.ev.endDate)}
+                        </p>
+                      </button>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {c.crew.map((t) => (
                           <span
@@ -9603,21 +10011,23 @@ function CrewBoard({
                             {t.partDone && c.stage !== 'done' && c.stage !== 'dmc' ? ' ✓' : ''}
                           </span>
                         ))}
+                        {!c.crew.length && (
+                          <span className="av-pill sm" style={{ background: 'var(--tint-amber)', color: 'var(--waiting)' }}>
+                            No crew yet
+                          </span>
+                        )}
                       </div>
+                      {status(c)}
                       {(c.stage === 'assigned' || c.stage === 'progress') && (
-                        <p
-                          className="mt-2 text-[12.5px]"
-                          style={{ color: c.overdue ? 'var(--refused)' : 'var(--ink-3)', fontWeight: c.overdue ? 600 : 400 }}
-                        >
-                          {c.overdue ? 'Overdue since ' : 'Due '}
-                          {c.due ? fmtDate(c.due) : '—'}
-                          {c.next ? ` · Next: ${c.next}` : ''}
-                        </p>
+                        <div className="av-track mt-2" aria-hidden>
+                          <div className="av-fill" style={{ width: `${pipelineProgress(c.ev)}%` }} />
+                        </div>
                       )}
-                    </button>
+                      <div className="mt-2.5 flex flex-wrap items-center justify-end gap-2">{action(c)}</div>
+                    </div>
                   ))}
                   {lane.length > 12 && (
-                    <p className="px-1 text-[12.5px] text-[var(--ink-3)]">+{lane.length - 12} more</p>
+                    <p className="px-1 text-[12.5px] text-[var(--ink-3)]">+{lane.length - 12} more — use the filters in Events</p>
                   )}
                   {lane.length === 0 && (
                     <p className="rounded-[10px] border border-dashed border-[var(--rule-strong)] py-6 text-center text-[12.5px] text-[var(--ink-3)]">
@@ -9757,11 +10167,11 @@ function DataChecks({
           />
           <Group
             title="Delivery date filled in, but Client delivery is not Done"
-            note="These count as still in production everywhere until the step is Done. Mark as done if they were delivered, or open the event and clear the date."
+            note="These count as still in production everywhere until the step is Done. Mark as delivered if they were, or open the event and clear the date."
             list={dateNoStep}
             action={(ev) => (
               <button type="button" className="av-btn text-[13px]" onClick={() => onMarkDone(ev)}>
-                Mark as done
+                Mark as delivered
               </button>
             )}
             bulk={
@@ -9771,7 +10181,7 @@ function DataChecks({
                   className="av-btn-ghost text-[13px]"
                   onClick={() => dateNoStep.forEach((ev) => onMarkDone(ev))}
                 >
-                  Mark all {dateNoStep.length} as done
+                  Mark all {dateNoStep.length} as delivered
                 </button>
               ) : undefined
             }
@@ -9785,6 +10195,739 @@ function DataChecks({
       )}
     </div>
     </section>
+  );
+}
+
+/* ================================================= DEPLOYMENT (v5) ====== */
+
+/*
+ * DEPLOYMENT CALENDAR — "sino ang naka-deploy, saan, kailan" at kung saan may
+ * banggaan. Para sa COA: kita agad ang double-booking at ang taong nakatalaga
+ * sa dalawang event sa iisang araw, hindi na kailangang basahin ang table.
+ *
+ *   Committed  = buhay na event na lampas na sa triage (for endorsement,
+ *                for approval, approved). Ito ang binibilang sa conflict.
+ *   Tentative  = nasa AV triage pa. Ipinapakita lang kapag pinili.
+ */
+interface DayLoad {
+  key: string;
+  date: Date;
+  events: AVEvent[];
+  tentative: AVEvent[];
+  people: Map<string, AVEvent[]>;
+  clashes: string[];
+  needed: number;
+  short: number;
+  unstaffed: AVEvent[];
+}
+
+function activeCrew(crewByEvent: Map<string, Assignment[]>, id: string): Assignment[] {
+  return (crewByEvent.get(id) || []).filter((a) => a.status !== 'Dropped' && a.status !== 'Reassigned');
+}
+
+function dayLoads(
+  events: AVEvent[],
+  crewByEvent: Map<string, Assignment[]>,
+  from: Date,
+  to: Date
+): Map<string, DayLoad> {
+  const out = new Map<string, DayLoad>();
+  const lo = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  const hi = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  const slot = (d: Date): DayLoad => {
+    const k = dayKey(d);
+    let cur = out.get(k);
+    if (!cur) {
+      cur = { key: k, date: new Date(d), events: [], tentative: [], people: new Map(), clashes: [], needed: 0, short: 0, unstaffed: [] };
+      out.set(k, cur);
+    }
+    return cur;
+  };
+  events.forEach((ev) => {
+    if (!ev.eventDate || !APPROVAL_META[ev.approval].live) return;
+    const end = ev.endDate && ev.endDate.getTime() >= ev.eventDate.getTime() ? ev.endDate : ev.eventDate;
+    const cur = new Date(ev.eventDate.getFullYear(), ev.eventDate.getMonth(), ev.eventDate.getDate());
+    let guard = 0;
+    while (cur.getTime() <= end.getTime() && guard < 60) {
+      const t = cur.getTime();
+      if (t >= lo && t <= hi) {
+        const d = slot(cur);
+        if (ev.approval === 'for-evaluation') d.tentative.push(ev);
+        else {
+          d.events.push(ev);
+          const crew = activeCrew(crewByEvent, ev.id);
+          if (!crew.length && isAuthorised(ev)) d.unstaffed.push(ev);
+          crew.forEach((a) => {
+            const list = d.people.get(a.personnel) || [];
+            if (!list.some((x) => x.id === ev.id)) list.push(ev);
+            d.people.set(a.personnel, list);
+          });
+        }
+      }
+      cur.setDate(cur.getDate() + 1);
+      guard++;
+    }
+  });
+  out.forEach((d) => {
+    d.clashes = Array.from(d.people.entries())
+      .filter(([, list]) => list.length > 1)
+      .map(([n]) => n);
+    d.needed = d.events.length * CREW_PER_EVENT;
+    d.short = d.events.length > 1 ? Math.max(0, d.needed - crewOnHand()) : 0;
+  });
+  return out;
+}
+
+/** May dapat bang ikabahala sa araw na ito? */
+function dayHasIssue(d: DayLoad): boolean {
+  return d.events.length > 1 || d.clashes.length > 0 || d.short > 0 || d.unstaffed.length > 0;
+}
+
+function issueText(d: DayLoad): string {
+  const bits: string[] = [];
+  if (d.events.length > 1) bits.push(`${d.events.length} events at the same time`);
+  if (d.clashes.length) bits.push(`${d.clashes.join(', ')} booked on two events`);
+  if (d.short > 0) bits.push(`short by ${d.short} ${d.short === 1 ? 'person' : 'people'}`);
+  if (d.unstaffed.length) bits.push(`${d.unstaffed.length} approved with no crew yet`);
+  return bits.join(' · ');
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function chipStyle(ev: AVEvent): React.CSSProperties {
+  if (ev.approval === 'for-evaluation') {
+    return { background: 'var(--tint-violet)', color: 'var(--triage)', border: '1px dashed currentColor' };
+  }
+  if (isAuthorised(ev)) return { background: 'var(--tint-blue)', color: 'var(--signal-strong)', border: '1px solid transparent' };
+  return { background: 'var(--tint-amber)', color: 'var(--waiting)', border: '1px solid transparent' };
+}
+
+function initials(name: string): string {
+  return (
+    String(name || '?')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || '?'
+  );
+}
+
+/** Babala sa itaas: banggaan sa susunod na 14 na araw. Kita agad, hindi na hinahanap. */
+function UpcomingConflicts({
+  events,
+  crewByEvent,
+  onView,
+}: {
+  events: AVEvent[];
+  crewByEvent: Map<string, Assignment[]>;
+  onView: () => void;
+}) {
+  const days = useMemo(() => {
+    const from = new Date();
+    const to = new Date();
+    to.setDate(to.getDate() + 14);
+    return Array.from(dayLoads(events, crewByEvent, from, to).values())
+      .filter(dayHasIssue)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [events, crewByEvent]);
+  if (!days.length) return null;
+  const hard = days.some((d) => d.clashes.length > 0 || d.short > 0);
+  return (
+    <div className={`av-alert ${hard ? 'err' : 'info'} flex flex-wrap items-start justify-between gap-3`} role="status">
+      <div className="min-w-0 flex-1">
+        <p>
+          <b>
+            ⚠ Schedule warning — {days.length} day{days.length === 1 ? '' : 's'} in the next 2 weeks need{days.length === 1 ? 's' : ''} attention.
+          </b>
+        </p>
+        <ul className="mt-1 space-y-0.5">
+          {days.slice(0, 4).map((d) => (
+            <li key={d.key}>
+              <b>{d.date.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}</b> —{' '}
+              {issueText(d)}
+            </li>
+          ))}
+          {days.length > 4 && <li>…and {days.length - 4} more.</li>}
+        </ul>
+      </div>
+      <button type="button" className="av-btn-ghost shrink-0 text-[13px]" onClick={onView}>
+        Open deployment calendar
+      </button>
+    </div>
+  );
+}
+
+function DeploymentCalendar({
+  events,
+  crewByEvent,
+  onOpen,
+}: {
+  events: AVEvent[];
+  crewByEvent: Map<string, Assignment[]>;
+  onOpen: (ev: AVEvent) => void;
+}) {
+  const [month, setMonth] = useState(() => {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), 1);
+  });
+  const [mode, setMode] = useState<'calendar' | 'people'>('calendar');
+  const [who, setWho] = useState('ALL');
+  const [showTriage, setShowTriage] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
+
+  const first = month;
+  const last = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+  const loads = useMemo(() => dayLoads(events, crewByEvent, first, last), [events, crewByEvent, month]); // eslint-disable-line react-hooks/exhaustive-deps
+  const todayKey = dayKey(new Date());
+  const people = TEAM.map((t) => t.name);
+
+  const mine = (d: DayLoad | undefined): AVEvent[] => {
+    if (!d) return [];
+    const list = showTriage ? [...d.events, ...d.tentative] : d.events;
+    if (who === 'ALL') return list;
+    return list.filter((ev) => activeCrew(crewByEvent, ev.id).some((a) => a.personnel === who));
+  };
+
+  const all = Array.from(loads.values());
+  const flagged = all.filter(dayHasIssue).sort((a, b) => a.date.getTime() - b.date.getTime());
+  const sum = {
+    days: all.filter((d) => d.events.length > 0).length,
+    double: all.filter((d) => d.events.length > 1).length,
+    clashes: all.reduce((n, d) => n + d.clashes.length, 0),
+    short: all.filter((d) => d.short > 0).length,
+    unstaffed: new Set(all.flatMap((d) => d.unstaffed.map((e) => e.id))).size,
+  };
+
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < first.getDay(); i++) cells.push(null);
+  for (let d = 1; d <= last.getDate(); d++) cells.push(new Date(month.getFullYear(), month.getMonth(), d));
+  while (cells.length % 7) cells.push(null);
+
+  const pickedLoad = picked ? loads.get(picked) : undefined;
+  const label = month.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
+
+  const exportCSV = () => {
+    const rows: string[][] = [['Date', 'Event', 'Client', 'Venue', 'Status', 'Crew (roles)', 'Same-day events', 'Personnel booked twice']];
+    Array.from(loads.values())
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .forEach((d) =>
+        [...d.events, ...d.tentative].forEach((ev) =>
+          rows.push([
+            d.key,
+            ev.title,
+            ev.client,
+            ev.venue,
+            APPROVAL_META[ev.approval].label,
+            activeCrew(crewByEvent, ev.id)
+              .map((a) => `${a.personnel} (${a.roles.join('/') || 'no role'})`)
+              .join('; '),
+            String(d.events.length),
+            d.clashes.join('; '),
+          ])
+        )
+      );
+    const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const blob = new Blob(['﻿' + rows.map((r) => r.map(esc).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `av-deployments-${dayKey(first).slice(0, 7)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+
+  const dayBadges = (d: DayLoad) => (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {d.clashes.length > 0 && (
+        <span className="av-cal-flag red" title={`${d.clashes.join(', ')} booked on two events`}>
+          ⚠ {d.clashes.length === 1 ? d.clashes[0] : `${d.clashes.length} people`} ×2
+        </span>
+      )}
+      {d.short > 0 && <span className="av-cal-flag red">Short {d.short}</span>}
+      {d.events.length > 1 && d.clashes.length === 0 && d.short === 0 && (
+        <span className="av-cal-flag amber">{d.events.length} events</span>
+      )}
+      {d.unstaffed.length > 0 && <span className="av-cal-flag amber">No crew</span>}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button type="button" className="av-iconbtn sm inline-flex" aria-label="Previous month" onClick={() => { setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1)); setPicked(null); }}>
+            ‹
+          </button>
+          <p className="min-w-[150px] text-center text-[16px] font-semibold text-[var(--ink)]">{label}</p>
+          <button type="button" className="av-iconbtn sm inline-flex" aria-label="Next month" onClick={() => { setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1)); setPicked(null); }}>
+            ›
+          </button>
+          <button type="button" className="av-btn-ghost text-[12.5px]" onClick={() => { const n = new Date(); setMonth(new Date(n.getFullYear(), n.getMonth(), 1)); setPicked(dayKey(n)); }}>
+            Today
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="av-seg" role="group" aria-label="View">
+            <button type="button" data-on={mode === 'calendar' ? '1' : '0'} onClick={() => setMode('calendar')}>
+              Calendar
+            </button>
+            <button type="button" data-on={mode === 'people' ? '1' : '0'} onClick={() => setMode('people')}>
+              By person
+            </button>
+          </div>
+          {mode === 'calendar' && (
+            <select value={who} onChange={(e) => setWho(e.target.value)} className="av-btn-ghost av-select" aria-label="Show deployments of">
+              <option value="ALL">Everyone</option>
+              {people.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          )}
+          <label className="flex cursor-pointer items-center gap-2 text-[13px] text-[var(--ink-2)]">
+            <input type="checkbox" className="accent-blue-700" checked={showTriage} onChange={(e) => setShowTriage(e.target.checked)} />
+            Include requests still in triage
+          </label>
+          <button type="button" className="av-btn-ghost text-[12.5px]" onClick={exportCSV}>
+            Download month (CSV)
+          </button>
+        </div>
+      </div>
+
+      {flagged.length > 0 ? (
+        <div className={`av-alert ${sum.clashes || sum.short ? 'err' : 'info'}`} role="status">
+          <b>⚠ {flagged.length} day{flagged.length === 1 ? '' : 's'} this month need{flagged.length === 1 ? 's' : ''} attention.</b>{' '}
+          {sum.double} double-booked day{sum.double === 1 ? '' : 's'}
+          {sum.clashes ? `, ${sum.clashes} time${sum.clashes === 1 ? '' : 's'} a person was booked on two events` : ''}
+          {sum.short ? `, ${sum.short} day${sum.short === 1 ? '' : 's'} short of staff` : ''}
+          {sum.unstaffed ? `, ${sum.unstaffed} approved event${sum.unstaffed === 1 ? '' : 's'} with no crew yet` : ''}. Tap a
+          day to see who is where.
+        </div>
+      ) : (
+        <div className="av-alert info" role="status">
+          {sum.days
+            ? `No schedule conflicts this month — ${sum.days} day${sum.days === 1 ? '' : 's'} with deployments, each covered.`
+            : 'No deployments recorded for this month.'}
+        </div>
+      )}
+
+      {mode === 'calendar' ? (
+        <>
+          <div className="hidden sm:block">
+            <div className="grid grid-cols-7 gap-px overflow-hidden rounded-[12px] border border-[var(--rule)] bg-[var(--rule)]">
+              {WEEKDAYS.map((w) => (
+                <div key={w} className="bg-[var(--surface-2)] px-2 py-2 text-[12px] font-semibold text-[var(--ink-3)]">
+                  {w}
+                </div>
+              ))}
+              {cells.map((c, i) => {
+                if (!c) return <div key={`x${i}`} className="min-h-[112px] bg-[var(--surface-2)] opacity-60" />;
+                const k = dayKey(c);
+                const d = loads.get(k);
+                const list = mine(d);
+                const off = !isWorkingDay(c);
+                const hard = !!d && (d.clashes.length > 0 || d.short > 0);
+                const soft = !!d && !hard && dayHasIssue(d);
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setPicked(picked === k ? null : k)}
+                    className={`av-cal-day ${off ? 'off' : ''} ${hard ? 'hard' : soft ? 'soft' : ''} ${picked === k ? 'on' : ''}`}
+                  >
+                    <span className="flex items-baseline justify-between gap-1">
+                      <span className={`av-cal-num ${k === todayKey ? 'today' : ''}`}>{c.getDate()}</span>
+                      {HOLIDAY_NAMES[k] && <span className="truncate text-[11px] text-[var(--refused)]">{HOLIDAY_NAMES[k]}</span>}
+                    </span>
+                    {list.slice(0, 3).map((ev) => (
+                      <span key={ev.id} className="av-cal-ev" style={chipStyle(ev)} title={`${ev.title} — ${APPROVAL_META[ev.approval].label}`}>
+                        {ev.title || 'Untitled'}
+                      </span>
+                    ))}
+                    {list.length > 3 && <span className="text-[11.5px] text-[var(--ink-3)]">+{list.length - 3} more</span>}
+                    {d && d.people.size > 0 && (
+                      <span className="mt-1 flex flex-wrap gap-0.5">
+                        {Array.from(d.people.keys()).map((n) => (
+                          <span key={n} className={`av-cal-who ${d.clashes.includes(n) ? 'clash' : ''}`} title={n}>
+                            {initials(n)}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    {d && dayBadges(d)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-2 sm:hidden">
+            {cells
+              .filter((c): c is Date => !!c)
+              .map((c) => ({ c, d: loads.get(dayKey(c)) }))
+              .filter(({ d }) => mine(d).length > 0)
+              .map(({ c, d }) => (
+                <button
+                  key={dayKey(c)}
+                  type="button"
+                  onClick={() => setPicked(dayKey(c))}
+                  className={`av-cal-row ${d && (d.clashes.length || d.short) ? 'hard' : d && dayHasIssue(d) ? 'soft' : ''}`}
+                >
+                  <span className="w-14 shrink-0 text-left">
+                    <b className="block text-[18px] leading-none text-[var(--ink)]">{c.getDate()}</b>
+                    <span className="text-[12px] text-[var(--ink-3)]">{WEEKDAYS[c.getDay()]}</span>
+                  </span>
+                  <span className="min-w-0 flex-1 text-left">
+                    {mine(d).map((ev) => (
+                      <span key={ev.id} className="block truncate text-[13.5px] font-semibold text-[var(--ink)]">
+                        {ev.title}
+                      </span>
+                    ))}
+                    {d && dayHasIssue(d) && <span className="block text-[12.5px] text-[var(--refused)]">⚠ {issueText(d)}</span>}
+                  </span>
+                </button>
+              ))}
+            {!cells.some((c) => c && mine(loads.get(dayKey(c))).length) && (
+              <p className="av-note av-dim py-6 text-center">No deployments this month.</p>
+            )}
+          </div>
+
+          <p className="flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-[var(--ink-3)]">
+            <span><span className="av-cal-key" style={chipStyle({ approval: 'approved' } as AVEvent)} /> Approved</span>
+            <span><span className="av-cal-key" style={chipStyle({ approval: 'for-approval' } as AVEvent)} /> Waiting for sign-off</span>
+            <span><span className="av-cal-key" style={chipStyle({ approval: 'for-evaluation' } as AVEvent)} /> In triage (optional)</span>
+            <span><span className="av-cal-who clash">AB</span> Person booked on two events</span>
+          </p>
+        </>
+      ) : (
+        <div className="custom-scrollbar overflow-x-auto rounded-[12px] border border-[var(--rule)]">
+          <table className="av-roster">
+            <thead>
+              <tr>
+                <th className="name">Personnel</th>
+                {cells
+                  .filter((c): c is Date => !!c)
+                  .map((c) => (
+                    <th key={dayKey(c)} className={!isWorkingDay(c) ? 'off' : ''} title={HOLIDAY_NAMES[dayKey(c)] || ''}>
+                      <span className="block text-[11px] font-medium text-[var(--ink-4)]">{WEEKDAYS[c.getDay()].slice(0, 2)}</span>
+                      {c.getDate()}
+                    </th>
+                  ))}
+                <th className="tot">Days out</th>
+                <th className="tot">Double</th>
+              </tr>
+            </thead>
+            <tbody>
+              {people.map((n) => {
+                let out = 0;
+                let dbl = 0;
+                return (
+                  <tr key={n}>
+                    <td className="name">{n}</td>
+                    {cells
+                      .filter((c): c is Date => !!c)
+                      .map((c) => {
+                        const k = dayKey(c);
+                        const list = loads.get(k)?.people.get(n) || [];
+                        if (list.length) out++;
+                        if (list.length > 1) dbl++;
+                        return (
+                          <td
+                            key={k}
+                            className={`${!isWorkingDay(c) ? 'off' : ''} ${list.length > 1 ? 'clash' : list.length ? 'on' : ''}`}
+                            title={list.map((e) => e.title).join('\n')}
+                          >
+                            <button type="button" className="h-full w-full" onClick={() => { setMode('calendar'); setPicked(k); }} aria-label={`${n}, ${fmtDate(c)}: ${list.length} event${list.length === 1 ? '' : 's'}`}>
+                              {list.length || ''}
+                            </button>
+                          </td>
+                        );
+                      })}
+                    <td className="tot">{out}</td>
+                    <td className="tot" style={{ color: dbl ? 'var(--refused)' : undefined, fontWeight: dbl ? 700 : 500 }}>
+                      {dbl}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="sum">
+                <td className="name">Events</td>
+                {cells
+                  .filter((c): c is Date => !!c)
+                  .map((c) => {
+                    const n = loads.get(dayKey(c))?.events.length || 0;
+                    return (
+                      <td key={dayKey(c)} className={`${!isWorkingDay(c) ? 'off' : ''} ${n > 1 ? 'clash' : ''}`}>
+                        {n || ''}
+                      </td>
+                    );
+                  })}
+                <td className="tot">{sum.days}</td>
+                <td className="tot">{sum.double}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {pickedLoad && (
+        <div className="av-card p-4">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <p className="av-sec-h">
+              {pickedLoad.date.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+              {HOLIDAY_NAMES[pickedLoad.key] ? ` · ${HOLIDAY_NAMES[pickedLoad.key]}` : ''}
+            </p>
+            <button type="button" className="av-btn-ghost text-[12px]" onClick={() => setPicked(null)}>
+              Close
+            </button>
+          </div>
+          {dayHasIssue(pickedLoad) && <p className="av-alert err mb-3">⚠ {issueText(pickedLoad)}</p>}
+          <div className="divide-y divide-[var(--rule-soft)]">
+            {[...pickedLoad.events, ...(showTriage ? pickedLoad.tentative : [])].map((ev) => {
+              const crew = activeCrew(crewByEvent, ev.id);
+              return (
+                <div key={ev.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-start">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[14.5px] font-semibold text-[var(--ink)]">{ev.title || 'Untitled event'}</p>
+                    <p className="av-note av-dim">
+                      {[ev.client, ev.venue, dateSpan(ev.eventDate, ev.endDate), APPROVAL_META[ev.approval].label].filter(Boolean).join(' · ')}
+                    </p>
+                    <p className="av-note mt-1">
+                      {crew.length ? (
+                        crew.map((a, i) => (
+                          <span key={a.id}>
+                            {i > 0 && ', '}
+                            <b style={{ color: pickedLoad.clashes.includes(a.personnel) ? 'var(--refused)' : undefined }}>{a.personnel}</b>
+                            {a.roles.length ? ` (${a.roles.join(', ')})` : ''}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={{ color: 'var(--waiting)', fontWeight: 600 }}>No crew assigned yet</span>
+                      )}
+                    </p>
+                  </div>
+                  <button type="button" className="av-btn-ghost shrink-0 text-[12.5px]" onClick={() => onOpen(ev)}>
+                    Open event
+                  </button>
+                </div>
+              );
+            })}
+            {!pickedLoad.events.length && !(showTriage && pickedLoad.tentative.length) && (
+              <p className="av-note av-dim py-3">No deployments on this day.</p>
+            )}
+          </div>
+        </div>
+      )}
+      {picked && !pickedLoad && <p className="av-note av-dim">No deployments on {fmtDate(parseDate(picked))}.</p>}
+    </div>
+  );
+}
+
+/* ======================================================= ARCHIVE (v5) ==== */
+
+/**
+ * Ang Archive mula sa AV Nexus mismo. Pagka-mark ng "DMC transferred" sa
+ * production board, dito ito lumalabas — kumpleto: event, petsa, serbisyo,
+ * crew, petsa ng paghahatid, link — at kung natagpuan na sa DMC sheet.
+ */
+function NexusArchive({
+  events,
+  crewByEvent,
+  dmcMatch,
+  canEditEv,
+  onOpen,
+  onArchive,
+}: {
+  events: AVEvent[];
+  crewByEvent: Map<string, Assignment[]>;
+  dmcMatch: (ev: AVEvent) => Coverage | null;
+  canEditEv: (ev: AVEvent) => boolean;
+  onOpen: (ev: AVEvent) => void;
+  onArchive: (ev: AVEvent) => void;
+}) {
+  const [q, setQ] = useState('');
+  const [limit, setLimit] = useState(25);
+  const qd = useDebounced(q, 160);
+  const byDate = (a: AVEvent, b: AVEvent) => (b.eventDate?.getTime() ?? 0) - (a.eventDate?.getTime() ?? 0);
+  const waiting = useMemo(
+    () => events.filter((ev) => isAuthorised(ev) && isDelivered(ev) && ev.pipeline.archiving !== 'done').sort(byDate),
+    [events]
+  );
+  const archived = useMemo(() => {
+    const needle = qd.trim().toLowerCase();
+    return events
+      .filter((ev) => isAuthorised(ev) && ev.pipeline.archiving === 'done')
+      .filter((ev) => !needle || `${ev.title} ${ev.client} ${ev.venue} ${ev.id}`.toLowerCase().includes(needle))
+      .sort(byDate);
+  }, [events, qd]);
+  const inSheet = archived.filter((ev) => dmcMatch(ev)).length;
+
+  const crewText = (ev: AVEvent) =>
+    activeCrew(crewByEvent, ev.id)
+      .map((a) => a.personnel)
+      .join(', ') || '—';
+
+  const exportCSV = () => {
+    const rows = [['Event ID', 'Event', 'Client', 'Event date', 'Services delivered', 'Crew', 'Delivered on', 'CSM form', 'Output link', 'In DMC sheet']];
+    archived.forEach((ev) =>
+      rows.push([
+        ev.id,
+        ev.title,
+        ev.client,
+        ev.eventDate ? dayKey(ev.eventDate) : '',
+        deliveredServicesOf(ev).join('; '),
+        crewText(ev),
+        ev.dateDelivered ? dayKey(ev.dateDelivered) : '',
+        ev.pipeline.csm === 'done' ? 'Given' : 'Not yet',
+        ev.link,
+        dmcMatch(ev) ? 'Yes' : 'Not yet',
+      ])
+    );
+    const esc = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const blob = new Blob(['﻿' + rows.map((r) => r.map(esc).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'av-nexus-dmc-archive.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="av-trio four">
+        <div>
+          <p className="av-stat-l">Waiting for DMC transfer</p>
+          <p className="av-fig mt-2" style={{ color: waiting.length ? 'var(--waiting)' : undefined }}>{waiting.length}</p>
+          <p className="av-stat-s">Delivered to the client, footage not yet handed over</p>
+        </div>
+        <div>
+          <p className="av-stat-l">Transferred to DMC</p>
+          <p className="av-fig mt-2">{archived.length}</p>
+          <p className="av-stat-s">Marked transferred in AV Nexus</p>
+        </div>
+        <div>
+          <p className="av-stat-l">Also in the DMC sheet</p>
+          <p className="av-fig mt-2" style={{ color: 'var(--served)' }}>{inSheet}</p>
+          <p className="av-stat-s">Matched by title and date</p>
+        </div>
+        <div>
+          <p className="av-stat-l">Not in the DMC sheet yet</p>
+          <p className="av-fig mt-2" style={{ color: archived.length - inSheet ? 'var(--refused)' : undefined }}>
+            {archived.length - inSheet}
+          </p>
+          <p className="av-stat-s">Ask DMC to log these</p>
+        </div>
+      </div>
+
+      {waiting.length > 0 && (
+        <div className="av-inset p-4">
+          <p className="av-label mb-2">Waiting for DMC transfer ({waiting.length})</p>
+          <div className="divide-y divide-[var(--rule-soft)]">
+            {waiting.slice(0, 10).map((ev) => {
+              const m = dmcMatch(ev);
+              return (
+                <div key={ev.id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center">
+                  <button type="button" onClick={() => onOpen(ev)} className="min-w-0 flex-1 text-left">
+                    <span className="block truncate text-[14px] font-semibold text-[var(--ink)]">{ev.title}</span>
+                    <span className="block truncate text-[12.5px] text-[var(--ink-3)]">
+                      {ev.client || 'No client'} · {dateSpan(ev.eventDate, ev.endDate)}
+                      {m ? ' · found in the DMC sheet' : ''}
+                    </span>
+                  </button>
+                  {canEditEv(ev) ? (
+                    <button type="button" className="av-btn shrink-0 text-[12.5px]" onClick={() => onArchive(ev)}>
+                      Mark DMC transferred
+                    </button>
+                  ) : (
+                    <span className="av-note av-dim shrink-0">View only</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {waiting.length > 10 && <p className="av-note av-dim mt-2">…and {waiting.length - 10} more on the production board.</p>}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search transferred events…"
+          className="min-w-0 flex-1 rounded-[10px] border border-[var(--rule)] bg-[var(--card)] px-3 py-2 text-[14px] text-[var(--ink)] focus:outline-none"
+        />
+        <button type="button" className="av-btn-ghost text-[12.5px]" onClick={exportCSV} disabled={!archived.length}>
+          Download (CSV)
+        </button>
+      </div>
+
+      {archived.length ? (
+        <div className="custom-scrollbar overflow-x-auto">
+          <table className="av-table min-w-[860px]">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Event date</th>
+                <th>Services delivered</th>
+                <th>Crew</th>
+                <th>Delivered</th>
+                <th>CSM form</th>
+                <th>DMC sheet</th>
+              </tr>
+            </thead>
+            <tbody>
+              {archived.slice(0, limit).map((ev) => {
+                const m = dmcMatch(ev);
+                return (
+                  <tr key={ev.id}>
+                    <td>
+                      <button type="button" onClick={() => onOpen(ev)} className="text-left">
+                        <b className="block text-[var(--ink)]">{ev.title}</b>
+                        <span className="text-[12.5px] text-[var(--ink-3)]">{ev.client || '—'} · {ev.id}</span>
+                      </button>
+                      {ev.link && (
+                        <a href={ev.link} target="_blank" rel="noreferrer" className="block text-[12.5px] text-[var(--signal)]">
+                          Output link
+                        </a>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap">{dateSpan(ev.eventDate, ev.endDate)}</td>
+                    <td className="text-[13px]">{deliveredServicesOf(ev).join(', ') || '—'}</td>
+                    <td className="text-[13px]">{crewText(ev)}</td>
+                    <td className="whitespace-nowrap">{ev.dateDelivered ? fmtDate(ev.dateDelivered) : '—'}</td>
+                    <td>{ev.pipeline.csm === 'done' ? 'Given' : <span className="av-dim">Not yet</span>}</td>
+                    <td>
+                      {m ? (
+                        <span style={{ color: 'var(--served)', fontWeight: 600 }} title={m.details}>
+                          ✓ {fmtDate(m.dateObj, m.date)}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--refused)' }}>Not yet</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {archived.length > limit && (
+            <button type="button" className="av-btn-ghost mt-2 w-full text-[13px]" onClick={() => setLimit((n) => n + 25)}>
+              Show 25 more ({archived.length - limit} not shown)
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="av-note av-dim py-4 text-center">
+          {q ? 'No transferred event matches that search.' : 'Nothing marked as transferred to DMC yet. Use “Mark DMC transferred” on the production board.'}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -10202,6 +11345,7 @@ function AppMain() {
     open: boolean;
     editing: AVEvent | null;
     prefill?: AVEvent | null;
+    intent?: IntakeMode;
   }>({
     open: false,
     editing: null,
@@ -10654,12 +11798,50 @@ function AppMain() {
     return m;
   }, [assignments]);
 
+  /** Kapareho ng sinusunod ng server: sino ang puwedeng gumalaw sa record. */
+  const canEditEv = useCallback(
+    (ev: AVEvent) =>
+      ev.approval === 'for-evaluation'
+        ? myRole === 'admin' || myRole === 'staff'
+        : can('edit', myRole, ev.createdBy, myName),
+    [myRole, myName]
+  );
+
+  /** Tugmang record sa DMC sheet (transferred o archived) ng naihatid na event. */
+  const dmcMatches = useMemo(() => {
+    const m = new Map<string, Coverage>();
+    const inDmc = coverages.filter((c) => {
+      const k = classifyStatus(c.status);
+      return k === 'transferred' || k === 'archived';
+    });
+    if (!inDmc.length) return m;
+    events.forEach((ev) => {
+      if (!isDelivered(ev)) return;
+      const hit = inDmc.find((c) => {
+        if (!titlesMatch(c.details, ev.title, true)) return false;
+        const d = daysApart(c.dateObj, ev.endDate || ev.eventDate);
+        return d === null || d <= 45;
+      });
+      if (hit) m.set(ev.id, hit);
+    });
+    return m;
+  }, [events, coverages]);
+  const dmcMatch = useCallback((ev: AVEvent) => dmcMatches.get(ev.id) ?? null, [dmcMatches]);
+  const calRef = useRef<HTMLDivElement>(null);
+  /** Sino ang naka-deploy ngayong araw — para sa Team workload. */
+  const todayLoad = useMemo(() => {
+    const now = new Date();
+    return dayLoads(events, crewByEvent, now, now).get(dayKey(now));
+  }, [events, crewByEvent]);
+
   const unloadRisk = queue.some((o) => o.state === 'sending') || (!queueSaved && queue.length > 0);
 
   // Para sa ibang bukas na tab ng AV Nexus sa parehong browser.
   const channelRef = useRef<BroadcastChannel | null>(null);
   // Mga bagong import na dapat markahang tapos pagdating nila mula sa sheet.
-  const pendingDone = useRef<Map<string, { crewFrom?: string }>>(new Map());
+  const pendingPast = useRef<PendingPast[]>(readPending());
+  /** Sulat ng past record na isusulat kapag may Event ID na. Memory lang — malaki para sa device. */
+  const letterStash = useRef(new Map<string, unknown>());
 
   const seenIds = useRef<Set<string>>(new Set());
   const loadedOnce = useRef(false);
@@ -10673,6 +11855,14 @@ function AppMain() {
     setToasts((t) => [...t, { id, text, tone }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
   }, []);
+
+  const openEv = useCallback(
+    (ev: AVEvent) =>
+      isLocalId(ev.id)
+        ? toast('Still saving to the sheet — open it again in a moment.', 'info')
+        : setEvModal({ open: true, editing: ev }),
+    [toast]
+  );
 
   /* ------------------------------------------------------------- FETCH -- */
   // Isang kuha lang bawat feed nang sabay; ang huling sagot, para malaman kung may nagbago.
@@ -11545,12 +12735,20 @@ function AppMain() {
   );
 
   /**
-   * "TAPOS NA" — isang pindot. Lahat ng applicable na hakbang ay Done, at
-   * may petsa ng paghahatid. Kapag matagal nang tapos ang event (lampas 30
-   * araw), hindi tayo mag-iimbento ng petsa — hindi na lang susukatin ang TAT.
+   * NAIHATID NA — isang pindot. Lahat ng production step hanggang Client
+   * delivery ay Done, may petsa ng paghahatid.
+   *
+   * FIX: dati, pati Archiving at CSM ay minamarkahang Done — kaya ang event
+   * ay tumatalon diretso sa "Transferred to DMC" kahit hindi pa naililipat ang
+   * footage. Ngayon, hiwalay na hakbang ang DMC transfer (markArchived) at ang
+   * CSM form (markCsmGiven), at saka lang lumilipat sa Archive.
+   *
+   * Petsa: kapag aktwal na tinatapos ngayon, ngayon ang petsa. Kapag BACKFILL
+   * ng nakaraang event (log as done, record past), hindi ito iniimbento —
+   * blangko, para hindi magmukhang late ang naihatid naman sa oras.
    */
   const markDone = useCallback(
-    (ev: AVEvent, quiet = false) => {
+    (ev: AVEvent, opts: { quiet?: boolean; backfill?: boolean } = {}) => {
       if (!PROD_CONFIGURED) {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
@@ -11559,61 +12757,167 @@ function AppMain() {
         toast('Not in the sheet yet — try again once it has synced.', 'info');
         return;
       }
-      // Lumang event (lampas 30 araw): huwag lagyan ng petsa ngayon ang
-      // naihatid — sisira iyon sa turnaround. Hayaang blangko.
       const today0 = new Date();
       today0.setHours(0, 0, 0, 0);
       const end = ev.endDate || ev.eventDate;
       const stale = !!end && today0.getTime() - end.getTime() > 30 * 86400000;
-      const deliveredOn = ev.dateDelivered || (stale ? null : new Date());
+      const endedBefore = !!end && end.getTime() < today0.getTime();
+      const deliveredOn =
+        ev.dateDelivered || (stale || (opts.backfill && endedBefore) ? null : new Date());
       const pipeline = { ...ev.pipeline };
       const patch: Record<string, string> = {};
       stepsFor(streamOfServices(ev.requested)).forEach((st) => {
-        if (pipeline[st.key] === 'na') return;
+        if (st.key === 'archiving' || st.key === 'csm') return;
+        if (pipeline[st.key] === 'na' || pipeline[st.key] === 'done') return;
         pipeline[st.key] = 'done';
         patch[stepField(st.key)] = PIPELINE_META.done.label;
       });
       if (!ev.dateDelivered && deliveredOn) patch.dateDelivered = dayKey(deliveredOn);
+      if (!Object.keys(patch).length) return;
       enqueue(
         [
-          makeOp('updateEvent', { action: 'updateEvent', id: ev.id, patch }, `Mark “${ev.title || ev.id}” as done`, ev.id, {
+          makeOp('updateEvent', { action: 'updateEvent', id: ev.id, patch }, `Mark “${ev.title || ev.id}” as delivered`, ev.id, {
             event: { ...ev, pipeline, dateDelivered: deliveredOn },
-            doneText: quiet ? '' : `Marked as done: ${ev.title || ev.id}`,
+            doneText: opts.quiet ? '' : `Delivered: ${ev.title || ev.id}`,
           }),
         ],
-        { silentOffline: quiet }
+        { silentOffline: opts.quiet }
       );
     },
     [toast, enqueue]
   );
 
-  // Ang bagong import ay minamarkahang tapos pagdating mula sa sheet, at
-  // kinokopya ang crew kapag pinalitan nito ang isang lumang triage record.
-  useEffect(() => {
-    if (!pendingDone.current.size) return;
-    Array.from(pendingDone.current.entries()).forEach(([marker, opt]) => {
-      const ev = events.find((e) => e.remarks.includes(marker) && isAuthorised(e));
-      if (!ev) return;
-      pendingDone.current.delete(marker);
-      if (opt.crewFrom) {
-        const rows = assignments
-          .filter(
-            (a) =>
-              a.eventId === opt.crewFrom &&
-              a.status !== 'Dropped' &&
-              a.status !== 'Reassigned' &&
-              a.roles.length > 0
-          )
-          .map((a) => ({ personnel: a.personnel, roles: a.roles, status: a.status }));
-        if (rows.length) {
-          enqueue(
-            [makeOp('setAssignments', { action: 'setAssignments', eventId: ev.id, rows }, `Copy crew to “${ev.title}”`, ev.id)],
-            { silentOffline: true }
-          );
-        }
+  /** Isang pipeline step lang — para sa DMC transfer at CSM form. */
+  const setStep = useCallback(
+    (ev: AVEvent, key: PipelineKey, label: string, doneText: string) => {
+      if (!PROD_CONFIGURED) {
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
+        return;
       }
-      if (!isClosed(ev)) markDone(ev, true);
+      if (isLocalId(ev.id)) {
+        toast('Not in the sheet yet — try again once it has synced.', 'info');
+        return;
+      }
+      if (ev.pipeline[key] === 'done') return;
+      enqueue([
+        makeOp(
+          'updateEvent',
+          { action: 'updateEvent', id: ev.id, patch: { [stepField(key)]: PIPELINE_META.done.label } },
+          `${label} — “${ev.title || ev.id}”`,
+          ev.id,
+          { event: { ...ev, pipeline: { ...ev.pipeline, [key]: 'done' } }, doneText }
+        ),
+      ]);
+    },
+    [toast, enqueue]
+  );
+
+  /** Naihatid na → nailipat sa DMC → lalabas sa Archive. Hindi bago maihatid. */
+  const markArchived = useCallback(
+    (ev: AVEvent) => {
+      if (!isDelivered(ev)) {
+        toast('Mark it as delivered first — DMC transfer comes after delivery.', 'info');
+        return;
+      }
+      setStep(ev, 'archiving', 'DMC transfer', `Transferred to DMC: ${ev.title || ev.id}`);
+    },
+    [toast, setStep]
+  );
+
+  const markCsmGiven = useCallback(
+    (ev: AVEvent) => setStep(ev, 'csm', 'CSM form', `CSM form given: ${ev.title || ev.id}`),
+    [setStep]
+  );
+
+  /** Ang susunod na yugto: deliver → DMC → CSM. Para sa button sa modal. */
+  const advanceEvent = useCallback(
+    (ev: AVEvent) => {
+      if (!isDelivered(ev)) markDone(ev);
+      else if (ev.pipeline.archiving !== 'done') markArchived(ev);
+      else markCsmGiven(ev);
+    },
+    [markDone, markArchived, markCsmGiven]
+  );
+
+  const addPending = useCallback((p: PendingPast) => {
+    const next = [...pendingPast.current.filter((x) => x.marker !== p.marker), p];
+    pendingPast.current = next;
+    writePending(next);
+  }, []);
+
+  /*
+   * Tinatapos ang mga past record pagdating nila mula sa sheet.
+   * FIX: dati'y nasa memory lang (nawawala sa reload), `remarks.includes()`
+   * ang tugma (maling event ang puwedeng tamaan), at tahimik kapag hindi
+   * "Approved" ang naisulat ng sheet — kaya mukhang "napunta sa triage".
+   * Ngayon, nakikita agad kapag binago ng backend ang status.
+   */
+  useEffect(() => {
+    const list = pendingPast.current;
+    if (!list.length || !loadedOnce.current) return;
+    const now = Date.now();
+    const keep: PendingPast[] = [];
+    let changed = false;
+    list.forEach((p) => {
+      if (now - p.at > 3 * 86400000) {
+        changed = true;
+        return;
+      }
+      const ev = findPast(events, p);
+      if (!ev) {
+        keep.push(p);
+        return;
+      }
+      changed = true;
+      if (ev.approval !== p.expect) {
+        setLastError({
+          what: `Saving “${ev.title}”`,
+          detail:
+            `The record was created, but the sheet saved it as “${APPROVAL_META[ev.approval].label}” instead of “${APPROVAL_META[p.expect].label}”. ` +
+            'The AV Nexus backend (importEvents in AVNexus.gs) is replacing the status the dashboard sent, so it lands in triage. ' +
+            'The backend needs to keep the status on import. Until then, the Division Chief can approve it from the event.',
+        });
+      }
+      const rows = p.crew?.length
+        ? p.crew
+        : p.crewFrom
+        ? assignments
+            .filter(
+              (a) =>
+                a.eventId === p.crewFrom &&
+                a.status !== 'Dropped' &&
+                a.status !== 'Reassigned' &&
+                a.roles.length > 0
+            )
+            .map((a) => ({ personnel: a.personnel, roles: a.roles, status: a.status }))
+        : [];
+      if (rows.length) {
+        enqueue(
+          [makeOp('setAssignments', { action: 'setAssignments', eventId: ev.id, rows }, `Crew for “${ev.title}”`, ev.id)],
+          { silentOffline: true }
+        );
+      }
+      const letter = letterStash.current.get(p.marker);
+      if (letter) {
+        letterStash.current.delete(p.marker);
+        enqueue(
+          [
+            makeOp(
+              'updateEvent',
+              { action: 'updateEvent', id: ev.id, patch: { requestLetter: letter } },
+              `Request letter for “${ev.title}”`,
+              ev.id
+            ),
+          ],
+          { silentOffline: true }
+        );
+      }
+      if (p.done && ev.approval === 'approved' && !isDelivered(ev)) markDone(ev, { quiet: true, backfill: true });
     });
+    if (changed) {
+      pendingPast.current = keep;
+      writePending(keep);
+    }
   }, [events, assignments, markDone, enqueue]);
 
   /**
@@ -11656,7 +12960,15 @@ function AppMain() {
         return;
       }
       // 3. Pumasok na ang bago: kanselahin ang luma bilang doble at itago.
-      pendingDone.current.set(marker, { crewFrom: ev.id });
+      addPending({
+        marker,
+        title: ev.title,
+        date: ev.eventDate ? dayKey(ev.eventDate) : '',
+        expect: 'approved',
+        done: true,
+        crewFrom: ev.id,
+        at: Date.now(),
+      });
       setHiddenIds((h) => (h.includes(ev.id) ? h : [...h, ev.id]));
       try {
         await authedPost({
@@ -11676,37 +12988,88 @@ function AppMain() {
       }
       setTimeout(() => fetchProduction(), 1600);
     },
-    [importPast, authedPost, toast, fetchProduction]
+    [importPast, authedPost, toast, fetchProduction, addPending]
   );
 
   /** Mabilisang pag-log ng sagot sa form: done, approved, declined o cancelled. */
+  /**
+   * Mabilisang pag-log ng sagot sa form: done, approved, declined o cancelled.
+   * FIX: ang "Log as done" ay sinusundan na hanggang dumating ang record —
+   * minamarkahang naihatid, at sinasabi agad kapag binago ng sheet ang status.
+   */
   const logIntakeAs = useCallback(
     async (q: IntakeRequest, mode: IntakeMode) => {
       if (mode === 'triage') return;
-      const status: ApprovalKey =
-        mode === 'declined' ? 'declined' : mode === 'cancelled' ? 'cancelled' : 'approved';
+      const status = PAST_STATUS[mode];
       const reason =
         mode === 'declined' || mode === 'cancelled'
           ? q.notes || 'Recorded from the request form sheet'
           : '';
       setBusyRefs((b) => [...b, q.ref]);
-      const label =
-        mode === 'done'
-          ? 'Logged as done'
-          : mode === 'approved'
-          ? 'Logged as approved'
-          : mode === 'declined'
-          ? 'Logged as declined'
-          : 'Logged as cancelled';
-      const res = await importPast([importRowFromEvent(eventFromIntake(q), status, reason, '')], label);
-      if (res && res.created > 0 && mode === 'done') pendingDone.current.set(q.ref, {});
-      // Kapag pumasok, hintayin ang refresh bago ibalik; kapag hindi, ibalik agad.
+      const ev = intakePrefill(q, mode);
+      const res = await importPast([importRowFromEvent(ev, status, reason, '')], PAST_LABEL[mode].replace('Save', 'Logged'));
+      if (res && res.created > 0) {
+        addPending({
+          marker: q.ref,
+          title: ev.title,
+          date: ev.eventDate ? dayKey(ev.eventDate) : '',
+          expect: status,
+          done: mode === 'done',
+          at: Date.now(),
+        });
+      }
+      // FIX: dati'y bumabalik sa inbox pagkalipas ng 5 segundo kahit naisave na
+      // (mabagal ang Apps Script), kaya napipindot ulit. Ngayon, nakatago hanggang
+      // maiugnay sa record; ibinabalik lang agad kapag pumalya.
       setTimeout(
         () => setBusyRefs((b) => b.filter((r) => r !== q.ref)),
-        res && res.created > 0 ? 5000 : 0
+        res && res.created > 0 ? 120000 : 0
       );
     },
-    [importPast]
+    [importPast, addPending]
+  );
+
+  /** Ang "Review first" ng sagot sa form na hindi para sa triage — mula sa modal. */
+  const logFormAsPast = useCallback(
+    async (
+      form: Record<string, string>,
+      crew: { personnel: string; roles: string[]; status: string }[],
+      intent: IntakeMode
+    ) => {
+      const ref = String(form._ref || '').trim();
+      const marker = ref || `AVN-${Date.now().toString(36).toUpperCase()}`;
+      const ev = eventFromForm(form, marker, null, myName);
+      if (!hasRef(ev.remarks, marker)) {
+        ev.remarks = [ev.remarks, `Online request form ${marker}`].filter(Boolean).join(' · ');
+      }
+      const status = PAST_STATUS[intent];
+      const reason =
+        form.reason || (status === 'declined' || status === 'cancelled' ? 'Recorded from the request form sheet' : '');
+      const letter = letterOf(form.requestLetter);
+      setEvModal({ open: false, editing: null });
+      if (ref) setBusyRefs((b) => [...b, ref]);
+      const res = await importPast([importRowFromEvent(ev, status, reason, '')], PAST_LABEL[intent].replace('Save', 'Logged'));
+      if (res && res.created > 0) {
+        if (form._draftKey) writeDraft(form._draftKey, null);
+        if (letter) letterStash.current.set(marker, letter);
+        addPending({
+          marker,
+          title: ev.title,
+          date: ev.eventDate ? dayKey(ev.eventDate) : '',
+          expect: status,
+          done: intent === 'done',
+          crew: crew.length ? crew : undefined,
+          at: Date.now(),
+        });
+      }
+      if (ref) {
+        setTimeout(
+          () => setBusyRefs((b) => b.filter((r) => r !== ref)),
+          res && res.created > 0 ? 120000 : 0
+        );
+      }
+    },
+    [importPast, addPending, myName]
   );
 
   const submitRequest = useCallback(
@@ -12264,7 +13627,7 @@ function AppMain() {
     const map = new Map<string, AVEvent>();
     intake.forEach((q) => {
       const ev =
-        events.find((e) => e.remarks.includes(q.ref)) ||
+        events.find((e) => hasRef(e.remarks, q.ref)) ||
         events.find((e) => {
           const d = daysApart(e.eventDate, q.start);
           return titlesMatch(e.title, q.title, true) && (d === null || d <= 3);
@@ -13302,6 +14665,24 @@ function AppMain() {
 
             {view === 'pulse' && (
             <>
+            {/* ------------------------- TRANSFERRED VIA AV NEXUS ------ */}
+            <section>
+              <SectionHead
+                title="Transferred to DMC from AV Nexus"
+                hint="Events marked “DMC transferred” on the production board land here with their full record — and you can see which ones are already logged in the DMC sheet."
+              />
+              <div className="av-card p-5">
+                <NexusArchive
+                  events={events}
+                  crewByEvent={crewByEvent}
+                  dmcMatch={dmcMatch}
+                  canEditEv={canEditEv}
+                  onOpen={openEv}
+                  onArchive={markArchived}
+                />
+              </div>
+            </section>
+
             {/* --------------------------------- ARCHIVING TOOLS ------- */}
             <section>
               <SectionHead
@@ -13514,7 +14895,7 @@ function AppMain() {
                 <section ref={boardRef}>
                   <SectionHead
                     title="Production board"
-                    hint="Every event with an assigned crew, from assignment to DMC. It fills itself: add people under Crew & roles inside an event and it shows up here and on their profile."
+                    hint="Every approved event, from assignment to DMC. Move each one forward right on its card: Mark delivered → Mark DMC transferred (it then shows in the Archive) → CSM form given. Crew added inside an event also shows on each person's profile."
                     right={
                       <div className="av-seg" role="group" aria-label="Filter by person">
                         {['ALL', ...TEAM.map((t) => t.name)].map((n) => (
@@ -13532,12 +14913,14 @@ function AppMain() {
                   />
                   <CrewBoard
                     tasks={tasks}
+                    events={events}
                     person={prodPerson}
-                    onOpen={(ev) =>
-                      isLocalId(ev.id)
-                        ? toast('Still saving to the sheet — open it again in a moment.', 'info')
-                        : setEvModal({ open: true, editing: ev })
-                    }
+                    canEditEv={canEditEv}
+                    dmcMatch={dmcMatch}
+                    onOpen={openEv}
+                    onDeliver={(ev) => markDone(ev)}
+                    onArchive={markArchived}
+                    onCsm={markCsmGiven}
                   />
                 </section>
                 {outputs.length > 0 && (
@@ -13768,9 +15151,10 @@ function AppMain() {
                   <section>
                     <IntakeInbox
                       items={intakeOpen}
-                      onLog={(q) =>
-                        setEvModal({ open: true, editing: null, prefill: eventFromIntake(q) })
-                      }
+                      onLog={(q) => {
+                        const mode = intakeAction(q).mode;
+                        setEvModal({ open: true, editing: null, prefill: intakePrefill(q, mode), intent: mode });
+                      }}
                       onQuick={logIntakeAs}
                     />
                   </section>
@@ -13785,6 +15169,14 @@ function AppMain() {
                         : setEvModal({ open: true, editing: ev })
                     }
                   />
+                <UpcomingConflicts
+                  events={events}
+                  crewByEvent={crewByEvent}
+                  onView={() => {
+                    setView('compliance');
+                    setTimeout(() => calRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+                  }}
+                />
                 <section>
                   <SectionHead
                     title="Event monitoring"
@@ -14263,6 +15655,11 @@ function AppMain() {
 
             {view === 'compliance' && (prodReady !== 'missing' || events.length > 0) && (
               <>
+                <UpcomingConflicts
+                  events={events}
+                  crewByEvent={crewByEvent}
+                  onView={() => calRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                />
                 <section>
                   <div className="av-card flex flex-wrap items-center justify-between gap-4 px-5 py-4">
                     <div className="min-w-0">
@@ -14352,6 +15749,16 @@ function AppMain() {
                   </div>
                 </section>
 
+                <section ref={calRef} className="scroll-mt-24">
+                  <SectionHead
+                    title="Deployment calendar"
+                    hint="Who is deployed, where and when. Red marks a person booked on two events the same day or a day the team is short; amber marks two events the same day or an approved event with no crew."
+                  />
+                  <div className="av-card p-4 md:p-5">
+                    <DeploymentCalendar events={events} crewByEvent={crewByEvent} onOpen={openEv} />
+                  </div>
+                </section>
+
                 <section>
                   <SectionHead
                     title="Double-booked schedules"
@@ -14403,10 +15810,11 @@ function AppMain() {
                     hint="Who is doing how much, for events held in this period. Every role a person takes is counted (Audit Item 41)."
                   />
                   <div className="av-card custom-scrollbar overflow-x-auto p-3">
-                    <table className="av-table min-w-[760px]">
+                    <table className="av-table min-w-[900px]">
                       <thead>
                         <tr>
                           <th>Personnel</th>
+                          <th>Deployed today</th>
                           <th className="num">Active now</th>
                           <th className="num">Events</th>
                           <th className="num">Role assignments</th>
@@ -14419,6 +15827,18 @@ function AppMain() {
                         {roleLoad.map((r) => (
                           <tr key={r.name}>
                             <td className="font-semibold text-[var(--ink)]">{r.name}</td>
+                            <td className="text-[13px]">
+                              {(() => {
+                                const list = todayLoad?.people.get(r.name) || [];
+                                if (!list.length) return <span className="av-dim">—</span>;
+                                return (
+                                  <span style={{ color: list.length > 1 ? 'var(--refused)' : 'var(--signal-strong)', fontWeight: 600 }}>
+                                    {list.length > 1 ? '⚠ ' : ''}
+                                    {list.map((e) => e.title).join(' + ')}
+                                  </span>
+                                );
+                              })()}
+                            </td>
                             <td className="num">
                               {r.active > 0 ? (
                                 <span className="av-pill sm bg-blue-50 text-blue-700">{r.active}</span>
@@ -15084,9 +16504,11 @@ function AppMain() {
         <EventModal
           existing={evModal.editing}
           prefill={evModal.prefill ?? null}
+          intent={evModal.intent}
+          onLogPast={logFormAsPast}
           onMarkDone={(ev) => {
             setEvModal({ open: false, editing: null });
-            markDone(ev);
+            advanceEvent(ev);
           }}
           onRecordPast={(ev) => {
             setEvModal({ open: false, editing: null });
@@ -15937,6 +17359,61 @@ html [class~="text-yellow-800"] { color: #6B4500; }
 .av-tcard.late { border-color: rgba(163,0,0,.35); box-shadow: inset 3px 0 0 var(--brand-red); }
 details.av-card > summary { list-style: none; }
 details.av-card > summary::-webkit-details-marker { display: none; }
+
+/* ------------------------------------------- deployment calendar (v5) --- */
+.av-cal-day {
+  display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-height: 112px; min-width: 0;
+  padding: 6px 6px 7px; text-align: left; background: var(--card); transition: background-color .15s, box-shadow .15s;
+}
+.av-cal-day:hover { background: var(--surface-2); }
+.av-cal-day.off { background: var(--surface-2); }
+.av-cal-day.soft { box-shadow: inset 0 0 0 2px rgba(176,122,0,.55); }
+.av-cal-day.hard { box-shadow: inset 0 0 0 2px var(--brand-red); background: var(--tint-red); }
+.av-cal-day.on { box-shadow: inset 0 0 0 2px var(--signal); }
+.av-cal-num { font-size: 13px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.av-cal-num.today {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 6px;
+  border-radius: 999px; background: var(--signal); color: #fff;
+}
+.av-cal-ev {
+  display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  padding: 2px 6px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 1.35;
+}
+.av-cal-who {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 4px;
+  border-radius: 999px; background: var(--tint-slate); color: var(--ink-2); font-size: 10.5px; font-weight: 700;
+}
+.av-cal-who.clash { background: var(--brand-red); color: #fff; }
+.av-cal-flag {
+  display: inline-flex; align-items: center; height: 19px; padding: 0 6px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+.av-cal-flag.red { background: var(--brand-red); color: #fff; }
+.av-cal-flag.amber { background: var(--tint-amber); color: var(--waiting); }
+.av-cal-key { display: inline-block; width: 14px; height: 10px; margin-right: 4px; border-radius: 3px; vertical-align: -1px; }
+.av-cal-row {
+  display: flex; width: 100%; gap: 12px; padding: 12px 14px; border-radius: var(--r-ctl);
+  border: 1px solid var(--rule); background: var(--card);
+}
+.av-cal-row.soft { border-color: rgba(176,122,0,.55); }
+.av-cal-row.hard { border-color: var(--brand-red); background: var(--tint-red); }
+.av-roster { border-collapse: separate; border-spacing: 0; font-size: 12.5px; color: var(--ink-2); }
+.av-roster th, .av-roster td {
+  min-width: 30px; height: 34px; padding: 0; text-align: center; font-variant-numeric: tabular-nums;
+  border-right: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft);
+}
+.av-roster th { background: var(--surface-2); font-weight: 600; color: var(--ink-2); padding: 4px 0; }
+.av-roster .name {
+  position: sticky; left: 0; z-index: 1; min-width: 104px; padding: 0 12px; text-align: left;
+  background: var(--card); font-weight: 600; color: var(--ink);
+}
+.av-roster th.name { background: var(--surface-2); }
+.av-roster .off { background: var(--surface-2); }
+.av-roster td.on { background: var(--tint-blue); color: var(--signal-strong); font-weight: 700; }
+.av-roster td.clash { background: var(--brand-red); color: #fff; font-weight: 700; }
+.av-roster .tot { min-width: 64px; padding: 0 8px; font-weight: 600; }
+.av-roster tr.sum td { background: var(--surface-2); font-weight: 600; }
+@media screen { html[data-theme='dark'] .av-cal-who.clash, html[data-theme='dark'] .av-cal-flag.red, html[data-theme='dark'] .av-roster td.clash { background: #B33A3A; } }
 
 /* ------------------------------------------ responsive: every screen --- */
 /* Walang page na mas malapad sa screen: sa phone, walang pakaliwa-pakanang
