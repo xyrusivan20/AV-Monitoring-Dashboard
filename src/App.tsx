@@ -373,53 +373,102 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-/**
- * REQUEST LETTER: hanggang 500 KB. Ang screenshot o litrato na mas malaki ay
- * kusang pinaliliit dito sa device (JPEG, puting background, hanggang 2200px ang
- * pinakamahabang gilid) bago ipadala: mas mabilis at mas tiyak na makarating sa
- * mahinang signal. Ang JPG na pasok na sa 500 KB ay hindi ginagalaw.
+
+/*
+ * SULAT NA MAY ILANG PAHINA. Dalawang litrato ang karaniwang sulat (harap at
+ * likod, o dalawang pahina). Hindi binago ang backend: pinagsasama rito ang mga
+ * pahina sa ISANG JPG — sunod-sunod, may puwang — kaya gumagana pa rin ang
+ * pag-save sa Drive at ang attachment sa endorsement at approval email.
  */
-async function shrinkLetter(file: File): Promise<{ data: string; name: string; shrunk: boolean }> {
-  const isJpeg = /^image\/jpe?g$/i.test(file.type);
-  const base = file.name.replace(/\.[^.]+$/, '') || 'request-letter';
-  if (isJpeg && file.size <= LETTER_TARGET_BYTES) return { data: await blobToBase64(file), name: file.name, shrunk: false };
+const MAX_LETTER_PAGES = 3;
+
+interface LetterPage {
+  id: string;
+  /** base64 JPG, walang prefix */
+  data: string;
+  w: number;
+  h: number;
+  name: string;
+}
+
+function openImage(src: string, file?: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () =>
+      reject(
+        new Error(
+          file && (/\.(heic|heif)$/i.test(file.name) || /hei[cf]/i.test(file.type))
+            ? 'This is an iPhone HEIC photo, which this browser cannot open. On the iPhone, attach it from Safari (it converts to JPG on its own), or take a screenshot of the letter and attach that.'
+            : `${file ? `“${file.name}”` : 'That image'} could not be opened. Use a JPG or PNG photo.`
+        )
+      );
+    el.src = src;
+  });
+}
+
+function canvasJpeg(c: HTMLCanvasElement, q: number): Promise<Blob | null> {
+  return new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', q));
+}
+
+/** Isang pahina: binubuksan at pinapaliit agad (para makita agad ang error). */
+async function loadLetterPage(file: File): Promise<LetterPage> {
+  if (!/^image\//i.test(file.type) && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
+    throw new Error(`“${file.name}” is not a photo. Attach JPG or PNG photos of the letter.`);
+  }
   const url = URL.createObjectURL(file);
   try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () =>
-        reject(
-          new Error(
-            /\.(heic|heif)$/i.test(file.name) || /hei[cf]/i.test(file.type)
-              ? 'This is an iPhone HEIC photo, which this browser cannot open. On the iPhone, attach it from Safari (it converts to JPG on its own), or take a screenshot of the letter and attach that.'
-              : 'That image could not be opened. Use a JPG or PNG.'
-          )
-        );
-      el.src = url;
-    });
-    let scale = Math.min(1, 2200 / (Math.max(img.naturalWidth, img.naturalHeight) || 1));
-    for (let pass = 0; pass < 5; pass++) {
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) break;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(img, 0, 0, w, h);
-      for (const q of [0.86, 0.76, 0.66]) {
-        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', q));
-        if (blob && blob.size <= LETTER_TARGET_BYTES) return { data: await blobToBase64(blob), name: `${base}.jpg`, shrunk: true };
-      }
-      scale *= 0.75;
-    }
+    const img = await openImage(url, file);
+    const scale = Math.min(1, 1800 / (Math.max(img.naturalWidth, img.naturalHeight) || 1));
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d');
+    if (!ctx) throw new Error('This browser cannot prepare images. Try Chrome or Safari.');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const blob = await canvasJpeg(c, 0.9);
+    if (!blob) throw new Error(`“${file.name}” could not be read. Try another photo.`);
+    return { id: Math.random().toString(36).slice(2), data: await blobToBase64(blob), w, h, name: file.name };
   } finally {
     URL.revokeObjectURL(url);
   }
-  throw new Error(`That image is ${fmtFileSize(file.size)} and could not be made small enough to send. Crop it to the letter only and try again.`);
+}
+
+/** Pinagsasama ang mga pahina sa isang JPG na kasya sa limit ng server. */
+async function composeLetter(pages: LetterPage[]): Promise<{ data: string; name: string }> {
+  const imgs = await Promise.all(pages.map((pg) => openImage(`data:image/jpeg;base64,${pg.data}`)));
+  const baseW = Math.min(1500, Math.max(...pages.map((pg) => pg.w)));
+  const gap = pages.length > 1 ? 28 : 0;
+  const base = (pages[0]?.name || 'request-letter').replace(/\.[^.]+$/, '') || 'request-letter';
+  const name = pages.length > 1 ? `${base}-${pages.length}-pages.jpg` : `${base}.jpg`;
+  for (const scale of [1, 0.86, 0.74, 0.63, 0.54, 0.46, 0.4]) {
+    const W = Math.max(1, Math.round(baseW * scale));
+    const hs = pages.map((pg) => Math.max(1, Math.round(pg.h * (W / pg.w))));
+    const H = hs.reduce((a, b) => a + b, 0) + gap * (pages.length - 1);
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const ctx = c.getContext('2d');
+    if (!ctx) break;
+    ctx.fillStyle = '#d9dee4';
+    ctx.fillRect(0, 0, W, H);
+    let y = 0;
+    imgs.forEach((img, i) => {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, y, W, hs[i]);
+      ctx.drawImage(img, 0, y, W, hs[i]);
+      y += hs[i] + gap;
+    });
+    for (const q of [0.84, 0.74, 0.64]) {
+      const blob = await canvasJpeg(c, q);
+      if (blob && blob.size <= LETTER_TARGET_BYTES) return { data: await blobToBase64(blob), name };
+    }
+  }
+  throw new Error('These pages are too large to send together. Crop each photo to the letter only and try again.');
 }
 
 /** Ang kopya ng form sa pila ay walang malaking attachment; ang letter ay nasa mismong request na. */
@@ -5269,7 +5318,7 @@ function EventCard({
       ? 'Not counted against KPI'
       : 'Reason on record'
     : isAuthorised(ev)
-    ? `${agreedVolume(ev).length} agreed · ${ev.delivered.length} delivered`
+    ? `${agreedVolume(ev).length} agreed · ${deliveredServicesOf(ev).length} delivered`
     : `With ${awaitingWho(ev)}`;
 
   return (
@@ -5594,9 +5643,16 @@ function EventModal({
   canEdit,
   intent,
   onLogPast,
+  evaluator = false,
+  findDup,
+  onOpenExisting,
 }: {
   existing: AVEvent | null;
   prefill?: AVEvent | null;
+  /** SRS II o admin — sila lang ang nag-e-evaluate (triage). */
+  evaluator?: boolean;
+  findDup?: (title: string, date: string) => AVEvent | null;
+  onOpenExisting?: (ev: AVEvent) => void;
   /** Galing sa online form at hindi na para sa triage: tapos na, aprubado, tinanggihan o kinansela. */
   intent?: IntakeMode;
   onLogPast?: (
@@ -5801,35 +5857,77 @@ seed?.pipeline ?? {
   const [letterNote, setLetterNote] = useState('');
 
   const letterInput = useRef<HTMLInputElement | null>(null);
-  const clearLetter = useCallback(() => {
-    setLetter(null);
-    setLetterErr('');
-    setLetterNote('');
-    // Para gumana ulit ang onChange kahit parehong file ang piliin.
-    if (letterInput.current) letterInput.current.value = '';
-  }, []);
+  /** Mga pahina ng sulat — pinagsasama sa isang larawan bago i-save. */
+  const [pages, setPages] = useState<LetterPage[]>([]);
 
-  const pickLetter = useCallback(async (file: File | null) => {
-    setLetterErr('');
-    setLetter(null);
-    setLetterNote('');
-    if (letterInput.current) letterInput.current.value = '';
-    if (!file) return;
-    if (!/^image\//i.test(file.type) && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name)) {
-      setLetterErr('The request letter must be an image (JPG or PNG).');
+  const addPages = useCallback(
+    async (files: FileList | null) => {
+      setLetterErr('');
+      const list = Array.from(files || []);
+      if (letterInput.current) letterInput.current.value = '';
+      if (!list.length) return;
+      const room = MAX_LETTER_PAGES - pages.length;
+      if (room <= 0) {
+        setLetterErr(`Up to ${MAX_LETTER_PAGES} pages only. Remove one first.`);
+        return;
+      }
+      setLetterBusy(true);
+      try {
+        const add: LetterPage[] = [];
+        for (const file of list.slice(0, room)) add.push(await loadLetterPage(file));
+        setPages((cur) => [...cur, ...add].slice(0, MAX_LETTER_PAGES));
+        if (list.length > room) setLetterErr(`Only ${MAX_LETTER_PAGES} pages can be attached — the rest were left out.`);
+      } catch (err) {
+        setLetterErr(netMessage(err));
+        setLetterBusy(false);
+      }
+    },
+    [pages.length]
+  );
+
+  const movePage = (i: number, by: number) =>
+    setPages((cur) => {
+      const j = i + by;
+      if (j < 0 || j >= cur.length) return cur;
+      const next = cur.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+
+  // Tuwing nagbabago ang mga pahina, gawin muli ang iisang larawan na ipapadala.
+  useEffect(() => {
+    let alive = true;
+    if (!pages.length) {
+      setLetter(null);
+      setLetterNote('');
+      setLetterBusy(false);
       return;
     }
     setLetterBusy(true);
-    try {
-      const out = await shrinkLetter(file);
-      setLetter({ data: out.data, name: out.name, mime: 'image/jpeg' });
-      if (out.shrunk) setLetterNote(`shrunk from ${fmtFileSize(file.size)}`);
-    } catch (err) {
-      setLetterErr(netMessage(err));
-    } finally {
-      setLetterBusy(false);
-    }
-  }, []);
+    composeLetter(pages)
+      .then((out) => {
+        if (!alive) return;
+        setLetter({ data: out.data, name: out.name, mime: 'image/jpeg' });
+        setLetterNote(pages.length > 1 ? `${pages.length} pages combined into one image` : '');
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setLetter(null);
+        setLetterErr(netMessage(err));
+      })
+      .finally(() => {
+        if (alive) setLetterBusy(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [pages]);
+
+  /** May kapareho na bang record ang bagong ito? */
+  const dupNow = useMemo(
+    () => (!existing && findDup ? findDup(f.title, f.eventDate) : null),
+    [existing, findDup, f.title, f.eventDate]
+  );
 
   /** Ilang araw tumatakbo ang event — pang-ipakita lang, isa pa rin ang bilang. */
   const spanDays = useMemo(() => {
@@ -5891,7 +5989,8 @@ seed?.pipeline ?? {
   const [reopen, setReopen] = useState(false);
   const frozen = closed && !reopen;
 
-  const inTriage = canTriage(role, existing);
+  // v6: ang triage ay para sa SRS II at sa admin lang — hindi na sa lahat ng AV staff.
+  const inTriage = canTriage(role, existing) && (role === 'admin' || evaluator);
   const canChangeApproval = (canDecide(role) || inTriage) && !frozen && !pastIntent;
 
   /** Hindi maaaring lagdaan ng AV team ang sarili nilang request. */
@@ -6021,6 +6120,23 @@ seed?.pipeline ?? {
                   ? 'It goes straight to production — not to triage. No approval email is sent.'
                   : 'It is recorded with its reason, not sent to triage.'}
               </p>
+            </div>
+          )}
+          {!existing && dupNow && (
+            <div
+              className="mx-6 mt-5 rounded-[12px] border px-4 py-3"
+              style={{ borderColor: 'rgba(176,122,0,.45)', background: 'var(--tint-amber)' }}
+            >
+              <p className="av-note">
+                <b>This may already be in AV Nexus:</b> “{dupNow.title}” — {dupNow.id},{' '}
+                {APPROVAL_META[dupNow.approval].label}, {dateSpan(dupNow.eventDate, dupNow.endDate)}. Save only if this
+                is a different event.
+              </p>
+              {onOpenExisting && (
+                <button type="button" className="av-btn-ghost mt-2 text-[13px]" onClick={() => onOpenExisting(dupNow)}>
+                  Open {dupNow.id} instead
+                </button>
+              )}
             </div>
           )}
           {draftAt && (
@@ -6200,49 +6316,74 @@ seed?.pipeline ?? {
             */}
             <div className="md:col-span-2">
               <label className={lab}>
-                Request letter <span className="av-dim">— JPG or PNG, up to 500 KB</span>
+                Request letter{' '}
+                <span className="av-dim">— a photo of each page, up to {MAX_LETTER_PAGES} pages</span>
               </label>
+              {pages.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-3">
+                  {pages.map((pg, i) => (
+                    <figure key={pg.id} className="av-lpage">
+                      <img src={`data:image/jpeg;base64,${pg.data}`} alt={`Letter page ${i + 1}`} />
+                      <figcaption>
+                        <span className="font-semibold">Page {i + 1}</span>
+                        <span className="flex items-center">
+                          {i > 0 && (
+                            <button type="button" aria-label={`Move page ${i + 1} earlier`} onClick={() => movePage(i, -1)}>
+                              ←
+                            </button>
+                          )}
+                          {i < pages.length - 1 && (
+                            <button type="button" aria-label={`Move page ${i + 1} later`} onClick={() => movePage(i, 1)}>
+                              →
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={`Remove page ${i + 1}`}
+                            onClick={() => setPages((cur) => cur.filter((x) => x.id !== pg.id))}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      </figcaption>
+                    </figure>
+                  ))}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-3">
-                <input
-                  ref={letterInput}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
-                  disabled={readOnly || approvalOnly || frozen || letterBusy}
-                  onChange={(e) => pickLetter(e.target.files?.[0] ?? null)}
-                  className="av-note av-file file:mr-3 file:cursor-pointer text-[var(--ink-2)]"
-                />
-                {letterBusy && <span className="av-chip">Preparing the image… wait before saving</span>}
-                {!letter && existing?.requestLetter && (
-                  <a
-                    href={letterHref(existing.requestLetter)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="av-chip"
+                {pages.length < MAX_LETTER_PAGES && (
+                  <label
+                    className={`av-btn-ghost inline-flex cursor-pointer items-center gap-2 text-[13px] ${
+                      readOnly || approvalOnly || frozen || letterBusy ? 'pointer-events-none opacity-50' : ''
+                    }`}
                   >
+                    <input
+                      ref={letterInput}
+                      type="file"
+                      multiple
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+                      disabled={readOnly || approvalOnly || frozen || letterBusy}
+                      onChange={(e) => addPages(e.target.files)}
+                      className="sr-only"
+                    />
+                    <Icon name="plus" size={15} stroke={2.2} />
+                    {pages.length ? 'Add another page' : 'Attach letter photos'}
+                  </label>
+                )}
+                {letterBusy && <span className="av-chip">Preparing the letter… wait before saving</span>}
+                {!letterBusy && letter && (
+                  <span className="av-note av-dim">
+                    {letterNote ? `${letterNote} · ` : ''}
+                    {Math.round((letter.data.length * 0.75) / 1024)} KB · sent when you save
+                    {existing?.requestLetter ? ' (replaces the letter on file)' : ''}
+                  </span>
+                )}
+                {!pages.length && existing?.requestLetter && (
+                  <a href={letterHref(existing.requestLetter)} target="_blank" rel="noreferrer" className="av-chip">
                     Letter on file — open
                   </a>
                 )}
               </div>
-              {letter && (
-                <div className="mt-3 flex items-center gap-3 rounded-[12px] border border-[var(--rule)] bg-[var(--surface-2)] p-2.5">
-                  <img
-                    src={`data:${letter.mime};base64,${letter.data}`}
-                    alt="Request letter to be attached"
-                    className="h-20 w-16 shrink-0 rounded-md border border-[var(--rule)] bg-white object-cover"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13.5px] font-semibold text-[var(--ink)]">{letter.name}</p>
-                    <p className="av-note av-dim">
-                      {Math.round((letter.data.length * 0.75) / 1024)} KB
-                      {letterNote ? `, ${letterNote}` : ''}. Sent with the record when you save
-                      {existing?.requestLetter ? ' — replaces the letter on file' : ''}.
-                    </p>
-                  </div>
-                  <button type="button" className="av-btn-ghost shrink-0 text-[12px]" onClick={clearLetter}>
-                    Remove
-                  </button>
-                </div>
-              )}
               {letterErr ? (
                 <p className="av-note mt-1.5" style={{ color: 'var(--refused)' }}>
                   {letterErr}
@@ -6752,7 +6893,9 @@ seed?.pipeline ?? {
             {frozen
               ? 'Complete and closed. Nothing can be changed unless the section lead reopens it.'
               : readOnly
-              ? `View only — this event belongs to ${existing?.createdBy || 'someone else'}.`
+              ? existing?.approval === 'for-evaluation' && !evaluator
+                ? `View only — requests under evaluation are handled by ${evaluatorLabel()}.`
+                : `View only — this event belongs to ${existing?.createdBy || 'someone else'}.`
               : approvalOnly
               ? 'You may approve or decline. Editing the record is done by its owner.'
               : strayDelivered.length > 0
@@ -9390,112 +9533,449 @@ function IntakeSummary({
   );
 }
 
-/** Ang mga bagong sagot sa form — lumalabas dito nang kusa. */
+/** Pare-parehong salita ng ref sa remarks — dito hinahanap ang link ng form. */
+function formRefsIn(text: string): string[] {
+  return Array.from(String(text || '').matchAll(/Online request form\s+([A-Za-z0-9][\w-]*)/gi)).map((m) => m[1]);
+}
+
+function withFormRefs(remarks: string, refs: string[]): string {
+  const add = Array.from(new Set(refs)).filter((r) => r && !hasRef(remarks, r));
+  return [remarks, ...add.map((r) => `Online request form ${r}`)].filter(Boolean).join(' · ');
+}
+
+/** 0–1: gaano kapareho ang mga salita ng dalawang pamagat. */
+function titleOverlap(a: string, b: string): number {
+  const words = (t: string) => new Set(normTitle(t).split(' ').filter((w) => w.length > 2));
+  const A = words(a);
+  const B = words(b);
+  if (!A.size || !B.size) return 0;
+  let both = 0;
+  A.forEach((w) => {
+    if (B.has(w)) both += 1;
+  });
+  return both / (A.size + B.size - both);
+}
+
+/** Ang record na halos tiyak na parehong event ng sagot sa form. */
+function possibleMatch(events: AVEvent[], q: IntakeRequest): AVEvent | null {
+  let best: AVEvent | null = null;
+  let bestScore = 0;
+  const ag = normTitle(q.agency);
+  for (const e of events) {
+    if (!APPROVAL_META[e.approval].live) continue;
+    const d = daysApart(e.eventDate, q.start);
+    if (d === null || d > 2) continue;
+    const cl = normTitle(e.client);
+    const sameAgency = !!ag && !!cl && (cl.includes(ag) || ag.includes(cl));
+    const score = titleOverlap(e.title, q.title) + (sameAgency ? 0.3 : 0) + (d === 0 ? 0.1 : 0);
+    if (score >= 0.6 && score > bestScore) {
+      best = e;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+interface IntakeGroup {
+  lead: IntakeRequest;
+  refs: string[];
+  match: AVEvent | null;
+}
+
+/** Ang parehong request na ipinadala nang dalawang beses ay isang hilera lang. */
+function groupIntake(items: IntakeRequest[], events: AVEvent[]): IntakeGroup[] {
+  const sorted = items.slice().sort((a, b) => (b.submitted?.getTime() ?? 0) - (a.submitted?.getTime() ?? 0));
+  const out: IntakeGroup[] = [];
+  sorted.forEach((q) => {
+    const g = out.find((x) => {
+      const d = daysApart(x.lead.start, q.start);
+      return titlesMatch(x.lead.title, q.title, true) && (d === null ? !x.lead.start && !q.start : d <= 1);
+    });
+    if (g) g.refs.push(q.ref);
+    else out.push({ lead: q, refs: [q.ref], match: possibleMatch(events, q) });
+  });
+  return out;
+}
+
+/** Ang mga bagong sagot sa form — tahimik na listahan sa loob ng to-do. */
 function IntakeInbox({
-  items,
+  groups,
+  canAct,
+  canLink,
   onLog,
   onQuick,
+  onLink,
+  onHide,
+  onOpen,
 }: {
-  items: IntakeRequest[];
-  onLog: (q: IntakeRequest) => void;
-  onQuick: (q: IntakeRequest, mode: IntakeMode) => void;
+  groups: IntakeGroup[];
+  canAct: boolean;
+  canLink: (ev: AVEvent) => boolean;
+  onLog: (q: IntakeRequest, refs: string[]) => void;
+  onQuick: (q: IntakeRequest, mode: IntakeMode, refs: string[]) => void;
+  onLink: (refs: string[], ev: AVEvent) => void;
+  onHide: (refs: string[]) => void;
+  onOpen: (ev: AVEvent) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
-  const recent = items.filter((q) => {
-    const d = q.end || q.start || q.requested || q.submitted;
+  const recent = groups.filter((g) => {
+    const d = g.lead.end || g.lead.start || g.lead.requested || g.lead.submitted;
     return !d || d.getTime() >= cutoff.getTime();
   });
-  const list = (showAll ? items : recent)
-    .slice()
-    .sort((a, b) => (b.submitted?.getTime() ?? 0) - (a.submitted?.getTime() ?? 0));
-  if (!items.length) return null;
+  const list = showAll ? groups : recent;
+  if (!groups.length) return null;
 
   return (
-    <div className="av-card">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--rule-soft)] px-5 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]"
-            style={{ background: 'var(--tint-amber)', color: 'var(--waiting)' }}
-          >
-            <Icon name="triage" size={18} />
-          </span>
-          <div className="min-w-0">
-            <h3 className="av-sec-h">From the online request form</h3>
-            <p className="av-sec-p">
-              {items.length} request{items.length === 1 ? ' is' : 's are'} not yet in AV Nexus. New
-              submissions appear here on their own.
-            </p>
-          </div>
-        </div>
-        {items.length !== recent.length && (
+    <div>
+      <ul className="av-inbox">
+        {list.slice(0, showAll ? 100 : 10).map((g) => {
+          const q = g.lead;
+          const act = intakeAction(q);
+          const quick = act.mode !== 'triage' && act.ready;
+          const m = g.match;
+          return (
+            <li key={q.ref} className="av-inbox-row">
+              <div className="min-w-0 flex-1">
+                <p className="av-inbox-t">{q.title}</p>
+                <p className="av-inbox-m">
+                  {[q.agency, dateSpan(q.start, q.end), q.services.join(', ')].filter(Boolean).join(' · ')}
+                </p>
+                <p className="av-inbox-m">
+                  Sent {fmtDate(q.submitted)}
+                  {g.refs.length > 1 ? ` · sent ${g.refs.length} times, counted once` : ''}
+                  {q.sheetStatus ? ` · “${q.sheetStatus}” in the form sheet` : ''}
+                </p>
+                {m && (
+                  <p className="av-inbox-dup">
+                    Looks like “{m.title}” — already in AV Nexus as {m.id} ({APPROVAL_META[m.approval].label},{' '}
+                    {fmtDate(m.eventDate)}).
+                  </p>
+                )}
+                {!m && act.mode !== 'triage' && !act.ready && (
+                  <p className="av-inbox-dup">Missing the date, agency or services — review it first.</p>
+                )}
+              </div>
+              {canAct && (
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {m ? (
+                    <>
+                      <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onOpen(m)}>
+                        Open {m.id}
+                      </button>
+                      <button
+                        type="button"
+                        className="av-btn text-[13px]"
+                        onClick={() => (canLink(m) ? onLink(g.refs, m) : onHide(g.refs))}
+                        title="It is the same request — do not create another record"
+                      >
+                        Same request
+                      </button>
+                      <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onLog(q, g.refs)}>
+                        It&rsquo;s different
+                      </button>
+                    </>
+                  ) : quick ? (
+                    <>
+                      <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onLog(q, g.refs)}>
+                        Review first
+                      </button>
+                      <button type="button" className="av-btn text-[13px]" onClick={() => onQuick(q, act.mode, g.refs)}>
+                        {act.label}
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" className="av-btn text-[13px]" onClick={() => onLog(q, g.refs)}>
+                      {act.mode === 'triage' ? 'Log for evaluation' : 'Review and log'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {list.length === 0 && (
+        <p className="av-note av-dim py-3">
+          No recent requests waiting. {groups.length} older one{groups.length === 1 ? ' is' : 's are'} hidden.
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        {canAct ? (
+          <p className="av-note av-dim">
+            <b>Log as done</b> skips evaluation and lands in Delivered. <b>Log for evaluation</b> starts the
+            normal review. <b>Same request</b> links the form to the record already here, so it is never logged twice.
+          </p>
+        ) : (
+          <span />
+        )}
+        {groups.length !== recent.length && (
           <button type="button" className="av-btn-ghost text-[13px]" onClick={() => setShowAll((v) => !v)}>
-            {showAll ? 'Show recent only' : `Show older requests too (${items.length - recent.length})`}
+            {showAll ? 'Recent only' : `Show older (${groups.length - recent.length})`}
           </button>
         )}
       </div>
-      <div className="divide-y divide-[var(--rule-soft)]">
-        {list.slice(0, showAll ? 100 : 8).map((q) => {
-          const act = intakeAction(q);
-          const quick = act.mode !== 'triage' && act.ready;
-          return (
-            <div key={q.ref} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center">
-              <div className="min-w-0 flex-1">
-                <p className="text-[15px] font-semibold text-[var(--ink)]">{q.title}</p>
-                <p className="av-note av-dim mt-0.5">
-                  {[q.agency, dateSpan(q.start, q.end), q.venue].filter(Boolean).join(' · ')}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {q.services.map((svc) => (
-                    <span key={svc} className="av-chip">
-                      {svc}
-                    </span>
-                  ))}
-                  {q.sheetStatus && (
-                    <span className={`av-pill sm ${sheetStatusChip(q.sheetStatus)}`}>
-                      {q.sheetStatus} in the form sheet
-                    </span>
-                  )}
-                </div>
-                {act.mode !== 'triage' && !act.ready && (
-                  <p className="mt-1.5 text-[12.5px] text-[var(--waiting)]">
-                    Missing the event date, agency or services — review it first.
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <span className="av-note av-dim mr-1">Sent {fmtDate(q.submitted)}</span>
-                {quick && (
-                  <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onLog(q)}>
-                    Review first
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="av-btn inline-flex items-center gap-2"
-                  onClick={() => (quick ? onQuick(q, act.mode) : onLog(q))}
-                >
-                  <Icon name="plus" size={15} stroke={2.2} />
-                  {quick ? act.label : act.mode === 'triage' ? 'Log for triage' : 'Review and log'}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-        {list.length === 0 && (
-          <p className="av-note av-dim px-5 py-6">
-            No recent requests waiting. {items.length} older one{items.length === 1 ? ' is' : 's are'} hidden.
-          </p>
-        )}
-      </div>
-      <p className="av-note av-dim border-t border-[var(--rule-soft)] px-5 py-3">
-        <b>Log as done</b> — already served: skips triage and lands in Delivered on the production board, where you mark the DMC transfer.{' '}
-        <b>Log as approved</b> — approved outside AV Nexus: goes straight to production.{' '}
-        <b>Log for triage</b> — a new request: goes to AV evaluation.
-      </p>
     </div>
+  );
+}
+
+/* ----------------------------------------------- DUPLICATE RECORDS (v6) -- */
+
+
+function pairKey(a: string, b: string): string {
+  return [a, b].sort().join('|');
+}
+
+/** Mga grupo ng buhay na record na mukhang iisang event. */
+function duplicateGroups(events: AVEvent[], dismissed: Set<string>): AVEvent[][] {
+  const live = events.filter((e) => !isLocalId(e.id) && APPROVAL_META[e.approval].live);
+  const parent = new Map<string, string>(live.map((e) => [e.id, e.id]));
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.get(r) !== r) r = parent.get(r) as string;
+    return r;
+  };
+  const join = (a: string, b: string) => {
+    if (dismissed.has(pairKey(a, b))) return;
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  // 1. Parehong sagot sa form (ref) — kahit magkaiba na ang pamagat o petsa.
+  const byRef = new Map<string, string>();
+  live.forEach((e) =>
+    formRefsIn(e.remarks).forEach((r) => {
+      const prev = byRef.get(r);
+      if (prev) join(prev, e.id);
+      else byRef.set(r, e.id);
+    })
+  );
+  // 2. Halos parehong pamagat sa loob ng 2 araw — sinusuri lang ang magkakalapit na petsa.
+  const dated = live.filter((e) => e.eventDate).sort((a, b) => a.eventDate!.getTime() - b.eventDate!.getTime());
+  const win = 2 * 86400000 + 3600000;
+  for (let i = 0; i < dated.length; i++) {
+    for (let j = i + 1; j < dated.length; j++) {
+      if (dated[j].eventDate!.getTime() - dated[i].eventDate!.getTime() > win) break;
+      if (titlesMatch(dated[i].title, dated[j].title, true)) join(dated[i].id, dated[j].id);
+    }
+  }
+  const groups = new Map<string, AVEvent[]>();
+  live.forEach((e) => {
+    const r = find(e.id);
+    groups.set(r, [...(groups.get(r) || []), e]);
+  });
+  return Array.from(groups.values()).filter((g) => g.length > 1);
+}
+
+/** Ang pinakamalayo na ang narating ang iminumungkahing itira. */
+function keeperOf(group: AVEvent[], crewCount: (id: string) => number): AVEvent {
+  const score = (e: AVEvent) =>
+    (isDelivered(e) ? 5 : e.approval === 'approved' ? 4 : e.approval === 'for-approval' ? 3 : e.approval === 'for-endorsement' ? 2 : 1) * 1000 +
+    Math.min(crewCount(e.id), 9) * 50 +
+    (e.requestLetter ? 20 : 0) +
+    pipelineProgress(e) / 10;
+  return group.slice().sort((a, b) => score(b) - score(a) || a.id.localeCompare(b.id))[0];
+}
+
+/** Para sa bagong record: may kapareho na ba? */
+function likelyDuplicate(events: AVEvent[], title: string, date: Date | null): AVEvent | null {
+  if (!title.trim() || !date) return null;
+  return (
+    events.find((e) => {
+      if (!APPROVAL_META[e.approval].live) return false;
+      const d = daysApart(e.eventDate, date);
+      return d !== null && d <= 2 && titlesMatch(e.title, title, true);
+    }) || null
+  );
+}
+
+function DuplicatePanel({
+  groups,
+  crewCount,
+  canEditEv,
+  onOpen,
+  onMerge,
+  onDismiss,
+}: {
+  groups: AVEvent[][];
+  crewCount: (id: string) => number;
+  canEditEv: (ev: AVEvent) => boolean;
+  onOpen: (ev: AVEvent) => void;
+  onMerge: (keep: AVEvent, drops: AVEvent[]) => void;
+  onDismiss: (group: AVEvent[]) => void;
+}) {
+  const [pick, setPick] = useState<Record<string, string>>({});
+  return (
+    <div className="space-y-3">
+      <p className="av-note av-dim">
+        Each box is one event recorded more than once. Choose the record to keep — the others are closed as duplicates
+        and drop out of every count. Nothing is deleted: they stay in the sheet with a note.
+      </p>
+      {groups.map((g) => {
+        const gk = g.map((e) => e.id).join('|');
+        const rec = keeperOf(g, crewCount);
+        const keepId = pick[gk] && g.some((e) => e.id === pick[gk]) ? pick[gk] : rec.id;
+        const keep = g.find((e) => e.id === keepId) || rec;
+        const drops = g.filter((e) => e.id !== keep.id);
+        const blocked = drops.filter((e) => !canEditEv(e));
+        return (
+          <div key={gk} className="av-dup">
+            <div className="av-dup-grid">
+              {g.map((e) => (
+                <label key={e.id} className={`av-dup-card ${keep.id === e.id ? 'on' : ''}`}>
+                  <input
+                    type="radio"
+                    name={gk}
+                    checked={keep.id === e.id}
+                    onChange={() => setPick((p) => ({ ...p, [gk]: e.id }))}
+                    className="mt-1 accent-blue-700"
+                  />
+                  <span className="min-w-0">
+                    <b className="block truncate text-[14px] text-[var(--ink)]">{e.title}</b>
+                    <span className="block text-[12.5px] text-[var(--ink-3)]">
+                      {e.id} · {APPROVAL_META[e.approval].label}
+                      {isDelivered(e) ? ' · delivered' : ''} · {dateSpan(e.eventDate, e.endDate)}
+                    </span>
+                    <span className="block text-[12.5px] text-[var(--ink-3)]">
+                      {crewCount(e.id)} crew · {e.requestLetter ? 'letter on file' : 'no letter'} · by {e.createdBy || '—'}
+                    </span>
+                    {e.id === rec.id && (
+                      <span className="mt-1 block text-[12px] font-semibold" style={{ color: 'var(--served)' }}>
+                        Suggested — furthest along
+                      </span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="av-btn text-[13px] disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={blocked.length > 0}
+                onClick={() => onMerge(keep, drops)}
+              >
+                Keep {keep.id}, close the other{drops.length > 1 ? 's' : ''}
+              </button>
+              <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onOpen(keep)}>
+                Open {keep.id}
+              </button>
+              <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onDismiss(g)}>
+                Not duplicates
+              </button>
+              {blocked.length > 0 && (
+                <span className="av-note" style={{ color: 'var(--waiting)' }}>
+                  {blocked.map((e) => e.id).join(', ')} can only be closed by the admin or by{' '}
+                  {Array.from(new Set(blocked.map((e) => e.createdBy || 'its owner'))).join(', ')}.
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------- ROLES AND TO-DO (v6) -- */
+
+/** Ang SRS II — siya lang (at ang admin) ang nag-e-evaluate at nagla-log ng request. */
+function evaluatorKeys(): string[] {
+  return Object.keys(OFFICIAL).filter((k) => {
+    const d = String((OFFICIAL as Record<string, { designation: string }>)[k]?.designation || '');
+    return /science research specialist ii\b|\bsrs ii\b/i.test(d) && !/supervising|senior/i.test(d);
+  });
+}
+
+function evaluatorLabel(): string {
+  const k = evaluatorKeys();
+  return k.length ? `${k.join(' or ')} (SRS II)` : 'the SRS II';
+}
+
+function nameMatches(name: string, key: string): boolean {
+  const n = String(name || '').toLowerCase();
+  if (!n || !key) return false;
+  const full = String((OFFICIAL as Record<string, { fullName?: string }>)[key]?.fullName || '').toLowerCase();
+  return n.includes(key.toLowerCase()) || (!!full && n.includes(full.split(' ')[0]));
+}
+
+function isEvaluator(role: string, name: string): boolean {
+  if (role === 'admin') return true;
+  if (role !== 'staff') return false;
+  return evaluatorKeys().some((k) => nameMatches(name, k));
+}
+
+type TodoTone = 'calm' | 'warn' | 'alert';
+interface TodoRow {
+  key: string;
+  tone: TodoTone;
+  icon: IconName;
+  title: string;
+  sub: string;
+  go?: { label: string; onClick: () => void };
+  panel?: React.ReactNode;
+}
+
+/** Isang card: sino ka, ano ang trabaho mo, at ano ang naghihintay sa iyo ngayon. */
+function TodoCenter({
+  who,
+  roleName,
+  duty,
+  rows,
+  note,
+}: {
+  who: string;
+  roleName: string;
+  duty: string;
+  rows: TodoRow[];
+  note?: string;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const first = String(who || '').split(/\s+/)[0] || 'there';
+  return (
+    <section className="av-card av-todo" aria-label="Your to-do">
+      <div className="av-todo-head">
+        <span className="av-todo-role">{roleName}</span>
+        <h3 className="av-sec-h mt-1.5">
+          {rows.length ? `${first}, here’s what needs you` : `You’re all caught up, ${first}`}
+        </h3>
+        <p className="av-sec-p">{duty}</p>
+      </div>
+      {rows.length > 0 && (
+        <ul>
+          {rows.map((r) => (
+            <li key={r.key} className={`av-todo-row ${r.tone}`}>
+              <div className="av-todo-line">
+                <span className="av-todo-ic" aria-hidden>
+                  <Icon name={r.icon} size={17} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="av-todo-t">{r.title}</p>
+                  <p className="av-todo-s">{r.sub}</p>
+                </div>
+                {r.panel ? (
+                  <button
+                    type="button"
+                    className="av-btn-ghost shrink-0 text-[13px]"
+                    aria-expanded={open === r.key}
+                    onClick={() => setOpen(open === r.key ? null : r.key)}
+                  >
+                    {open === r.key ? 'Close' : 'Review'}
+                  </button>
+                ) : r.go ? (
+                  <button type="button" className="av-btn-ghost shrink-0 text-[13px]" onClick={r.go.onClick}>
+                    {r.go.label}
+                  </button>
+                ) : null}
+              </div>
+              {open === r.key && r.panel && <div className="av-todo-panel">{r.panel}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && <p className="av-todo-note">{note}</p>}
+    </section>
   );
 }
 
@@ -9617,8 +10097,15 @@ function eventEnded(ev: AVEvent): boolean {
  */
 const REPLACED_TAG = '[replaced by past record]';
 
+/** Isinasara bilang doble — nasa sheet pa, pero hindi na ipinapakita o binibilang. */
+const DUP_TAG = '[duplicate of ';
+function dupTag(id: string): string {
+  return `${DUP_TAG}${id}]`;
+}
+
 function isReplaced(ev: AVEvent): boolean {
-  return ev.remarks.toLowerCase().includes(REPLACED_TAG);
+  const r = ev.remarks.toLowerCase();
+  return r.includes(REPLACED_TAG) || r.includes(DUP_TAG);
 }
 
 /**
@@ -9737,6 +10224,26 @@ interface PendingPast {
 }
 
 const PENDING_KEY = 'avnexus.pendingPast.v1';
+
+function readList(key: string): string[] {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(key) || '[]');
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeList(key: string, v: string[]) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(v.slice(-500)));
+  } catch {
+    /* private mode */
+  }
+}
+
+const HELD_KEY = 'avnexus.heldRefs.v1';
+const HOLD_MS = 30 * 60000;
 
 function readPending(): PendingPast[] {
   try {
@@ -10053,18 +10560,33 @@ function CrewBoard({
  * Mga record na hindi magkatugma ang sinasabi — para iisa ang lumalabas sa
  * production board, sa event card at sa compliance.
  */
+/** Ilang record ang may hindi magkatugmang sinasabi — para sa to-do. */
+function dataCheckCount(events: AVEvent[]): number {
+  const recentCut = new Date();
+  recentCut.setDate(recentCut.getDate() - 30);
+  return events.filter((ev) => {
+    if (ev.approval === 'for-evaluation' && eventEnded(ev)) return true;
+    if (!isAuthorised(ev)) return false;
+    if (ev.dateDelivered && !isDelivered(ev)) return true;
+    const end = ev.endDate || ev.eventDate;
+    return isDelivered(ev) && !ev.dateDelivered && !!end && end.getTime() >= recentCut.getTime();
+  }).length;
+}
+
 function DataChecks({
   events,
   onMarkDone,
   onRecordPast,
   onOpen,
+  defaultOpen = false,
 }: {
   events: AVEvent[];
   onMarkDone: (ev: AVEvent) => void;
   onRecordPast: (ev: AVEvent) => void;
   onOpen: (ev: AVEvent) => void;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const recentCut = new Date();
   recentCut.setDate(recentCut.getDate() - 30);
   const dateNoStep = events.filter((ev) => isAuthorised(ev) && !!ev.dateDelivered && !isDelivered(ev));
@@ -10314,6 +10836,16 @@ function initials(name: string): string {
   );
 }
 
+/** Mga araw sa susunod na 14 na may banggaan o kulang sa tao. */
+function upcomingIssues(events: AVEvent[], crewByEvent: Map<string, Assignment[]>): DayLoad[] {
+  const from = new Date();
+  const to = new Date();
+  to.setDate(to.getDate() + 14);
+  return Array.from(dayLoads(events, crewByEvent, from, to).values())
+    .filter(dayHasIssue)
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
 /** Babala sa itaas: banggaan sa susunod na 14 na araw. Kita agad, hindi na hinahanap. */
 function UpcomingConflicts({
   events,
@@ -10324,14 +10856,7 @@ function UpcomingConflicts({
   crewByEvent: Map<string, Assignment[]>;
   onView: () => void;
 }) {
-  const days = useMemo(() => {
-    const from = new Date();
-    const to = new Date();
-    to.setDate(to.getDate() + 14);
-    return Array.from(dayLoads(events, crewByEvent, from, to).values())
-      .filter(dayHasIssue)
-      .sort((a, b) => a.date.getTime() - b.date.getTime());
-  }, [events, crewByEvent]);
+  const days = useMemo(() => upcomingIssues(events, crewByEvent), [events, crewByEvent]);
   if (!days.length) return null;
   const hard = days.some((d) => d.clashes.length > 0 || d.short > 0);
   return (
@@ -11354,6 +11879,7 @@ function AppMain() {
   const [evApproval, setEvApproval] = useState<'ALL' | ApprovalKey>('ALL');
   const [evFulfil, setEvFulfil] = useState<'ALL' | Fulfilment>('ALL');
   const [evPriority, setEvPriority] = useState<'ALL' | PriorityKey>('ALL');
+  const [evMore, setEvMore] = useState(false);
   const [evYear, setEvYear] = useState('ALL');
   const [evMonth, setEvMonth] = useState('ALL');
   const [evClient, setEvClient] = useState('ALL');
@@ -11409,6 +11935,36 @@ function AppMain() {
   const [formsState, setFormsState] = useState<FormsState>(FORMS_BRIDGE_URL ? 'loading' : 'off');
   // Mga sagot sa form na sine-save pa — itinatago muna sa inbox para hindi madoble.
   const [busyRefs, setBusyRefs] = useState<string[]>([]);
+  /*
+   * v6: ang sagot sa form na na-log na ay nakatago hanggang dumating ang record —
+   * naka-imbak sa device, kaya hindi na bumabalik sa inbox kapag nag-reload
+   * (iyon ang pinagmulan ng dobleng "log as done" + "log for triage").
+   */
+  const [held, setHeld] = useState<Record<string, number>>(() => {
+    try {
+      const o = JSON.parse(window.localStorage.getItem(HELD_KEY) || '{}') as Record<string, number>;
+      const now = Date.now();
+      return Object.fromEntries(Object.entries(o).filter(([, t]) => typeof t === 'number' && now - t < HOLD_MS));
+    } catch {
+      return {};
+    }
+  });
+  const holdRefs = useCallback((refs: string[]) => {
+    setHeld((h) => {
+      const n = { ...h };
+      refs.forEach((r) => {
+        if (r) n[r] = Date.now();
+      });
+      try {
+        window.localStorage.setItem(HELD_KEY, JSON.stringify(n));
+      } catch {
+        /* private mode */
+      }
+      return n;
+    });
+  }, []);
+  const [hiddenForms, setHiddenForms] = useState<string[]>(() => readList('avnexus.hiddenForms.v1'));
+  const [notDup, setNotDup] = useState<string[]>(() => readList('avnexus.notDup.v1'));
 
   /**
    * Sino ang nagpapatakbo ng dashboard ngayon.
@@ -11524,7 +12080,8 @@ function AppMain() {
         out.ok = false;
       }
 
-      setHealth(out);
+      // FIX: kapag walang "problems" ang sagot ng backend, bumabagsak ang buong dashboard.
+      setHealth({ ...out, problems: Array.isArray(out?.problems) ? out.problems : [] });
     } catch {
       // Kapag pati ito ay hindi maabot, ang URL o ang deployment ang mali.
       setHealth({
@@ -11637,6 +12194,11 @@ function AppMain() {
   const [serverRole, setServerRole] = useState<string>('');
   const myRole = serverRole || session?.role || roleOf(user, actor);
   const myName = user?.name || session?.name || actor;
+  /** SRS II o admin: sila lang ang nagla-log ng request at nag-e-evaluate. */
+  const evaluator = isEvaluator(myRole, myName);
+  const evaluatorRef = useRef(evaluator);
+  evaluatorRef.current = evaluator;
+  const rosterName = useMemo(() => TEAM.find((t) => nameMatches(myName, t.name))?.name || '', [myName]);
 
   useEffect(() => {
     if (!AUTH_ENABLED || !user) {
@@ -11801,10 +12363,8 @@ function AppMain() {
   /** Kapareho ng sinusunod ng server: sino ang puwedeng gumalaw sa record. */
   const canEditEv = useCallback(
     (ev: AVEvent) =>
-      ev.approval === 'for-evaluation'
-        ? myRole === 'admin' || myRole === 'staff'
-        : can('edit', myRole, ev.createdBy, myName),
-    [myRole, myName]
+      ev.approval === 'for-evaluation' ? evaluator : can('edit', myRole, ev.createdBy, myName),
+    [myRole, myName, evaluator]
   );
 
   /** Tugmang record sa DMC sheet (transferred o archived) ng naihatid na event. */
@@ -11828,6 +12388,7 @@ function AppMain() {
   }, [events, coverages]);
   const dmcMatch = useCallback((ev: AVEvent) => dmcMatches.get(ev.id) ?? null, [dmcMatches]);
   const calRef = useRef<HTMLDivElement>(null);
+  const evListRef = useRef<HTMLDivElement>(null);
   /** Sino ang naka-deploy ngayong araw — para sa Team workload. */
   const todayLoad = useMemo(() => {
     const now = new Date();
@@ -12998,15 +13559,17 @@ function AppMain() {
    * minamarkahang naihatid, at sinasabi agad kapag binago ng sheet ang status.
    */
   const logIntakeAs = useCallback(
-    async (q: IntakeRequest, mode: IntakeMode) => {
+    async (q: IntakeRequest, mode: IntakeMode, refs: string[] = []) => {
       if (mode === 'triage') return;
+      const all = Array.from(new Set([q.ref, ...refs]));
       const status = PAST_STATUS[mode];
       const reason =
         mode === 'declined' || mode === 'cancelled'
           ? q.notes || 'Recorded from the request form sheet'
           : '';
-      setBusyRefs((b) => [...b, q.ref]);
+      setBusyRefs((b) => [...b, ...all]);
       const ev = intakePrefill(q, mode);
+      ev.remarks = withFormRefs(ev.remarks, all);
       const res = await importPast([importRowFromEvent(ev, status, reason, '')], PAST_LABEL[mode].replace('Save', 'Logged'));
       if (res && res.created > 0) {
         addPending({
@@ -13017,16 +13580,17 @@ function AppMain() {
           done: mode === 'done',
           at: Date.now(),
         });
+        holdRefs(all);
       }
       // FIX: dati'y bumabalik sa inbox pagkalipas ng 5 segundo kahit naisave na
       // (mabagal ang Apps Script), kaya napipindot ulit. Ngayon, nakatago hanggang
       // maiugnay sa record; ibinabalik lang agad kapag pumalya.
       setTimeout(
-        () => setBusyRefs((b) => b.filter((r) => r !== q.ref)),
+        () => setBusyRefs((b) => b.filter((r) => !all.includes(r))),
         res && res.created > 0 ? 120000 : 0
       );
     },
-    [importPast, addPending]
+    [importPast, addPending, holdRefs]
   );
 
   /** Ang "Review first" ng sagot sa form na hindi para sa triage — mula sa modal. */
@@ -13051,6 +13615,7 @@ function AppMain() {
       const res = await importPast([importRowFromEvent(ev, status, reason, '')], PAST_LABEL[intent].replace('Save', 'Logged'));
       if (res && res.created > 0) {
         if (form._draftKey) writeDraft(form._draftKey, null);
+        holdRefs([ref, ...formRefsIn(String(form.remarks || ''))].filter(Boolean));
         if (letter) letterStash.current.set(marker, letter);
         addPending({
           marker,
@@ -13069,7 +13634,110 @@ function AppMain() {
         );
       }
     },
-    [importPast, addPending, myName]
+    [importPast, addPending, myName, holdRefs]
+  );
+
+  /* -------------------------------------------- v6: duplicates and links -- */
+  const crewCount = useCallback((id: string) => activeCrew(crewByEvent, id).length, [crewByEvent]);
+  const findDup = useCallback(
+    (title: string, date: string) => likelyDuplicate(events, title, parseDate(date)),
+    [events]
+  );
+
+  const openIntake = useCallback((q: IntakeRequest, refs: string[]) => {
+    const mode = intakeAction(q).mode;
+    const pre = intakePrefill(q, mode);
+    pre.remarks = withFormRefs(pre.remarks, refs);
+    setEvModal({ open: true, editing: null, prefill: pre, intent: mode });
+  }, []);
+
+  /** "Same request": isinusulat ang form ref sa record na nandito na — hindi na mala-log ulit. */
+  const linkIntake = useCallback(
+    (refs: string[], ev: AVEvent) => {
+      if (isLocalId(ev.id)) {
+        toast('That record is still saving — try again in a moment.', 'info');
+        return;
+      }
+      const remarks = withFormRefs(ev.remarks, refs);
+      holdRefs(refs);
+      if (remarks === ev.remarks) return;
+      enqueue([
+        makeOp('updateEvent', { action: 'updateEvent', id: ev.id, patch: { remarks } }, `Link form request to “${ev.title}”`, ev.id, {
+          event: { ...ev, remarks },
+          doneText: `Linked to ${ev.id} — it will not be logged twice`,
+        }),
+      ]);
+    },
+    [toast, enqueue, holdRefs]
+  );
+
+  const hideForms = useCallback(
+    (refs: string[]) => {
+      setHiddenForms((prev) => {
+        const out = Array.from(new Set([...prev, ...refs]));
+        writeList('avnexus.hiddenForms.v1', out);
+        return out;
+      });
+      toast('Marked as already recorded on this device.', 'info');
+    },
+    [toast]
+  );
+
+  const dismissDup = useCallback((g: AVEvent[]) => {
+    setNotDup((prev) => {
+      const next = new Set(prev);
+      g.forEach((a) => g.forEach((b) => a.id < b.id && next.add(pairKey(a.id, b.id))));
+      const out = Array.from(next);
+      writeList('avnexus.notDup.v1', out);
+      return out;
+    });
+  }, []);
+
+  /** Itira ang isa; isara ang iba bilang doble. Walang binubura — may tala sa sheet. */
+  const mergeDuplicates = useCallback(
+    (keep: AVEvent, drops: AVEvent[]) => {
+      if (!drops.length) return;
+      if (
+        !window.confirm(
+          `Keep ${keep.id} and close ${drops.map((d) => d.id).join(', ')} as duplicate${drops.length > 1 ? 's' : ''}?\n\n` +
+            'They stay in the sheet with a note, but drop out of the dashboard and every count.'
+        )
+      )
+        return;
+      const ops: SyncOp[] = [];
+      const remarks = withFormRefs(keep.remarks, drops.flatMap((d) => formRefsIn(d.remarks)));
+      if (remarks !== keep.remarks) {
+        ops.push(
+          makeOp('updateEvent', { action: 'updateEvent', id: keep.id, patch: { remarks } }, `Keep form links on “${keep.title}”`, keep.id, {
+            event: { ...keep, remarks },
+          })
+        );
+      }
+      if (!activeCrew(crewByEvent, keep.id).length) {
+        const donor = drops.find((d) => activeCrew(crewByEvent, d.id).some((a) => a.roles.length));
+        if (donor) {
+          const rows = activeCrew(crewByEvent, donor.id)
+            .filter((a) => a.roles.length)
+            .map((a) => ({ personnel: a.personnel, roles: a.roles, status: a.status }));
+          ops.push(makeOp('setAssignments', { action: 'setAssignments', eventId: keep.id, rows }, `Crew for “${keep.title}”`, keep.id));
+        }
+      }
+      drops.forEach((d) => {
+        const patch: Record<string, string> = { remarks: `${d.remarks ? `${d.remarks} ` : ''}${dupTag(keep.id)}` };
+        if (d.approval === 'for-evaluation') {
+          patch.approvalStatus = SERVER_STATUS.cancelled;
+          patch.reason = `Duplicate of ${keep.id}`;
+        }
+        ops.push(
+          makeOp('updateEvent', { action: 'updateEvent', id: d.id, patch }, `Close duplicate ${d.id}`, d.id, {
+            doneText: `Closed ${d.id} — duplicate of ${keep.id}`,
+          })
+        );
+      });
+      setHiddenIds((h) => Array.from(new Set([...h, ...drops.map((d) => d.id)])));
+      enqueue(ops);
+    },
+    [crewByEvent, enqueue]
   );
 
   const submitRequest = useCallback(
@@ -13637,9 +14305,14 @@ function AppMain() {
     return map;
   }, [intake, events]);
   const intakeOpen = useMemo(
-    () => intake.filter((q) => !intakeLinks.has(q.ref) && !busyRefs.includes(q.ref)),
-    [intake, intakeLinks, busyRefs]
+    () =>
+      intake.filter(
+        (q) => !intakeLinks.has(q.ref) && !busyRefs.includes(q.ref) && !held[q.ref] && !hiddenForms.includes(q.ref)
+      ),
+    [intake, intakeLinks, busyRefs, held, hiddenForms]
   );
+  const intakeGroups = useMemo(() => groupIntake(intakeOpen, events), [intakeOpen, events]);
+  const dupGroups = useMemo(() => duplicateGroups(events, new Set(notDup)), [events, notDup]);
   // Bago at wala pang aksyon: wala pang Status sa form sheet at wala pa sa Nexus.
   const intakeNew = useMemo(() => intakeOpen.filter((q) => !q.sheetStatus.trim()).length, [intakeOpen]);
 
@@ -14083,6 +14756,10 @@ function AppMain() {
         hint: 'Events',
         group: 'Actions',
         run: () => {
+          if (!evaluatorRef.current) {
+            toast(`New requests are logged and evaluated by ${evaluatorLabel()}.`, 'info');
+            return;
+          }
           setView('events');
           setEvModal({ open: true, editing: null });
         },
@@ -14401,6 +15078,7 @@ function AppMain() {
                 <Icon name="refresh" size={14} className={refreshing || sendingNow ? 'animate-spin' : ''} />
               </button>
 
+              {evaluator && (
               <button
                 type="button"
                 onClick={() => {
@@ -14412,11 +15090,12 @@ function AppMain() {
                 className="av-btn relative hidden items-center gap-2 sm:inline-flex"
               >
                 <Icon name="plus" size={16} stroke={2.2} />
-                <span className="hidden lg:inline">New event</span>
+                <span className="hidden lg:inline">New request</span>
                 {approvalQueue.length > 0 && (
                   <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-amber-400 ring-2 ring-white" />
                 )}
               </button>
+              )}
 
               {AUTH_ENABLED && (user || session) ? (
                 <div className="av-user">
@@ -15147,52 +15826,178 @@ function AppMain() {
             {/* ========================================= EVENTS ======== */}
             {view === 'events' && (
               <>
-                {formsState === 'ok' && intakeOpen.length > 0 && (
-                  <section>
-                    <IntakeInbox
-                      items={intakeOpen}
-                      onLog={(q) => {
-                        const mode = intakeAction(q).mode;
-                        setEvModal({ open: true, editing: null, prefill: intakePrefill(q, mode), intent: mode });
-                      }}
-                      onQuick={logIntakeAs}
-                    />
-                  </section>
-                )}
-                  <DataChecks
-                    events={events}
-                    onMarkDone={markDone}
-                    onRecordPast={recordPast}
-                    onOpen={(ev) =>
-                      isLocalId(ev.id)
-                        ? toast('Still saving to the sheet — open it again in a moment.', 'info')
-                        : setEvModal({ open: true, editing: ev })
+                {(() => {
+                  const rows: TodoRow[] = [];
+                  const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`;
+                  const showStatus = (k: ApprovalKey) => {
+                    setEvApproval(k);
+                    setTimeout(() => evListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+                  };
+                  if (evaluator && formsState === 'ok' && intakeGroups.length) {
+                    rows.push({
+                      key: 'forms',
+                      tone: 'calm',
+                      icon: 'triage',
+                      title: `${n(intakeGroups.length, 'new request')} from the online form`,
+                      sub: 'Log each one once — as done, approved, declined or for evaluation.',
+                      panel: (
+                        <IntakeInbox
+                          groups={intakeGroups}
+                          canAct
+                          canLink={canEditEv}
+                          onLog={openIntake}
+                          onQuick={logIntakeAs}
+                          onLink={linkIntake}
+                          onHide={hideForms}
+                          onOpen={openEv}
+                        />
+                      ),
+                    });
+                  }
+                  if (evaluator && dupGroups.length) {
+                    rows.push({
+                      key: 'dups',
+                      tone: 'warn',
+                      icon: 'sheet',
+                      title: `${n(dupGroups.length, 'event')} recorded more than once`,
+                      sub: 'Keep one record for each and close the rest, so nothing is counted twice.',
+                      panel: (
+                        <DuplicatePanel
+                          groups={dupGroups}
+                          crewCount={crewCount}
+                          canEditEv={canEditEv}
+                          onOpen={openEv}
+                          onMerge={mergeDuplicates}
+                          onDismiss={dismissDup}
+                        />
+                      ),
+                    });
+                  }
+                  if (evaluator && triageQueue.length) {
+                    rows.push({
+                      key: 'eval',
+                      tone: 'calm',
+                      icon: 'events',
+                      title: `${n(triageQueue.length, 'request')} to evaluate`,
+                      sub: 'Set the agreed services and your recommendation, then send each one to the Supervising SRS.',
+                      go: { label: 'Show them', onClick: () => showStatus('for-evaluation') },
+                    });
+                  }
+                  const toEndorse = events.filter((e) => e.approval === 'for-endorsement').length;
+                  const toApprove = events.filter((e) => e.approval === 'for-approval').length;
+                  if (myRole === 'srs' && toEndorse) {
+                    rows.push({
+                      key: 'endorse',
+                      tone: 'calm',
+                      icon: 'compliance',
+                      title: `${n(toEndorse, 'request')} to endorse`,
+                      sub: 'Evaluated by the SRS II. Endorse each one to the Division Chief, or return it.',
+                      go: { label: 'Show them', onClick: () => showStatus('for-endorsement') },
+                    });
+                  }
+                  if (myRole === 'dc' && toApprove) {
+                    rows.push({
+                      key: 'approve',
+                      tone: 'calm',
+                      icon: 'compliance',
+                      title: `${n(toApprove, 'request')} to approve`,
+                      sub: 'Endorsed by the Supervising SRS. Approve or decline each one.',
+                      go: { label: 'Show them', onClick: () => showStatus('for-approval') },
+                    });
+                  }
+                  if ((myRole === 'staff' || myRole === 'admin') && rosterName) {
+                    const mine = tasks.filter(
+                      (t) => t.person === rosterName && (t.stage === 'assigned' || t.stage === 'progress')
+                    );
+                    if (mine.length) {
+                      rows.push({
+                        key: 'mine',
+                        tone: 'calm',
+                        icon: 'production',
+                        title: `${n(mine.length, 'event')} assigned to you`,
+                        sub: mine
+                          .slice(0, 3)
+                          .map((t) => t.ev.title)
+                          .join(' · '),
+                        go: {
+                          label: 'Open my board',
+                          onClick: () => {
+                            setProdPerson(rosterName);
+                            setView('production');
+                          },
+                        },
+                      });
                     }
-                  />
-                <UpcomingConflicts
-                  events={events}
-                  crewByEvent={crewByEvent}
-                  onView={() => {
-                    setView('compliance');
-                    setTimeout(() => calRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
-                  }}
-                />
+                  }
+                  const checks = evaluator ? dataCheckCount(events) : 0;
+                  if (checks) {
+                    rows.push({
+                      key: 'checks',
+                      tone: 'warn',
+                      icon: 'register',
+                      title: `${n(checks, 'record')} need a quick fix`,
+                      sub: 'For example, a delivery date recorded but the delivery step not marked done.',
+                      panel: (
+                        <DataChecks events={events} onMarkDone={markDone} onRecordPast={recordPast} onOpen={openEv} defaultOpen />
+                      ),
+                    });
+                  }
+                  const issues = upcomingIssues(events, crewByEvent);
+                  if (issues.length) {
+                    rows.push({
+                      key: 'sched',
+                      tone: issues.some((d) => d.clashes.length > 0 || d.short > 0) ? 'alert' : 'warn',
+                      icon: 'events',
+                      title: `Schedule warning — ${n(issues.length, 'day')} in the next 2 weeks`,
+                      sub: `${issues[0].date.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}: ${issueText(issues[0])}${
+                        issues.length > 1 ? ` · and ${issues.length - 1} more` : ''
+                      }`,
+                      go: {
+                        label: 'Open calendar',
+                        onClick: () => {
+                          setView('compliance');
+                          setTimeout(() => calRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+                        },
+                      },
+                    });
+                  }
+                  const roleName =
+                    myRole === 'admin'
+                      ? 'Admin'
+                      : evaluator
+                      ? 'SRS II · Evaluator'
+                      : ROLE_LABEL[myRole] || 'Signed in';
+                  const duty =
+                    myRole === 'admin'
+                      ? 'You can do everything: log and evaluate requests, edit any record and keep the data clean.'
+                      : evaluator
+                      ? 'You evaluate new requests: log what comes in from the online form, close duplicates, set the agreed services and send each one to the Supervising SRS.'
+                      : myRole === 'srs'
+                      ? 'You endorse requests after the SRS II evaluates them. Endorsed requests go to the Division Chief.'
+                      : myRole === 'dc'
+                      ? 'You approve or decline requests endorsed by the Supervising SRS.'
+                      : `You work on the events assigned to you and move each one forward on the Production board. New requests are logged and evaluated by ${evaluatorLabel()}.`;
+                  const note =
+                    !evaluator && myRole === 'staff' && intakeGroups.length
+                      ? `${n(intakeGroups.length, 'new form request')} ${intakeGroups.length === 1 ? 'is' : 'are'} waiting for ${evaluatorLabel()}.`
+                      : undefined;
+                  return <TodoCenter who={rosterName || myName} roleName={roleName} duty={duty} rows={rows} note={note} />;
+                })()}
                 <section>
                   <SectionHead
                     title="Event monitoring"
                     hint="AV Services PM: SRS II assesses → Supervising SRS endorses → Division Chief approves → production or coverage."
                     right={
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setImportOpen(true)} className="av-btn-ghost">
-                          Import past coverage
-                        </button>
-                        <button
-                          onClick={() => setEvModal({ open: true, editing: null })}
-                          className="av-btn"
-                        >
-                          + New event
-                        </button>
-                      </div>
+                      evaluator ? (
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setImportOpen(true)} className="av-btn-ghost">
+                            Import past coverage
+                          </button>
+                          <button onClick={() => setEvModal({ open: true, editing: null })} className="av-btn">
+                            + New request
+                          </button>
+                        </div>
+                      ) : undefined
                     }
                   />
 
@@ -15215,7 +16020,7 @@ function AppMain() {
                       <EventSummary events={events} />
 
                       {/* ---------------- AV TRIAGE QUEUE ---------------- */}
-                      {triageQueue.length > 0 && (
+                      {triageQueue.length > 0 && evaluator && (
                         <div className="mt-4 rounded-[16px] border border-purple-200 bg-purple-50 p-4">
                           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                             <p className="av-label" style={{ color: 'var(--triage)' }}>
@@ -15325,7 +16130,7 @@ function AppMain() {
                         </div>
                       )}
 
-                      <div className="mb-4 mt-4 space-y-3 av-card p-4">
+                      <div ref={evListRef} className="mb-4 mt-4 scroll-mt-24 space-y-3 av-card p-4">
                         <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
                           <span className="text-slate-400">⌕</span>
                           <input
@@ -15343,8 +16148,28 @@ function AppMain() {
                             </button>
                           )}
                         </div>
+                        {(() => {
+                          const extra = [evYear !== 'ALL', evMonth !== 'ALL', evClient !== 'ALL', evSort !== 'queue', evFulfil !== 'ALL', evPriority !== 'ALL'].filter(Boolean).length;
+                          return (
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                className="av-btn-ghost text-[13px]"
+                                aria-expanded={evMore}
+                                onClick={() => setEvMore((v) => !v)}
+                              >
+                                {evMore ? 'Fewer filters' : 'More filters'}
+                                {extra ? ` · ${extra} on` : ''}
+                              </button>
+                              <span className="av-note av-dim">
+                                Showing {filteredEvents.length} of {events.length}
+                              </span>
+                            </div>
+                          );
+                        })()}
                         {/* Panahon, ahensiya at pagkakasunod — ito ang
                             kailangan kapag inaayos ang mga lumang record. */}
+                        {evMore && (
                         <div className="flex flex-wrap items-center gap-2">
                           <select
                             value={evYear}
@@ -15407,10 +16232,8 @@ function AppMain() {
                               Reset
                             </button>
                           )}
-                          <span className="av-note av-dim ml-auto">
-                            {filteredEvents.length} of {events.length}
-                          </span>
                         </div>
+                        )}
 
                         <div className="flex flex-wrap gap-1.5">
                           {(['ALL', ...APPROVAL_ORDER] as const).map((k) => (
@@ -15423,9 +16246,11 @@ function AppMain() {
                                   : 'border-slate-200 text-slate-900 hover:text-slate-600'
                               }`}
                             >
-                              {k === 'ALL' ? 'All approval' : APPROVAL_META[k as ApprovalKey].label}
+                              {k === 'ALL' ? 'All statuses' : APPROVAL_META[k as ApprovalKey].label}
                             </button>
                           ))}
+                          {evMore && (
+                          <>
                           <span className="mx-1 w-px bg-slate-100" />
                           {(
                             ['ALL', 'full', 'partial', 'none', 'declined', 'cancelled', 'rescheduled'] as const
@@ -15456,6 +16281,8 @@ function AppMain() {
                               {k === 'ALL' ? 'All priority' : `${k} priority`}
                             </button>
                           ))}
+                          </>
+                          )}
                         </div>
                       </div>
 
@@ -15465,12 +16292,11 @@ function AppMain() {
                           <p className="mb-4 text-xs text-slate-400">
                             Everything starts here. Create an event to begin assessment, approval and tasking.
                           </p>
-                          <button
-                            onClick={() => setEvModal({ open: true, editing: null })}
-                            className="av-btn"
-                          >
-                            Create the first event
-                          </button>
+                          {evaluator && (
+                            <button onClick={() => setEvModal({ open: true, editing: null })} className="av-btn">
+                              Create the first event
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <>
@@ -16434,6 +17260,7 @@ function AppMain() {
       </nav>
 
       {/* Mabilis na paggawa, abot ng hinlalaki. */}
+      {evaluator && (
       <button
         onClick={() => {
           setView('events');
@@ -16449,6 +17276,7 @@ function AppMain() {
       >
         <Icon name="plus" size={22} stroke={2} />
       </button>
+      )}
 
       {/* ----------------------------------------------------- TOASTS ---- */}
       <div className="no-print fixed right-4 top-[84px] z-[100] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2">
@@ -16524,14 +17352,10 @@ function AppMain() {
               : []
           }
           role={myRole}
-          canEdit={
-            !evModal.editing ||
-            // Sa AV triage, walang may-ari pa — kaya kahit sinong AV staff
-            // ay makakapag-edit. Kapareho ito ng ipinapatupad ng server.
-            (evModal.editing.approval === 'for-evaluation'
-              ? myRole === 'admin' || myRole === 'staff'
-              : can('edit', myRole, evModal.editing.createdBy, myName))
-          }
+          canEdit={!evModal.editing ? evaluator : canEditEv(evModal.editing)}
+          evaluator={evaluator}
+          findDup={findDup}
+          onOpenExisting={(ev) => setEvModal({ open: true, editing: ev })}
         />
       )}
       {importOpen && (
@@ -16669,8 +17493,10 @@ html {
 body { background: var(--paper); color: var(--ink); }
 .font-display { font-family: inherit; letter-spacing: -0.015em; }
 .font-mono, code, kbd {
-  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* v6: walang monospace sa mga card at table — mas madaling basahin ng lahat. */
+  font-family: inherit;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 /* Ang lumang mono eyebrow — maliit na sans label na lang, mas tahimik. */
 .av-page .font-mono.uppercase { font-family: inherit; letter-spacing: .06em; font-weight: 600; }
@@ -17359,6 +18185,50 @@ html [class~="text-yellow-800"] { color: #6B4500; }
 .av-tcard.late { border-color: rgba(163,0,0,.35); box-shadow: inset 3px 0 0 var(--brand-red); }
 details.av-card > summary { list-style: none; }
 details.av-card > summary::-webkit-details-marker { display: none; }
+
+/* ------------------------------------------------------ to-do (v6) --- */
+.av-todo { overflow: hidden; }
+.av-todo-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--rule-soft); }
+.av-todo-role {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px;
+  background: var(--tint-blue); color: var(--signal-strong); font-size: 12px; font-weight: 600;
+}
+.av-todo-row { border-bottom: 1px solid var(--rule-soft); }
+.av-todo-row:last-child { border-bottom: 0; }
+.av-todo-line { display: flex; align-items: center; gap: 14px; padding: 13px 20px; }
+.av-todo-ic {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0;
+  border-radius: 10px; background: var(--surface-2); color: var(--ink-3);
+}
+.av-todo-row.warn .av-todo-ic { background: var(--tint-amber); color: var(--waiting); }
+.av-todo-row.alert .av-todo-ic { background: var(--tint-red); color: var(--refused); }
+.av-todo-t { font-size: 14.5px; font-weight: 600; color: var(--ink); line-height: 1.35; }
+.av-todo-s { margin-top: 1px; font-size: 13px; color: var(--ink-3); line-height: 1.4; }
+.av-todo-panel { padding: 4px 20px 18px 68px; }
+.av-todo-note { padding: 12px 20px; border-top: 1px solid var(--rule-soft); font-size: 13px; color: var(--ink-3); }
+@media (max-width: 640px) {
+  .av-todo-line { flex-wrap: wrap; padding: 12px 16px; }
+  .av-todo-panel { padding: 2px 16px 16px; }
+}
+.av-inbox { border: 1px solid var(--rule); border-radius: 12px; background: var(--card); }
+.av-inbox-row { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rule-soft); }
+.av-inbox-row:last-child { border-bottom: 0; }
+@media (min-width: 768px) { .av-inbox-row { flex-direction: row; align-items: center; } }
+.av-inbox-t { font-size: 14px; font-weight: 600; color: var(--ink); }
+.av-inbox-m { font-size: 12.5px; color: var(--ink-3); line-height: 1.45; }
+.av-inbox-dup { margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--waiting); }
+.av-dup { padding: 14px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); }
+.av-dup-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.av-dup-card {
+  display: flex; gap: 10px; padding: 11px 12px; border: 1px solid var(--rule); border-radius: 10px; cursor: pointer;
+  background: var(--surface-2); transition: border-color .15s, background-color .15s;
+}
+.av-dup-card.on { border-color: var(--signal); background: var(--tint-blue); }
+.av-lpage { width: 118px; margin: 0; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--card); }
+.av-lpage img { display: block; width: 100%; height: 150px; object-fit: cover; object-position: top; background: #fff; }
+.av-lpage figcaption { display: flex; align-items: center; justify-content: space-between; gap: 4px; padding: 5px 6px; font-size: 12px; color: var(--ink-2); }
+.av-lpage figcaption button { padding: 2px 5px; border-radius: 6px; font-size: 12px; color: var(--ink-3); }
+.av-lpage figcaption button:hover { background: var(--surface-2); color: var(--ink); }
 
 /* ------------------------------------------- deployment calendar (v5) --- */
 .av-cal-day {
