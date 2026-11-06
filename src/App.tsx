@@ -12788,6 +12788,19 @@ function AppMain() {
         ];
         out.ok = false;
       }
+      // v7.3: luma pa ba ang naka-deploy na AVNexus.gs? Ang na-paste na code ay hindi
+      // tumatakbo hangga't walang "New version" sa deployment — kaya sinasabi rito.
+      const bv = String(out?.version || '').match(/v(\d+)(?:\.(\d+))?/);
+      if (bv && (Number(bv[1]) < 7 || (Number(bv[1]) === 7 && Number(bv[2] || 0) < 3))) {
+        out.problems = [
+          `The live AVNexus.gs is an older version (${out.version}). Until it is updated, edits to venue, title and dates ` +
+            'do not save, and request letters over 100 KB are refused.\n' +
+            'In Apps Script: paste the v7.3 code.gs and save, then Deploy → Manage deployments → ✏️ → ' +
+            'Version: New version → Deploy, on both deployments.',
+          ...(out.problems || []),
+        ];
+        out.ok = false;
+      }
 
       // FIX: kapag walang "problems" ang sagot ng backend, bumabagsak ang buong dashboard.
       setHealth({ ...out, problems: Array.isArray(out?.problems) ? out.problems : [] });
@@ -12909,8 +12922,17 @@ function AppMain() {
   evaluatorRef.current = evaluator;
   const rosterName = useMemo(() => TEAM.find((t) => nameMatches(myName, t.name))?.name || '', [myName]);
 
+  /**
+   * v7.3 FIX: dati, tumatakbo lang ito kapag may Google user. Pero pagka-reload,
+   * ang session na lang ang natitira (walang Google user hangga't hindi muling
+   * nagsa-sign in), kaya ang papel ay nananatili sa kung ano ito noong nag-sign
+   * in — hanggang labindalawang oras. Kapag ginawang admin ang isang tao sa USERS,
+   * "AV staff" pa rin ang nakikita niya. Ngayon, tinatanong ang server sa bawat
+   * pagbukas, at itinatago ang sagot sa session.
+   */
+  const whoKey = (user?.email || session?.email || (session?.token ? 'session' : '')).toLowerCase();
   useEffect(() => {
-    if (!AUTH_ENABLED || !user) {
+    if (!AUTH_ENABLED || !whoKey) {
       setServerRole('');
       return;
     }
@@ -12918,7 +12940,15 @@ function AppMain() {
     (async () => {
       try {
         const out = await authedPost({ action: 'whoami' });
-        if (!cancelled && out && out.role) setServerRole(String(out.role));
+        if (cancelled || !out || !out.role) return;
+        const role = String(out.role);
+        setServerRole(role);
+        const cur = sessionRef.current;
+        if (cur && cur.role !== role) {
+          const next: StoredSession = { ...cur, role, name: String(out.name || cur.name) };
+          setSession(next);
+          saveSession(next);
+        }
       } catch {
         /* hahayaan ang hulang papel; ang server pa rin ang magpapatupad */
       }
@@ -12927,7 +12957,7 @@ function AppMain() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email]);
+  }, [whoKey]);
 
   const authedPost = useCallback(
     async (body: Record<string, unknown>, opts: NetOptions = {}) => {
