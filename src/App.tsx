@@ -2249,9 +2249,19 @@ function slaForEvent(ev: AVEvent): number {
  * hindi mula sa araw na naaprubahan ito.
  */
 function eventTarget(ev: AVEvent): Date | null {
-  if (ev.targetDate) return ev.targetDate;
   const start = slaBaseDate(ev);
-  return start ? addWorkingDays(start, slaForEvent(ev)) : null;
+  const auto = start ? addWorkingDays(start, slaForEvent(ev)) : null;
+  /**
+   * v7.3 FIX: ang target na NASA o BAGO pa ang huling araw ng event (o ang araw
+   * ng pagtanggap, kung mas huli) ay hindi maaaring SLA target — wala pang
+   * footage na maihahatid. Kadalasan ito ang petsa ng event o ang "expected
+   * delivery date" ng humiling na nailagay sa Target date. Dati, OVERDUE agad
+   * ang naihatid naman sa loob ng SLA. Ngayon, ang SLA ang ginagamit sa ganitong
+   * kaso. Ang target na LAMPAS sa event — tunay na deadline o extension — ay
+   * sinusunod pa rin.
+   */
+  if (ev.targetDate && !(start && auto && onOrBeforeDay(ev.targetDate, start))) return ev.targetDate;
+  return auto;
 }
 
 /**
@@ -6111,6 +6121,19 @@ seed?.pipeline ?? {
     return base ? dayKey(addWorkingDays(base, sla)) : '';
   }, [f.targetDate, f.dateRequested, f.eventDate, f.endDate, sla]);
 
+  /**
+   * v7.3: ang Target date na nasa o bago pa ang huling araw ng event ay hindi SLA
+   * target (tingnan ang eventTarget). Sinasabi ito sa ilalim ng field, at ang SLA
+   * target ang isinusulat sa sheet pag-save — para iisa ang nasa sheet at dashboard.
+   */
+  const slaFix = useMemo(() => {
+    const got = parseDate(f.dateRequested);
+    const ends = parseDate(f.endDate) || parseDate(f.eventDate);
+    const base = !got ? ends : !ends ? got : (ends.getTime() > got.getTime() ? ends : got);
+    if (!f.targetDate || !base || f.targetDate > dayKey(base)) return '';
+    return dayKey(addWorkingDays(base, sla));
+  }, [f.targetDate, f.dateRequested, f.eventDate, f.endDate, sla]);
+
   // Ang mga approver ay maaaring mag-aprub, pero hindi mag-edit ng nilalaman.
   const isApprover = role === 'dc' || role === 'srs';
   const approvalOnly = isApprover && !!existing;
@@ -6196,6 +6219,8 @@ seed?.pipeline ?? {
     send(
       {
         ...f,
+        // v7.3: ang target na bago pa matapos ang event ay pinapalitan ng SLA target.
+        targetDate: slaFix || f.targetDate,
         _draftKey: draftKey,
         _ref: prefill?.id ?? '',
         lead: crew.find((c) => c.roles.length)?.personnel || f.lead,
@@ -6979,6 +7004,14 @@ seed?.pipeline ?? {
               {!f.targetDate && previewTarget && (
                 <p className="mt-1 font-mono text-[10px] text-blue-600">
                   Auto: {previewTarget} ({sla} WD from receipt)
+                </p>
+              )}
+              {slaFix && (
+                <p className="av-note mt-1">
+                  <b>On or before the event&rsquo;s last day.</b> Nothing can be delivered before the event is
+                  over, so this can&rsquo;t be the SLA target. It will be saved as{' '}
+                  <span className="font-mono">{slaFix}</span> ({sla} WD after the event, or after receipt if
+                  that is later).
                 </p>
               )}
             </div>
