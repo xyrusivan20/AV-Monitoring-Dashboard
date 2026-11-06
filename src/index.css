@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
-/* v7: one type family. Fonts load from AV_CSS (Public Sans + IBM Plex Mono). */
+/* v7.1: one type family. Fonts load from AV_CSS (Geist + Geist Mono). */
 @theme {
-  --font-sans: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* Design tokens as Tailwind colours (text-ink-3, bg-card, border-rule …).

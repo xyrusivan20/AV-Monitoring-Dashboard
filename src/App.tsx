@@ -5534,16 +5534,16 @@ function EventSummary({ events }: { events: AVEvent[] }) {
       {/* BENTO — hindi pantay-pantay ang card. Ang kinikilos mo ngayon
           ang pinakamalaki; ang natitira ay sumusuporta. */}
       <div className="av-bento">
-        <div className="av-head wide" style={{ background: 'var(--tint-amber)', borderColor: '#F0E0C2' }}>
+        <div className="av-head wide av-wait">
           <div className="flex items-start gap-3">
             <div className="av-dot" style={{ background: 'var(--waiting)', color: '#fff' }}>
               {t.waiting}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="av-label" style={{ color: '#7C4409' }}>
+              <p className="av-label">
                 Waiting on someone
               </p>
-              <p className="av-note" style={{ color: '#8A5410' }}>
+              <p className="av-note">
                 {t.forEval} with the AV team · {t.forEndorse} with the SRS · {t.forApproval} with
                 the Division Chief
               </p>
@@ -5558,7 +5558,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
               <div
                 key={k}
                 className="av-track"
-                style={{ flex: Math.max(1, x.n), background: 'rgba(124,68,9,.14)' }}
+                style={{ flex: Math.max(1, x.n), background: 'var(--rule-soft)' }}
               >
                 <div className="av-fill" style={{ width: '100%', background: x.c, opacity: x.n ? 1 : 0 }} />
               </div>
@@ -5597,7 +5597,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
               <div
                 key={c.l}
                 className="av-tintbox av-step"
-                style={{ background: c.tint }}
+                style={{ '--c': c.c } as React.CSSProperties}
               >
                 <div className="flex items-baseline gap-2">
                   <span className="av-fig-sm font-mono" style={{ color: c.c }}>
@@ -12335,6 +12335,56 @@ const NAV_FOR_ROLE: Record<string, ViewKey[]> = {
   dc: ['events', 'compliance', 'accomplishments'],
 };
 
+/* ---------------------------------------------------------- STAGE (v7.1) -- */
+/** Ang crew lineup sa hero. Display lamang: ang estado ay galing sa tallyOf. */
+const STAGE_LINEUP: { name: string; src: string }[] = [
+  { name: 'Xyrus', src: '/crew/xyrus-stage.webp' },
+  { name: 'Marx', src: '/crew/marx-stage.webp' },
+  { name: 'Reiner', src: '/crew/reiner-stage.webp' },
+  { name: 'Pat', src: '/crew/pat-stage.webp' },
+];
+const LAMP_LABEL: Record<TallyState, string> = { live: 'On site', progress: 'In progress', off: 'Available' };
+
+function StageLineup({ stateOf }: { stateOf: (name: string) => TallyState }) {
+  return (
+    <div className="av-stage-media" aria-label="Crew status">
+      {STAGE_LINEUP.map((p, i) => {
+        const st = stateOf(p.name);
+        return (
+          <figure key={p.name} className="av-stage-fig" data-s={st} style={{ '--i': i } as React.CSSProperties}>
+            <img src={p.src} alt="" decoding="async" />
+            <span className="lamp">
+              <i aria-hidden="true" />
+              {p.name}
+              <em> · {LAMP_LABEL[st]}</em>
+            </span>
+          </figure>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Timecode ng studio: oras ngayon, bawat segundo. Sariling state; walang ginagalaw sa app. */
+function StageHud({ live }: { live: number }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
+  const tc = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const day = now.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short' });
+  return (
+    <p className="av-stage-hud">
+      <span className="air" data-on={live ? '1' : '0'}>
+        {live ? 'On air' : 'Standby'}
+      </span>
+      <span className="tc">{tc}</span>
+      <span className="dt">{day}</span>
+    </p>
+  );
+}
+
 /* ------------------------------------------------------------ APP SHELL -- */
 
 /** Sidebar grouping. Ang VIEWS pa rin ang pinagmumulan ng label at hint. */
@@ -15555,7 +15605,7 @@ function AppMain() {
       {/* ------------------------------------------------------ SIDEBAR -- */}
       <aside className={`av-side no-print ${navOpen ? 'open' : ''}`} aria-label="Main navigation">
         <div className="av-side-brand">
-          <img src="/stii.png" alt="DOST-STII" className="h-8 w-auto shrink-0" />
+          <img src="/stii-logo.png" alt="DOST-STII" className="av-side-logo shrink-0" />
           <div className="av-wordmark">
             AV Nexus
             <small>Broadcast &amp; Digital Media</small>
@@ -15779,8 +15829,11 @@ function AppMain() {
             view === 'portfolio' || view === 'gatepass' ? 'slim' : ''
           }`}
         >
-          <div className="mx-auto flex max-w-[1400px] flex-wrap items-end justify-between gap-x-6 gap-y-4">
+          {view !== 'portfolio' && view !== 'gatepass' && <StageLineup stateOf={tallyOf} />}
+          <div className="av-stage-scrim" aria-hidden="true" />
+          <div key={view} className="av-stage-copy mx-auto flex max-w-[1400px] flex-wrap items-end justify-between gap-x-6 gap-y-4">
             <div className="min-w-0">
+              <StageHud live={tally.filter((t) => t.state === 'live').length} />
               <p className="av-hero-k">
                 {greetingFor(new Date())}
                 {myName ? `, ${String(myName).split(' ')[0]}` : ''}
@@ -15798,7 +15851,7 @@ function AppMain() {
                 </p>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="av-stage-cta flex flex-wrap gap-2">
               <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
                 <Icon name="sheet" size={16} />
                 Pre-archival
@@ -15809,75 +15862,75 @@ function AppMain() {
               </a>
             </div>
           </div>
-        </section>
 
-        {/* ---------------------------------------------------- KPI STRIP -- */}
-        {view !== 'portfolio' && view !== 'gatepass' && (
-          <div className="av-kpis no-print">
-            <HeroStat
-              label="Awaiting action"
-              value={triageQueue.length + approvalQueue.length + intakeNew}
-              pct={
-                events.length + intakeNew
-                  ? ((triageQueue.length + approvalQueue.length + intakeNew) / (events.length + intakeNew)) * 100
-                  : 0
-              }
-              hex="#B07A00"
-              icon="triage"
-              sub={`${triageQueue.length} in triage, ${approvalQueue.length} for sign-off${
-                intakeNew ? `, ${intakeNew} new from the form` : ''
-              }`}
-              onClick={() => setView('events')}
-            />
-            <HeroStat
-              label="In production"
-              value={prodLive.count}
-              pct={prodLive.pct}
-              hex="#427AA1"
-              icon="production"
-              sub={`${prodLive.overdue} overdue, ${prodLive.unassigned} with no crew yet`}
-              onClick={() => setView('production')}
-            />
-            <HeroStat
-              label="DMC cleared"
-              value={
-                stats.total
-                  ? Math.round(((stats.counts.transferred + stats.counts.archived) / stats.total) * 100)
-                  : 0
-              }
-              suffix="%"
-              pct={
-                stats.total
-                  ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100
-                  : 0
-              }
-              hex="#2F5F82"
-              icon="archive"
-              sub={`${stats.counts.transferred + stats.counts.archived} of ${stats.total} coverages`}
-              onClick={() => setView('pulse')}
-            />
-            <HeroStat
-              label="Approved requests completed"
-              value={kpi.execution ?? 0}
-              suffix={kpi.execution === null ? '' : '%'}
-              pct={kpi.execution ?? 0}
-              hex={
-                kpi.execution === null
-                  ? '#94A3B8'
-                  : kpi.execution >= KPI_EXECUTION_TARGET
-                  ? '#16A34A'
-                  : '#A30000'
-              }
-              icon="compliance"
-              sub={
-                kpi.execution === null
-                  ? 'No approved requests yet'
-                  : `${pRange.label}, target ${KPI_EXECUTION_TARGET}%`
-              }
-              onClick={() => setView('compliance')}
-            />
-          </div>
-        )}
+          {/* -------------------------------------------------- KPI STRIP -- */}
+          {view !== 'portfolio' && view !== 'gatepass' && (
+            <div className="av-kpis no-print">
+              <HeroStat
+                label="Awaiting action"
+                value={triageQueue.length + approvalQueue.length + intakeNew}
+                pct={
+                  events.length + intakeNew
+                    ? ((triageQueue.length + approvalQueue.length + intakeNew) / (events.length + intakeNew)) * 100
+                    : 0
+                }
+                hex="#B07A00"
+                icon="triage"
+                sub={`${triageQueue.length} in triage, ${approvalQueue.length} for sign-off${
+                  intakeNew ? `, ${intakeNew} new from the form` : ''
+                }`}
+                onClick={() => setView('events')}
+              />
+              <HeroStat
+                label="In production"
+                value={prodLive.count}
+                pct={prodLive.pct}
+                hex="#427AA1"
+                icon="production"
+                sub={`${prodLive.overdue} overdue, ${prodLive.unassigned} with no crew yet`}
+                onClick={() => setView('production')}
+              />
+              <HeroStat
+                label="DMC cleared"
+                value={
+                  stats.total
+                    ? Math.round(((stats.counts.transferred + stats.counts.archived) / stats.total) * 100)
+                    : 0
+                }
+                suffix="%"
+                pct={
+                  stats.total
+                    ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100
+                    : 0
+                }
+                hex="#2F5F82"
+                icon="archive"
+                sub={`${stats.counts.transferred + stats.counts.archived} of ${stats.total} coverages`}
+                onClick={() => setView('pulse')}
+              />
+              <HeroStat
+                label="Approved requests completed"
+                value={kpi.execution ?? 0}
+                suffix={kpi.execution === null ? '' : '%'}
+                pct={kpi.execution ?? 0}
+                hex={
+                  kpi.execution === null
+                    ? '#94A3B8'
+                    : kpi.execution >= KPI_EXECUTION_TARGET
+                    ? '#16A34A'
+                    : '#A30000'
+                }
+                icon="compliance"
+                sub={
+                  kpi.execution === null
+                    ? 'No approved requests yet'
+                    : `${pRange.label}, target ${KPI_EXECUTION_TARGET}%`
+                }
+                onClick={() => setView('compliance')}
+              />
+            </div>
+          )}
+        </section>
 
         <div
           className={`relative z-10 px-4 pb-28 md:px-8 ${
@@ -18099,7 +18152,7 @@ export default function App() {
  * Tailwind (mas huling stylesheet ito), at hindi na nagtatago ang button.
  */
 const AV_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap');
 
 :root {
   --ink: #172033;
@@ -19253,4 +19306,282 @@ html[data-theme='dark'] .av-run-more { color: #8DBAD9; }
   .av-signin-bg img, .av-signin-copy .k, .av-signin-copy h1, .av-signin-copy .sub, .av-signin-copy .note, .av-signin-btn { animation: none; }
 }
 @media print { .av-tally-wrap, .av-run, .av-backfill { display: none; } }
+
+/* =====================================================================
+   v7.1 · STAGE — cinematic, exact, on-air. Last in the string; wins over v7.
+   One grotesk (Geist) + Geist Mono for timecode and labels. Dark studio rail,
+   a near-black stage with the crew lineup, hairline cards, pill controls.
+   ===================================================================== */
+:root {
+  --font-ui: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ink: #0B0C0E; --ink-2: #3A3F46; --ink-3: #5D646D; --ink-4: #8A9099;
+  --paper: #F2F3F5; --card: #FFFFFF; --surface-2: #F7F8FA;
+  --rule: #E2E4E8; --rule-soft: #ECEEF1; --rule-strong: #D1D5DB;
+  --signal: #427AA1; --signal-strong: #2F5F82; --signal-soft: #EAF1F7;
+  --stage: #0B0C0D; --stage-fg: #F4F4F1;
+  --stage-80: rgba(244,244,241,.82); --stage-60: rgba(244,244,241,.64); --stage-45: rgba(244,244,241,.5);
+  --stage-line: rgba(255,255,255,.09);
+  --lamp-live: #FF453A; --lamp-post: #FFBF1F; --lamp-off: rgba(255,255,255,.3); --air: #D92D20;
+  --btn-primary: #0B0C0E; --btn-primary-hover: #2A2E33; --btn-primary-fg: #FFFFFF;
+  --r-ctl: 12px; --r-card: 18px; --r-float: 24px;
+  --lift: 0 1px 2px rgba(11,12,14,.05);
+  --lift-raise: 0 1px 2px rgba(11,12,14,.04), 0 14px 34px -18px rgba(11,12,14,.22);
+  --lift-float: 0 30px 80px -24px rgba(11,12,14,.38), 0 6px 16px rgba(11,12,14,.08);
+  --ease-out: cubic-bezier(.22,1,.36,1);
+}
+html[data-theme='dark'] {
+  --ink: #F2F2EF; --ink-2: #C6C8CC; --ink-3: #969BA2; --ink-4: #6E737A;
+  --paper: #08090A; --card: #111214; --surface-2: #16171A;
+  --rule: #232529; --rule-soft: #1A1B1E; --rule-strong: #30333A;
+  --signal: #6FA6CB; --signal-strong: #8DBAD9; --signal-soft: rgba(66,122,161,.2);
+  --btn-primary: #F2F2EF; --btn-primary-hover: #FFFFFF; --btn-primary-fg: #0B0C0E;
+  --lift: 0 1px 2px rgba(0,0,0,.5);
+  --lift-raise: 0 1px 2px rgba(0,0,0,.4), 0 16px 36px -18px rgba(0,0,0,.7);
+  --lift-float: 0 30px 80px -24px rgba(0,0,0,.8), 0 6px 16px rgba(0,0,0,.4);
+}
+html, body, html[data-theme='dark'] body { background: var(--paper); }
+html { font-family: var(--font-ui); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { letter-spacing: -0.006em; }
+::selection, html[data-theme='dark'] ::selection { background: rgba(66,122,161,.24); }
+
+/* ---- Studio rail: dark in both themes ---------------------------------- */
+.av-side, html[data-theme='dark'] .av-side { background: var(--stage); border-right: 1px solid rgba(255,255,255,.06); color: var(--stage-fg); }
+.av-side-brand { height: 64px; gap: 14px; padding: 0 16px 0 22px; border-bottom: 1px solid rgba(255,255,255,.06); }
+.av-side-logo { height: 28px; width: auto; }
+.av-side-brand .av-wordmark { padding-left: 14px; border-left: 1px solid rgba(255,255,255,.16); font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--stage-fg); }
+.av-side-brand .av-wordmark small { display: none; }
+.av-side .av-iconbtn, html[data-theme='dark'] .av-side .av-iconbtn { background-color: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); color: var(--stage-80); }
+.av-nav-sec { padding: 18px 12px 8px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: rgba(244,244,241,.4); }
+.av-nav { padding: 9px 12px; border-radius: 10px; font-size: 14px; font-weight: 500; color: rgba(244,244,241,.66); }
+.av-nav svg { color: rgba(244,244,241,.44); }
+.av-nav:hover { background-color: rgba(255,255,255,.05); color: rgba(244,244,241,.95); }
+.av-nav:hover svg { color: rgba(244,244,241,.78); }
+.av-nav[data-on='1'], html[data-theme='dark'] .av-nav[data-on='1'] { background-color: rgba(255,255,255,.08); color: #fff; box-shadow: inset 2px 0 0 var(--lamp-live); }
+.av-nav[data-on='1'] svg, html[data-theme='dark'] .av-nav[data-on='1'] svg { color: #fff; }
+.av-nav .ct { background: rgba(255,255,255,.07); color: rgba(244,244,241,.7); font-family: var(--font-mono); font-size: 11px; font-weight: 500; }
+.av-nav .ct.violet { background: rgba(155,122,224,.22); color: #D3C5F7; }
+.av-nav[data-on='1'] .ct { background: rgba(255,255,255,.12); color: #fff; }
+.av-nav-dot, .av-nav[data-on='1'] .av-nav-dot, html[data-theme='dark'] .av-nav-dot { background: var(--lamp-post); box-shadow: 0 0 0 2px var(--stage); }
+.av-nav-rule { background: rgba(255,255,255,.07); }
+.av-side-foot { border-top: 1px solid rgba(255,255,255,.06); font-family: var(--font-mono); font-size: 10.5px; line-height: 1.7; letter-spacing: .02em; color: rgba(244,244,241,.36); }
+.av-side ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); }
+.av-scrim { background: rgba(5,6,7,.55); }
+
+/* ---- Top bar ---------------------------------------------------------- */
+.av-top { height: 64px; background: rgba(242,243,245,.8); border-bottom: 1px solid var(--rule-soft); backdrop-filter: saturate(1.4) blur(16px); -webkit-backdrop-filter: saturate(1.4) blur(16px); }
+html[data-theme='dark'] .av-top { background: rgba(8,9,10,.74); }
+.av-search, html[data-theme='dark'] .av-search { height: 40px; padding: 0 6px 0 16px; border-radius: 999px; border-color: var(--rule); background-color: var(--card); font-size: 14px; }
+.av-search:hover, html[data-theme='dark'] .av-search:hover { border-color: var(--rule-strong); background-color: var(--card); }
+.av-kbd, html[data-theme='dark'] .av-kbd { padding: 0 8px; border-radius: 999px; border-color: var(--rule); background-color: var(--surface-2); box-shadow: none; font-family: var(--font-mono); font-size: 11px; }
+.av-sync { height: 36px; font-size: 13px; }
+.av-avatar, html[data-theme='dark'] .av-avatar { width: 36px; height: 36px; background: var(--ink); color: var(--paper); font-weight: 600; box-shadow: 0 0 0 2px var(--paper), 0 0 0 3px var(--rule); }
+
+/* ---- Controls ----------------------------------------------------------- */
+.av-btn, html[data-theme='dark'] .av-btn {
+  padding: 10px 18px; border-radius: 999px; background-color: var(--btn-primary); color: var(--btn-primary-fg);
+  font-size: 14px; font-weight: 500; letter-spacing: -0.005em;
+  box-shadow: 0 1px 2px rgba(11,12,14,.14), inset 0 1px 0 rgba(255,255,255,.08);
+  transition: background-color .2s var(--ease-state), transform .2s var(--ease-state);
+}
+.av-btn:hover, html[data-theme='dark'] .av-btn:hover { background-color: var(--btn-primary-hover); }
+.av-btn:active, .av-btn-ghost:active { transform: scale(.97); }
+.av-btn-ghost, html[data-theme='dark'] .av-btn-ghost { padding: 9px 16px; border-radius: 999px; background-color: var(--card); font-size: 14px; font-weight: 500; }
+.av-iconbtn { border-radius: 999px; }
+.av-fab { color: var(--btn-primary-fg); box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 12px 26px -10px rgba(0,0,0,.55); }
+.av-page input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),
+.av-page select, .av-page textarea { border-radius: 12px; }
+.av-page input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):focus,
+.av-page select:focus, .av-page textarea:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 3px rgba(66,122,161,.22); }
+.av-seg { gap: 2px; padding: 4px; border: 0; border-radius: 999px; background: var(--rule-soft); }
+.av-seg button { border-radius: 999px; }
+.av-seg button[data-on='1'] { background-color: var(--card); font-weight: 500; box-shadow: 0 1px 2px rgba(11,12,14,.08), 0 0 0 1px var(--rule); }
+.av-toggle { border-radius: 999px; }
+
+/* ---- Cards and type ----------------------------------------------------- */
+.av-card, .av-head, .av-strip, .av-kpi.flat, .av-tally-card, .av-run-list, .av-stat { border-radius: var(--r-card); border-color: var(--rule); box-shadow: var(--lift); }
+.av-strip:hover, .av-tally-card:hover { box-shadow: var(--lift-raise); }
+.av-lane { border-radius: var(--r-card); }
+.av-tcard { border-radius: 14px; }
+.av-tcard .av-btn, .av-lane .av-btn { padding: 8px 14px; font-size: 13.5px; }
+.av-h2, .av-sec-title { font-size: 22px; font-weight: 500; line-height: 1.25; letter-spacing: -0.025em; color: var(--ink); }
+.av-sec-p, .av-sec-sub { font-size: 14.5px; color: var(--ink-3); }
+.av-sec-h { font-size: 16px; font-weight: 600; letter-spacing: -0.015em; }
+.av-fig, .av-fig-sm { font-weight: 500; letter-spacing: -0.035em; }
+.av-kpi .v, .av-stat .v { font-weight: 500; letter-spacing: -0.035em; }
+.av-pill, .av-chip { font-weight: 500; }
+.av-title { letter-spacing: -0.015em; }
+.av-run-row .dd { font-family: var(--font-mono); font-size: 14px; }
+.av-count { background: var(--air); }
+
+/* Tinted panels become cards with an accent edge. */
+.av-page [class~="bg-purple-50"][class~="rounded-[16px]"],
+.av-page [class~="bg-amber-50"][class~="rounded-[16px]"] {
+  border-color: var(--rule); border-radius: var(--r-card); background-color: var(--card);
+  box-shadow: var(--lift), inset 3px 0 0 var(--edge, var(--triage));
+}
+.av-page [class~="bg-amber-50"][class~="rounded-[16px]"] { --edge: #D99A00; }
+.av-page [class~="bg-purple-50"][class~="rounded-[16px]"] [class~="border-purple-200"],
+.av-page [class~="bg-amber-50"][class~="rounded-[16px]"] [class~="border-amber-200"] { border-color: var(--rule-soft); border-radius: 12px; background-color: var(--surface-2); }
+.av-wait .av-label { color: var(--ink); }
+.av-wait .av-note { color: var(--ink-3); }
+html[data-theme='dark'] .av-wait .av-dot { color: #0B0C0E; }
+.av-step { border: 1px solid var(--rule-soft); border-radius: 14px; background: var(--surface-2); box-shadow: inset 0 2px 0 var(--c, var(--rule-strong)); }
+
+/* Crew today on Production: the faces live on the Stage, so these become channel strips. */
+.av-tally-card .pic { display: none; }
+.av-tally-card .lamp { height: 4px; }
+.av-tally-card .cap { padding: 18px 18px 12px; }
+.av-tally-card .nm { font-size: 18px; font-weight: 500; letter-spacing: -0.02em; }
+@media (max-width: 479px) { .av-tally-card { display: flex; } }
+
+/* ---- The Stage ---------------------------------------------------------- */
+.av-band.av-hero {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  min-height: 0; margin: 24px max(32px, calc((100% - 1400px) / 2)) 0; padding: 246px 40px 0;
+  border-radius: 28px; background: var(--stage); color: var(--stage-fg);
+  box-shadow: 0 40px 70px -48px rgba(11,12,14,.6);
+}
+html[data-theme='dark'] .av-band.av-hero { box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+.av-band.av-hero::before { display: none; }
+.av-band.av-hero::after {
+  content: ''; display: block; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  width: auto; height: auto; transform: none; border-radius: inherit; opacity: .07; mix-blend-mode: overlay;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.av-band > .av-stage-media { position: absolute; inset: 0 0 auto 0; height: 430px; z-index: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.av-stage-fig { position: relative; margin: 0; overflow: hidden; animation: avStageIn 1.6s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 70ms); }
+.av-stage-fig img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 0%;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 16%, #000 84%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 16%, #000 84%, transparent 100%);
+}
+.av-stage-fig::before { content: ''; position: absolute; z-index: 2; top: 0; left: 20%; right: 20%; height: 3px; border-radius: 0 0 3px 3px; }
+.av-stage-fig[data-s='live']::before { background: var(--lamp-live); box-shadow: 0 0 22px 3px rgba(255,69,58,.5); }
+.av-stage-fig[data-s='progress']::before { background: var(--lamp-post); box-shadow: 0 0 22px 3px rgba(255,191,31,.4); }
+.av-stage-fig .lamp {
+  position: absolute; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 11px 0 9px; white-space: nowrap;
+  border-radius: 999px; background: rgba(11,12,13,.46);
+  backdrop-filter: blur(12px) saturate(1.3); -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), inset 0 1px 0 rgba(255,255,255,.08);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: rgba(244,244,241,.9);
+  animation: avFadeIn .5s var(--ease-out) both; animation-delay: calc(.5s + var(--i, 0) * 80ms);
+}
+.av-stage-fig .lamp em { font-style: normal; color: rgba(244,244,241,.56); }
+.av-stage-fig .lamp i { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--lamp-off); }
+.av-stage-fig[data-s='live'] .lamp i { background: var(--lamp-live); box-shadow: 0 0 0 3px rgba(255,69,58,.2), 0 0 12px rgba(255,69,58,.8); }
+.av-stage-fig[data-s='progress'] .lamp i { background: var(--lamp-post); box-shadow: 0 0 0 3px rgba(255,191,31,.18), 0 0 12px rgba(255,191,31,.7); }
+.av-stage-fig[data-s='live'] .lamp em { color: #FF9A92; }
+.av-stage-fig[data-s='progress'] .lamp em { color: #FFD166; }
+.av-band > .av-stage-scrim {
+  position: absolute; inset: 0 0 auto 0; height: 430px; z-index: 1; pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(11,12,13,0) 0%, rgba(11,12,13,.04) 36%, rgba(11,12,13,.72) 62%, #0B0C0D 94%),
+    linear-gradient(90deg, rgba(11,12,13,.4) 0%, rgba(11,12,13,0) 42%);
+}
+.av-band > .av-stage-copy { position: relative; z-index: 2; width: 100%; max-width: none; margin: 0; }
+.av-stage-hud {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 16px;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: var(--stage-45);
+  animation: avBlurUp .8s var(--ease-out) both;
+}
+.av-stage-hud .air { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--stage-80); }
+.av-stage-hud .air::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .7; }
+.av-stage-hud .air[data-on='1'] { background: var(--air); color: #fff; }
+.av-stage-hud .air[data-on='1']::before { background: #fff; opacity: 1; }
+.av-stage-hud .tc { color: rgba(244,244,241,.88); font-variant-numeric: tabular-nums; }
+.av-band .av-hero-k { font-size: 15px; font-weight: 400; letter-spacing: -0.01em; color: var(--stage-60); animation: avBlurUp .8s .08s var(--ease-out) both; }
+.av-band .av-hero-k::before { display: none; }
+.av-band .av-hero-k .opacity-75 { display: none; }
+.av-band .av-hero-h {
+  margin-top: 8px; font-size: clamp(52px, 4vw + 18px, 84px); font-weight: 500; line-height: .95; letter-spacing: -0.045em;
+  color: var(--stage-fg); text-shadow: 0 16px 38px rgba(0,0,0,.35); animation: avBlurUp .8s .16s var(--ease-out) both;
+}
+.av-band .av-hero-p { margin-top: 14px; max-width: 34rem; font-size: 16px; line-height: 1.5; color: var(--stage-60); animation: avBlurUp .8s .24s var(--ease-out) both; }
+.av-band .av-stage-copy [class~="text-white/80"] { margin-top: 14px; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; color: var(--stage-45); animation: avBlurUp .8s .3s var(--ease-out) both; }
+.av-band .av-stage-cta { animation: avBlurUp .8s .36s var(--ease-out) both; }
+.av-band .av-hero-btn, html[data-theme='dark'] .av-band .av-hero-btn {
+  height: 40px; gap: 8px; padding: 0 18px; border: 0; border-radius: 999px;
+  background-color: rgba(255,255,255,.07); color: var(--stage-fg); font-size: 14px; font-weight: 500;
+  backdrop-filter: blur(12px) saturate(1.3); -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), inset 0 1px 0 rgba(255,255,255,.1);
+  transition: background-color .2s var(--ease-state), transform .2s var(--ease-state);
+}
+.av-band .av-hero-btn:hover { background-color: rgba(255,255,255,.14); color: #fff; }
+.av-band .av-hero-btn:active { transform: scale(.97); }
+.av-band .av-hero-btn svg { opacity: .7; }
+.av-band > .av-kpis {
+  position: relative; z-index: 2; max-width: none; margin: 28px 0 0; padding: 0; gap: 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--stage-line); animation: avFadeUp .8s .42s var(--ease-out) both;
+}
+.av-band > .av-kpis .av-kpi, html[data-theme='dark'] .av-band > .av-kpis .av-kpi {
+  align-items: flex-start; padding: 18px 22px 24px; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: var(--stage-fg);
+}
+.av-band > .av-kpis .av-kpi + .av-kpi { border-left: 1px solid var(--stage-line); }
+.av-band > .av-kpis .av-kpi:first-child { padding-left: 0; }
+.av-band > .av-kpis .av-kpi.link:hover { transform: none; background: rgba(255,255,255,.03); box-shadow: none; }
+.av-band > .av-kpis .av-kpi:focus-visible { outline: 2px solid rgba(255,255,255,.6); outline-offset: -2px; }
+.av-band > .av-kpis .av-kpi .l { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--stage-60); }
+.av-band > .av-kpis .av-kpi .v { margin-top: 6px; font-size: 36px; font-weight: 400; line-height: 1.05; letter-spacing: -0.03em; color: var(--stage-fg); }
+.av-band > .av-kpis .av-kpi .s { margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--stage-45); }
+.av-band > .av-kpis .av-kpi.link:hover .l { color: var(--stage-80); }
+.av-band.av-hero.slim { min-height: 0; padding: 40px 40px 36px; }
+
+/* Content enters per view; the stage copy replays via its key. */
+.av-page main[class~="max-w-[1400px]"] > * { animation: avFadeUp .6s var(--ease-out) both; }
+.av-page main[class~="max-w-[1400px]"] > :nth-child(2) { animation-delay: .05s; }
+.av-page main[class~="max-w-[1400px]"] > :nth-child(3) { animation-delay: .1s; }
+.av-page main[class~="max-w-[1400px]"] > :nth-child(4) { animation-delay: .15s; }
+.av-page main[class~="max-w-[1400px]"] > :nth-child(n+5) { animation-delay: .2s; }
+
+@keyframes avBlurUp { from { opacity: 0; transform: translateY(22px); filter: blur(10px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes avFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes avFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes avStageIn { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: none; } }
+
+/* ---- Mobile tab bar: dark glass, the open view on a red tally ------------ */
+.av-mobnav, html[data-theme='dark'] .av-mobnav {
+  background: rgba(11,12,13,.92); border-top: 1px solid rgba(255,255,255,.06);
+  box-shadow: 0 -12px 30px -20px rgba(0,0,0,.5);
+  backdrop-filter: blur(16px) saturate(1.3); -webkit-backdrop-filter: blur(16px) saturate(1.3);
+}
+.av-mobtab { position: relative; color: rgba(244,244,241,.6); }
+.av-mobtab[data-on='1'] { background: rgba(255,255,255,.08); color: #fff; font-weight: 500; }
+.av-mobtab[data-on='1']::before { content: ''; position: absolute; top: -6px; left: 30%; right: 30%; height: 2px; border-radius: 0 0 2px 2px; background: var(--lamp-live); }
+.av-mobtab .b, html[data-theme='dark'] .av-mobtab .b { box-shadow: 0 0 0 2px var(--stage); }
+
+/* ---- Responsive --------------------------------------------------------- */
+@media (max-width: 1279px) { .av-stage-fig .lamp em { display: none; } }
+@media (max-width: 1023px) {
+  .av-band.av-hero { min-height: 0; margin: 16px 16px 0; padding: 0 24px; border-radius: 24px; }
+  .av-band > .av-stage-media { position: relative; inset: auto; height: 300px; margin: 0 -24px; }
+  .av-band > .av-stage-scrim { inset: 0 0 auto 0; height: 300px; background: linear-gradient(180deg, rgba(11,12,13,0) 45%, #0B0C0D 100%); }
+  .av-band > .av-stage-copy { margin-top: -24px; }
+  .av-band .av-hero-h { font-size: 56px; }
+  .av-band > .av-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 24px; }
+  .av-band > .av-kpis .av-kpi:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .av-band > .av-kpis .av-kpi:nth-child(n+3) { border-top: 1px solid var(--stage-line); }
+  .av-band.av-hero.slim { padding: 28px 24px; }
+}
+@media (max-width: 639px) {
+  .av-band.av-hero { margin: 12px 12px 0; padding: 0 20px; border-radius: 22px; }
+  .av-band > .av-stage-media { height: 232px; margin: 0 -20px; }
+  .av-band > .av-stage-scrim { height: 232px; }
+  .av-band .av-hero-h { font-size: 44px; }
+  .av-band .av-hero-p { font-size: 15px; }
+  .av-stage-fig .lamp { top: 12px; height: 22px; gap: 6px; padding: 0 8px 0 7px; font-size: 10px; letter-spacing: .08em; }
+  .av-band > .av-kpis .av-kpi, html[data-theme='dark'] .av-band > .av-kpis .av-kpi { padding: 14px 14px 18px; }
+  .av-band > .av-kpis .av-kpi .v { font-size: 30px; }
+  .av-band > .av-kpis .av-kpi .s { white-space: normal; }
+  .av-band.av-hero.slim { padding: 24px 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .av-stage-fig, .av-stage-fig .lamp, .av-stage-hud, .av-band .av-hero-k, .av-band .av-hero-h, .av-band .av-hero-p,
+  .av-band .av-stage-copy [class~="text-white/80"], .av-band .av-stage-cta, .av-band > .av-kpis,
+  .av-page main[class~="max-w-[1400px]"] > * { animation: none; }
+}
+@media print { .av-band.av-hero { display: none; } }
 `;
