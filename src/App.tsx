@@ -447,6 +447,59 @@ async function loadLetterPage(file: File): Promise<LetterPage> {
   }
 }
 
+function isPdfFile(file: File): boolean {
+  return /^application\/pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+}
+
+/**
+ * PDF NA SULAT. Binubuksan dito sa browser (pdf.js, kinukuha lang kapag may PDF)
+ * at bawat pahina ay ginagawang JPG, kaya pareho pa rin ang dinadaanan: isang JPG
+ * sa Drive at sa email ng endorsement at approval. Walang binago sa backend.
+ */
+async function loadLetterPdf(file: File, maxPages: number): Promise<{ pages: LetterPage[]; total: number }> {
+  const [pdfjs] = await Promise.all([
+    import('pdfjs-dist/legacy/build/pdf.mjs'),
+    // Ang worker ay tumatakbo sa main thread: maliit lang ang sulat, at walang hiwalay na file na ise-serve.
+    import('pdfjs-dist/legacy/build/pdf.worker.mjs'),
+  ]);
+  const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  let doc: Awaited<typeof task.promise>;
+  try {
+    doc = await task.promise;
+  } catch (err) {
+    void task.destroy();
+    if ((err as { name?: string } | null)?.name === 'PasswordException') {
+      throw new Error(`“${file.name}” is password-protected. Save a copy without a password, then attach that.`);
+    }
+    throw new Error(`“${file.name}” could not be opened as a PDF. Export it again, or attach photos of the pages.`);
+  }
+  try {
+    const total = doc.numPages;
+    const pages: LetterPage[] = [];
+    const name = `${file.name.replace(/\.pdf$/i, '') || 'request-letter'}.jpg`;
+    for (let n = 1; n <= Math.min(total, maxPages); n++) {
+      const page = await doc.getPage(n);
+      const unit = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: Math.min(3, 1800 / (Math.max(unit.width, unit.height) || 1)) });
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(viewport.width));
+      c.height = Math.max(1, Math.round(viewport.height));
+      const ctx = c.getContext('2d');
+      if (!ctx) throw new Error('This browser cannot prepare images. Try Chrome or Safari.');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      await page.render({ canvas: c, canvasContext: ctx, viewport }).promise;
+      page.cleanup();
+      const blob = await canvasJpeg(c, 0.9);
+      if (!blob) throw new Error(`Page ${n} of “${file.name}” could not be prepared. Try attaching photos instead.`);
+      pages.push({ id: Math.random().toString(36).slice(2), data: await blobToBase64(blob), w: c.width, h: c.height, name });
+    }
+    return { pages, total };
+  } finally {
+    void task.destroy();
+  }
+}
+
 /** Pinagsasama ang mga pahina sa isang JPG na kasya sa limit ng server. */
 async function composeLetter(pages: LetterPage[]): Promise<{ data: string; name: string }> {
   const imgs = await Promise.all(pages.map((pg) => openImage(`data:image/jpeg;base64,${pg.data}`)));
@@ -1311,10 +1364,11 @@ const KPI_CSM_TARGET = 93;      // PM 2.2 — at least 93% Very Satisfactory or 
 const KPI_EXECUTION_TARGET = 100; // PM 2.1 — 100% of approved requests delivered
 
 /**
- * Mga araw na hindi working day — batay sa Proclamation No. 1006 (2026).
- * DAPAT KAPAREHO ito ng NON_WORKING sa AVNexus.gs. Kapag nagkaiba,
- * magkaibang TAT ang ipapakita ng dashboard at ng sheet.
- * PARA SA 2027: palitan ang buong listahan mula sa bagong proklamasyon.
+ * Mga araw na hindi working day — batay sa Proclamation No. 1006 (2026) at
+ * Proclamation No. 1427 (2027). DAPAT KAPAREHO ito ng NON_WORKING sa
+ * AVNexus.gs. Kapag nagkaiba, magkaibang TAT ang ipapakita ng dashboard at ng sheet.
+ * Idinadagdag ang bagong taon; hindi binubura ang luma, dahil may request na
+ * tumatawid ng taon (Disyembre → Enero).
  */
 const NON_WORKING_DAYS = new Set<string>([
   // ---- Regular holidays ----
@@ -1341,6 +1395,30 @@ const NON_WORKING_DAYS = new Set<string>([
   '2026-12-24', // Christmas Eve (Thu)
   '2026-12-31', // Last Day of the Year (Thu)
   // TANDAAN: ang Feb 25 (EDSA) ay special WORKING day sa 2026 — hindi holiday.
+
+  // ==== 2027 — Proclamation No. 1427 ====
+  // ---- Regular holidays ----
+  '2027-01-01', // New Year's Day (Fri)
+  '2027-03-25', // Maundy Thursday
+  '2027-03-26', // Good Friday
+  '2027-04-09', // Araw ng Kagitingan (Fri)
+  '2027-05-01', // Labor Day (Sat)
+  '2027-06-12', // Independence Day (Sat)
+  '2027-08-30', // National Heroes Day (last Mon of August)
+  '2027-11-30', // Bonifacio Day (Tue)
+  '2027-12-25', // Christmas Day (Sat)
+  '2027-12-30', // Rizal Day (Thu)
+  // ---- Islamic regular holidays: wala pa — hiwalay na proklamasyon. Idagdag kapag inilabas. ----
+  // ---- Special (non-working) days ----
+  '2027-02-06', // Chinese New Year (Sat)
+  '2027-03-27', // Black Saturday
+  '2027-08-21', // Ninoy Aquino Day (Sat)
+  '2027-11-01', // All Saints' Day (Mon)
+  '2027-11-02', // All Souls' Day (Tue)
+  '2027-12-08', // Immaculate Conception (Wed)
+  '2027-12-24', // Christmas Eve (Fri)
+  '2027-12-31', // Last Day of the Year (Fri)
+  // TANDAAN: ang Feb 25, 2027 (EDSA) ay special WORKING day — hindi holiday.
 ]);
 
 /** Pangalan ng bawat araw sa itaas — pang-ipakita lang sa deployment calendar. */
@@ -1365,6 +1443,24 @@ const HOLIDAY_NAMES: Record<string, string> = {
   '2026-12-25': 'Christmas Day',
   '2026-12-30': 'Rizal Day',
   '2026-12-31': 'Last Day of the Year',
+  '2027-01-01': "New Year's Day",
+  '2027-02-06': 'Chinese New Year',
+  '2027-03-25': 'Maundy Thursday',
+  '2027-03-26': 'Good Friday',
+  '2027-03-27': 'Black Saturday',
+  '2027-04-09': 'Araw ng Kagitingan',
+  '2027-05-01': 'Labor Day',
+  '2027-06-12': 'Independence Day',
+  '2027-08-21': 'Ninoy Aquino Day',
+  '2027-08-30': 'National Heroes Day',
+  '2027-11-01': "All Saints' Day",
+  '2027-11-02': "All Souls' Day",
+  '2027-11-30': 'Bonifacio Day',
+  '2027-12-08': 'Immaculate Conception',
+  '2027-12-24': 'Christmas Eve',
+  '2027-12-25': 'Christmas Day',
+  '2027-12-30': 'Rizal Day',
+  '2027-12-31': 'Last Day of the Year',
 };
 
 function isWorkingDay(d: Date): boolean {
@@ -1384,6 +1480,15 @@ function addWorkingDays(start: Date, n: number): Date {
     if (isWorkingDay(d)) added++;
   }
   return d;
+}
+
+/**
+ * Sa o bago ang araw ng target? Petsa lang ang tinitingnan, hindi oras: ang
+ * naihatid nang alas-2 ng hapon sa mismong due date ay ON TIME. (Dati, ang
+ * oras ng pag-click ay ikinukumpara sa hatinggabi ng target, kaya OVERDUE.)
+ */
+function onOrBeforeDay(a: Date, b: Date): boolean {
+  return dayKey(a) <= dayKey(b);
 }
 
 /** Bilang ng working days mula `from` (exclusive) hanggang `to` (inclusive). */
@@ -1490,7 +1595,7 @@ function slaState(r: ServiceRequest): SLAState {
   if (!target) return 'na';
 
   if (r.dateDelivered) {
-    return r.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'overdue';
+    return onOrBeforeDay(r.dateDelivered, target) ? 'ontime' : 'overdue';
   }
   const left = daysToTarget(r);
   if (left === null) return 'open';
@@ -1948,7 +2053,11 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
     statusRaw: ev.approvalRaw,
     reason: ev.reason,
     dateApproved: ev.dateApproved,
-    targetDate: ev.targetDate,
+    // Ang parehong target ng event card (mula sa huling araw ng event kapag
+    // advance booking). Dati, ang nakasulat lang na target ang ipinapasa, kaya
+    // binibilang ng Compliance ang target mula sa pagtanggap: OVERDUE agad ang
+    // advance booking, at "due" na ang event na hindi pa nangyayari.
+    targetDate: eventTarget(ev),
     // Binibilang lang ang petsa kapag Done na ang delivery step.
     dateDelivered: isDelivered(ev) ? ev.dateDelivered : null,
     csm: ev.csm,
@@ -2192,7 +2301,7 @@ function eventSLA(ev: AVEvent): SLAState {
   const target = eventTarget(ev);
   if (!target) return 'na';
   if (ev.dateDelivered && isDelivered(ev)) {
-    return ev.dateDelivered.getTime() <= target.getTime() ? 'ontime' : 'overdue';
+    return onOrBeforeDay(ev.dateDelivered, target) ? 'ontime' : 'overdue';
   }
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -2321,7 +2430,7 @@ function fmtRuntime(total: number): string {
 
 function deliveredOnTime(o: Output): boolean | null {
   if (!o.delivered || !o.target) return null;
-  return o.delivered.getTime() <= o.target.getTime();
+  return onOrBeforeDay(o.delivered, o.target);
 }
 
 function isOverdue(o: Output): boolean {
@@ -5895,9 +6004,21 @@ seed?.pipeline ?? {
       setLetterBusy(true);
       try {
         const add: LetterPage[] = [];
-        for (const file of list.slice(0, room)) add.push(await loadLetterPage(file));
+        let leftOut = false;
+        for (const file of list) {
+          const left = room - add.length;
+          if (left <= 0) {
+            leftOut = true;
+            break;
+          }
+          if (isPdfFile(file)) {
+            const pdf = await loadLetterPdf(file, left);
+            add.push(...pdf.pages);
+            if (pdf.total > pdf.pages.length) leftOut = true;
+          } else add.push(await loadLetterPage(file));
+        }
         setPages((cur) => [...cur, ...add].slice(0, MAX_LETTER_PAGES));
-        if (list.length > room) setLetterErr(`Only ${MAX_LETTER_PAGES} pages can be attached — the rest were left out.`);
+        if (leftOut) setLetterErr(`Only ${MAX_LETTER_PAGES} pages can be attached — the rest were left out.`);
       } catch (err) {
         setLetterErr(netMessage(err));
         setLetterBusy(false);
@@ -6338,7 +6459,7 @@ seed?.pipeline ?? {
             <div className="md:col-span-2">
               <label className={lab}>
                 Request letter{' '}
-                <span className="av-dim">— a photo of each page, up to {MAX_LETTER_PAGES} pages</span>
+                <span className="av-dim">— a PDF, or a photo of each page, up to {MAX_LETTER_PAGES} pages</span>
               </label>
               {pages.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-3">
@@ -6382,13 +6503,13 @@ seed?.pipeline ?? {
                       ref={letterInput}
                       type="file"
                       multiple
-                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+                      accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
                       disabled={readOnly || approvalOnly || frozen || letterBusy}
                       onChange={(e) => addPages(e.target.files)}
                       className="sr-only"
                     />
                     <Icon name="plus" size={15} stroke={2.2} />
-                    {pages.length ? 'Add another page' : 'Attach letter photos'}
+                    {pages.length ? 'Add another page' : 'Attach the letter (PDF or photos)'}
                   </label>
                 )}
                 {letterBusy && <span className="av-chip">Preparing the letter… wait before saving</span>}
@@ -7565,7 +7686,8 @@ function strictDate(v: string): string | null {
   if (!t) return '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
   const d = parseDate(t);
-  return d ? dayKey(d) : null;
+  // Ang 2026-02-30 ay nagiging Marso 2 sa Date; tanggihan sa halip na ilipat nang tahimik.
+  return d && dayKey(d) === t ? t : null;
 }
 
 function splitMulti(v: string): string[] {
@@ -9042,7 +9164,7 @@ function tallySQD(rows: CSMResponse[], idx: number[]): CSMTally {
     })
   );
   const rated = t.total - t.na;
-  t.score = rated > 0 ? ((t.sa + t.a) / rated) * 100 : null;
+  t.score = rated > 0 ? ((t.sa + t.a) * 100) / rated : null;
   return t;
 }
 
@@ -9073,7 +9195,8 @@ function csmSatisfied(r: CSMResponse): boolean | null {
 
 /** Porsiyento, pababa sa isang decimal — hindi kailanman lumalabis. */
 function pctDown(x: number | null): string {
-  return x === null ? '—' : `${(Math.floor(x * 10) / 10).toFixed(1)}%`;
+  // Ang maliit na palugit ay para sa 28.999999… ng floating point, na dapat 29.0.
+  return x === null ? '—' : `${(Math.floor(x * 10 + 1e-9) / 10).toFixed(1)}%`;
 }
 
 /* ------------------------------------------------------------- PERIOD -- */
@@ -9380,7 +9503,7 @@ function CSMPanel({ rows, served, state }: { rows: CSMResponse[]; served: number
         <div>
           <p className="av-stat-l">Satisfied clients</p>
           <p className="av-fig mt-2">
-            {verdicts.length ? pctDown((happy / verdicts.length) * 100) : '—'}
+            {verdicts.length ? pctDown((happy * 100) / verdicts.length) : '—'}
           </p>
           <p className="av-stat-s">
             {happy} of {verdicts.length} agreed they were satisfied (SQD0)
@@ -12156,7 +12279,11 @@ function AccomplishmentsView({ rows, now }: { rows: AccRow[]; now: Date }) {
             {served}
             <small> of {req}</small>
           </span>
-          <span className="s">Every request dated Jan to {through}</span>
+          <span className="s">
+            Every request dated Jan to {through}
+            {sumTo(rep.declined, upto) + sumTo(rep.excluded, upto) > 0 &&
+              `, including ${sumTo(rep.declined, upto)} declined and ${sumTo(rep.excluded, upto)} cancelled or moved`}
+          </span>
         </div>
       </div>
 
@@ -15043,11 +15170,11 @@ function AppMain() {
     return {
       excluded,
       // Pababa ang pag-round: hindi kailanman ipapakitang pasado ang hindi pa.
-      execution: due ? Math.floor((delivered.length / due) * 100) : null,
+      execution: due ? Math.floor((delivered.length * 100) / due) : null,
       approvedTotal: due,
       deliveredTotal: delivered.length,
       notYetDue,
-      csm: csmRated ? Math.floor((csmPassing / csmRated) * 100) : null,
+      csm: csmRated ? Math.floor((csmPassing * 100) / csmRated) : null,
       rated: csmRated,
       csmPassing,
       csmSource: fromForms ? ('form' as const) : ('manual' as const),
