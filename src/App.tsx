@@ -1,4 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  REPORT_LINES,
+  TARGETS_2026,
+  ACTUAL_2025,
+  monthlyReport,
+  reportLinesOf,
+  sum as sumTo,
+  type AccRow,
+} from './features/accomplishments';
 
 /* ============================================================================
    AV NEXUS — Broadcast & Digital Media Section (DOST-STII)
@@ -1035,10 +1044,10 @@ interface OfficialInfo {
 }
 
 const DEFAULT_TEAM: TeamMember[] = [
-  { name: 'Xyrus', image: '/AVNXT-2.jpg' },
-  { name: 'Marx', image: '/AVNXT-3.jpg' },
-  { name: 'Reiner', image: '/AVNXT-4.jpg' },
-  { name: 'Pat', image: '/AVNXT.jpg' },
+  { name: 'Xyrus', image: '/crew/xyrus-640.webp' },
+  { name: 'Marx', image: '/crew/marx-640.webp' },
+  { name: 'Reiner', image: '/crew/reiner-640.webp' },
+  { name: 'Pat', image: '/crew/pat-640.webp' },
 ];
 
 const DEFAULT_OFFICIAL: Record<string, OfficialInfo> = {
@@ -2466,10 +2475,16 @@ function greetingFor(d: Date): string {
 type IconName =
   | 'events' | 'production' | 'archive' | 'compliance' | 'register' | 'reports'
   | 'services' | 'gatepass' | 'search' | 'plus' | 'kiosk' | 'print' | 'output'
-  | 'triage' | 'refresh' | 'logout' | 'close' | 'sheet' | 'menu' | 'sun' | 'moon';
+  | 'triage' | 'refresh' | 'logout' | 'close' | 'sheet' | 'menu' | 'sun' | 'moon' | 'chart';
 
 /** Stroke icons sa 24-unit grid. Iginuhit dito para walang bagong dependency. */
 const ICON_PATHS: Record<IconName, React.ReactNode> = {
+  chart: (
+    <>
+      <path d="M3.5 20.5h17" />
+      <path d="M6.5 16.5V12M11 16.5V7.5M15.5 16.5v-6M20 16.5V5" />
+    </>
+  ),
   events: (
     <>
       <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
@@ -3171,38 +3186,44 @@ function SignInGate({
   const wide = !!error || (health && health.problems.length > 0);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-      <div
-        className={`w-full rounded-xl border border-slate-200 bg-white p-8 shadow-sm ${
-          wide ? 'max-w-xl' : 'max-w-sm'
-        }`}
-      >
-        <img src="/stii.png" alt="DOST-STII" className="mb-6 h-8 w-auto" />
-        <h1 className="text-[17px] font-semibold tracking-tight text-slate-800">AV Nexus</h1>
-        <p className="mt-1 text-[12px] text-slate-900">Broadcast &amp; Digital Media Section</p>
-
-        <p className="mt-6 text-[13px] leading-relaxed text-slate-500">
-          Sign in with your DOST-STII Google account to continue. Records can only be
-          edited by the person who created them.
+    <div className="av-signin">
+      <picture className="av-signin-bg" aria-hidden="true">
+        <source media="(max-width: 767px)" srcSet="/signin-1100.webp" />
+        <img src="/signin-2000.webp" alt="" />
+      </picture>
+      <div className="av-signin-scrim" aria-hidden="true" />
+      <header className="av-signin-top">
+        <img src="/stii.png" alt="DOST-STII" />
+        <span>AV Nexus</span>
+      </header>
+      <main className={`av-signin-copy ${wide ? 'wide' : ''}`}>
+        <p className="k">DOST-STII · Broadcast and Digital Media Section</p>
+        <h1>
+          One request.
+          <br />
+          <span>One record.</span>
+        </h1>
+        <p className="sub">
+          Requests, crew, delivery and DMC transfer for the AV team, from the request form to the archive.
+        </p>
+        <p className="note">
+          Sign in with your DOST-STII Google account. Records can only be edited by the person who
+          created them.
         </p>
 
-        <div ref={onMount} className="mt-6 flex justify-center" />
+        <div ref={onMount} className="av-signin-btn" />
 
-        {!ready && !failed && (
-          <p className="mt-4 text-center text-[12px] text-slate-400">Loading sign-in…</p>
-        )}
+        {!ready && !failed && <p className="av-signin-msg">Loading sign-in…</p>}
         {failed && (
-          <div className="mt-4 text-center">
-            <p className="text-[12px] text-slate-500">
-              Google sign-in could not load. Check the connection, then try again.
-            </p>
-            <button type="button" onClick={onReload} className="av-btn-ghost mt-2">
+          <div className="av-signin-msg">
+            <p>Google sign-in could not load. Check the connection, then try again.</p>
+            <button type="button" onClick={onReload} className="av-btn-ghost mt-3">
               Try again
             </button>
           </div>
         )}
         {isStandalone() && (
-          <p className="mt-4 text-center text-[12px] leading-relaxed text-slate-500">
+          <p className="av-signin-msg">
             Opened as a home-screen app, which keeps its own sign-in, separate from the browser. On
             iPhone, if Google sign-in does not finish here, delete this shortcut and add it again
             from Safari with “Open as Web App” turned off.
@@ -3250,7 +3271,7 @@ function SignInGate({
             </button>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }
@@ -8713,7 +8734,7 @@ function PersonnelDrawer({
 
 type ViewKey =
   | 'portfolio' | 'events' | 'gatepass' | 'pulse'
-  | 'requests' | 'production' | 'compliance' | 'reports';
+  | 'requests' | 'production' | 'compliance' | 'reports' | 'accomplishments';
 
 const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'portfolio',  label: 'Services',   hint: 'Public-facing AV services page' },
@@ -8722,6 +8743,7 @@ const VIEWS: { key: ViewKey; label: string; hint: string }[] = [
   { key: 'production', label: 'Production', hint: 'Crew tasks from the events, from assignment to DMC' },
   { key: 'pulse',      label: 'Archive',    hint: 'DMC archive, team and source sheets' },
   { key: 'compliance', label: 'Compliance', hint: 'Audit Items 40, 41 and 44' },
+  { key: 'accomplishments', label: 'Accomplishments', hint: 'Monthly AV services against target' },
   { key: 'reports',    label: 'Reports',    hint: 'IPCR and MOV generator' },
   { key: 'requests',   label: 'Register',   hint: 'Legacy request register' },
 ];
@@ -11804,6 +11826,515 @@ function SyncPanel({
   );
 }
 
+/* ============================================================ v7 · TALLY ==
+   Bagong layer ng itsura (v7). Pang-display lamang: lahat ng numero ay galing
+   sa umiiral na helpers (dayLoads, buildTasks, isDelivered …). */
+
+type TallyState = 'live' | 'progress' | 'off';
+
+interface TallyItem {
+  name: string;
+  image: string;
+  rank: string;
+  state: TallyState;
+  onSite: AVEvent[];
+  open: number;
+  working: number;
+  overdue: number;
+}
+
+function TallyWall({
+  items,
+  picked,
+  onPick,
+}: {
+  items: TallyItem[];
+  picked: string;
+  onPick: (name: string) => void;
+}) {
+  return (
+    <section className="av-tally-wrap no-print" aria-label="Crew today">
+      <div className="av-sec-row">
+        <div>
+          <h2 className="av-sec-title">Crew today</h2>
+          <p className="av-tally-legend">
+            <span><i data-s="live" />On site today</span>
+            <span><i data-s="progress" />In progress</span>
+            <span><i data-s="off" />Available</span>
+          </p>
+        </div>
+        {picked !== 'ALL' && (
+          <button type="button" className="av-btn-ghost" onClick={() => onPick('ALL')}>
+            Show everyone
+          </button>
+        )}
+      </div>
+      <div className="av-tally">
+        {items.map((t) => {
+          const first = t.onSite[0];
+          const line =
+            t.state === 'live'
+              ? `On site · ${first?.title || ''}${t.onSite.length > 1 ? ` +${t.onSite.length - 1}` : ''}`
+              : t.state === 'progress'
+              ? `In progress · ${t.working} task${t.working === 1 ? '' : 's'}`
+              : t.open
+              ? `Available · ${t.open} assigned`
+              : 'Available';
+          const on = picked === t.name;
+          return (
+            <button
+              key={t.name}
+              type="button"
+              className="av-tally-card"
+              data-s={t.state}
+              data-on={on ? '1' : '0'}
+              aria-pressed={on}
+              title={on ? 'Show everyone on the board' : `Show only ${t.name}'s tasks on the board`}
+              onClick={() => onPick(on ? 'ALL' : t.name)}
+            >
+              <span className="lamp" aria-hidden="true" />
+              <span className="pic">
+                {t.image ? (
+                  <img src={t.image} alt="" loading="lazy" decoding="async" />
+                ) : (
+                  <span className="ini">{t.name.slice(0, 2)}</span>
+                )}
+                {t.state !== 'off' && <span className="tag">{t.state === 'live' ? 'On site' : 'In progress'}</span>}
+              </span>
+              <span className="cap">
+                <span className="nm">{t.name}</span>
+                <span className="rk">{t.rank}</span>
+                <span className="st">{line}</span>
+              </span>
+              <span className="ctr">
+                <span><b>{t.onSite.length}</b>Today</span>
+                <span><b>{t.open}</b>Open</span>
+                <span data-alert={t.overdue > 0 ? '1' : '0'}><b>{t.overdue}</b>Overdue</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** Small square face crop for the built-in crew photos; any other photo is used as is. */
+function avatarSrc(src?: string): string | undefined {
+  return src && /^\/crew\/[a-z]+-640\.webp$/.test(src) ? src.replace('-640.webp', '-av.webp') : src;
+}
+
+interface RundownRow {
+  ev: AVEvent;
+  day: Date;
+  dayN: number;
+  dayOf: number;
+  tentative: boolean;
+  crew: string[];
+  unstaffed: boolean;
+  clash: boolean;
+}
+
+function Rundown({
+  rows,
+  today,
+  stateOf,
+  onOpen,
+  onCalendar,
+}: {
+  rows: RundownRow[];
+  today: Date;
+  stateOf: (name: string) => TallyState;
+  onOpen: (ev: AVEvent) => void;
+  onCalendar: () => void;
+}) {
+  const todayKey = dayKey(today);
+  const onAir = rows.filter((r) => dayKey(r.day) === todayKey && !r.tentative).length;
+  return (
+    <section className="av-run no-print" aria-label="Rundown">
+      <div className="av-sec-row">
+        <div>
+          <h2 className="av-sec-title">
+            {onAir ? (
+              <>
+                On air today <span className="av-count">{onAir}</span>
+              </>
+            ) : (
+              'Nothing on air today'
+            )}
+          </h2>
+          <p className="av-sec-sub">Deployments today and the next six days</p>
+        </div>
+        <button type="button" className="av-btn-ghost" onClick={onCalendar}>
+          Deployment calendar
+        </button>
+      </div>
+      {rows.length === 0 ? (
+        <p className="av-run-empty">No deployments in the next seven days.</p>
+      ) : (
+        <ol className="av-run-list">
+          {rows.slice(0, 6).map((r) => {
+            const isToday = dayKey(r.day) === todayKey;
+            const meta = APPROVAL_META[r.ev.approval];
+            return (
+              <li key={`${r.ev.id}-${dayKey(r.day)}`}>
+                <button
+                  type="button"
+                  className="av-run-row"
+                  data-today={isToday ? '1' : '0'}
+                  data-tent={r.tentative ? '1' : '0'}
+                  onClick={() => onOpen(r.ev)}
+                >
+                  <span className="day">
+                    <span className="dw">
+                      {isToday ? 'Today' : r.day.toLocaleDateString('en-PH', { weekday: 'short' })}
+                    </span>
+                    <span className="dd">
+                      {r.day.toLocaleDateString('en-PH', { day: '2-digit', month: 'short' }).toUpperCase()}
+                    </span>
+                    {r.dayOf > 1 && (
+                      <span className="dn">
+                        Day {r.dayN} of {r.dayOf}
+                      </span>
+                    )}
+                  </span>
+                  <span className="main">
+                    <span className="t">{r.ev.title}</span>
+                    <span className="m">{[r.ev.client, r.ev.venue].filter(Boolean).join(' · ')}</span>
+                  </span>
+                  <span className="crew">
+                    {r.crew.slice(0, 4).map((n) => {
+                      const tm = TEAM.find((x) => x.name === n);
+                      return (
+                        <span key={n} className="av-run-av" title={n} data-s={stateOf(n)}>
+                          {tm?.image ? <img src={avatarSrc(tm.image)} alt="" /> : <span>{n.slice(0, 2)}</span>}
+                        </span>
+                      );
+                    })}
+                    {r.unstaffed && <span className="av-flag refused">Unstaffed</span>}
+                  </span>
+                  <span className="st">
+                    {r.tentative ? (
+                      <span className="av-flag">Tentative</span>
+                    ) : (
+                      <span className={`av-pill sm ${meta.chip}`}>{meta.label}</span>
+                    )}
+                    {r.clash && (
+                      <span className="av-flag waiting" title="Someone on this crew has another event this day">
+                        Clash
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+          {rows.length > 6 && (
+            <li>
+              <button type="button" className="av-run-more" onClick={onCalendar}>
+                {rows.length - 6} more this week · open the deployment calendar
+              </button>
+            </li>
+          )}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function csvCell(v: string | number): string {
+  const s = String(v ?? '');
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCSV(name: string, rows: (string | number)[][]) {
+  const text = '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8;' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function AccomplishmentsView({ rows, now }: { rows: AccRow[]; now: Date }) {
+  const year = now.getFullYear();
+  const [withCurrent, setWithCurrent] = useState(false);
+  const rep = useMemo(() => monthlyReport(rows, year), [rows, year]);
+  const targets = year === 2026 ? TARGETS_2026 : null;
+  const upto = Math.min(12, Math.max(1, now.getMonth() + (withCurrent ? 1 : 0)));
+  const delivered = sumTo(rep.delivered, upto);
+  const target = targets ? sumTo(targets, upto) : 0;
+  const last = year === 2026 ? sumTo(ACTUAL_2025, upto) : 0;
+  const pct = target ? Math.round((delivered / target) * 100) : null;
+  const tone = pct === null ? '' : pct >= 100 ? 'served' : pct >= 90 ? 'waiting' : 'refused';
+  const req = sumTo(rep.requests, upto);
+  const served = sumTo(rep.served, upto);
+  const through = MONTH_ABBR[upto - 1];
+  const max = Math.max(10, ...rep.delivered, ...(targets || []), ...(year === 2026 ? ACTUAL_2025 : []));
+  const top = Math.ceil(max / 10) * 10;
+
+  const exportYear = () => {
+    const head = [
+      'Month', 'No.', 'Agency/Office/Organization Name', 'Event Name', 'Inclusive Dates',
+      ...REPORT_LINES.map((l) => `${l.key}. ${l.label}`), 'Overall Total per request',
+    ];
+    const out: (string | number)[][] = [head];
+    const done = rows
+      .filter((r) => r.delivered && r.date && r.date.getFullYear() === year)
+      .sort((a, b) => a.date!.getTime() - b.date!.getTime());
+    const n: Record<number, number> = {};
+    done.forEach((r) => {
+      const m = r.date!.getMonth();
+      n[m] = (n[m] || 0) + 1;
+      const lines = reportLinesOf(r);
+      const dates =
+        r.end && dayKey(r.end) !== dayKey(r.date!) ? `${dayKey(r.date!)} to ${dayKey(r.end)}` : dayKey(r.date!);
+      out.push([
+        MONTH_ABBR[m], n[m], r.client || '', r.title || '', dates,
+        ...REPORT_LINES.map((l) => (lines.includes(l.key) ? 'TRUE' : 'FALSE')), lines.length,
+      ]);
+    });
+    downloadCSV(`AV accomplishments ${year}.csv`, out);
+    downloadCSV(`AV accomplishments ${year} summary.csv`, [
+      ['Month', 'Services delivered', `${year} target`, `${year - 1}`],
+      ...MONTH_ABBR.map((m, i) => [m, rep.delivered[i], targets ? targets[i] : '', year === 2026 ? ACTUAL_2025[i] : '']),
+    ]);
+  };
+
+  return (
+    <div className="av-acc">
+      <div className="av-sec-row no-print">
+        <div>
+          <h2 className="av-sec-title">Services delivered, {year}</h2>
+          <p className="av-sec-sub">
+            Counted the same way as the monthly AV report: one tick per report line per delivered event.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="av-toggle">
+            <input type="checkbox" checked={withCurrent} onChange={(e) => setWithCurrent(e.target.checked)} />
+            Include {MONTH_ABBR[now.getMonth()]} so far
+          </label>
+          <button type="button" className="av-btn-ghost" onClick={exportYear}>
+            Export (Excel layout)
+          </button>
+          <button type="button" className="av-btn-ghost" onClick={() => window.print()}>
+            Print
+          </button>
+        </div>
+      </div>
+
+      <div className="av-acc-kpis">
+        <div className="av-stat">
+          <span className="l">Services delivered</span>
+          <span className="v">{delivered}</span>
+          <span className="s">
+            Jan to {through}
+            {targets ? ` · target to date ${target}` : ''}
+          </span>
+        </div>
+        <div className="av-stat" data-tone={tone}>
+          <span className="l">Against target</span>
+          <span className="v">{pct === null ? '—' : `${pct}%`}</span>
+          <span className="s">{pct === null ? 'No target set for this year' : `${delivered} of ${target}`}</span>
+        </div>
+        <div className="av-stat">
+          <span className="l">Same months in {year - 1}</span>
+          <span className="v">{last || '—'}</span>
+          <span className="s">
+            {last ? `${delivered - last >= 0 ? '+' : ''}${delivered - last} this year` : 'No figures for that year'}
+          </span>
+        </div>
+        <div className="av-stat">
+          <span className="l">Requests served</span>
+          <span className="v">
+            {served}
+            <small> of {req}</small>
+          </span>
+          <span className="s">Every request dated Jan to {through}</span>
+        </div>
+      </div>
+
+      <figure className="av-card av-acc-chart">
+        <figcaption>
+          <span className="t">Services per month</span>
+          <span className="lg">
+            <span><i className="b" />Delivered</span>
+            {targets && <span><i className="t" />Target</span>}
+            {year === 2026 && <span><i className="p" />{year - 1}</span>}
+          </span>
+        </figcaption>
+        <svg
+          viewBox="0 0 1200 300"
+          role="img"
+          aria-label={`Services delivered per month in ${year}. ${delivered} delivered from January to ${through}${
+            targets ? ` against a target of ${target}` : ''
+          }.`}
+        >
+          {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+            <g key={f}>
+              <line x1="44" x2="1192" y1={262 - f * 230} y2={262 - f * 230} className="grid" />
+              <text x="36" y={266 - f * 230} className="ax" textAnchor="end">
+                {Math.round(top * f)}
+              </text>
+            </g>
+          ))}
+          {MONTH_ABBR.map((m, i) => {
+            const x = 52 + i * 95.5;
+            const h = (v: number) => (v / top) * 230;
+            const d = rep.delivered[i];
+            const future = i >= upto;
+            return (
+              <g key={m}>
+                {year === 2026 && (
+                  <rect x={x + 58} y={262 - h(ACTUAL_2025[i])} width="8" height={h(ACTUAL_2025[i])} className="prev" rx="2" />
+                )}
+                <rect x={x + 8} y={262 - h(d)} width="46" height={h(d)} className={future ? 'bar future' : 'bar'} rx="4" />
+                {d > 0 && (
+                  <text x={x + 31} y={252 - h(d)} className="val" textAnchor="middle">
+                    {d}
+                  </text>
+                )}
+                {targets && (
+                  <line x1={x + 2} x2={x + 60} y1={262 - h(targets[i])} y2={262 - h(targets[i])} className="tgt" />
+                )}
+                <text x={x + 35} y="292" className="ax" textAnchor="middle">
+                  {m}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </figure>
+
+      <div className="av-card av-acc-table">
+        <div className="av-acc-th">Services by report line</div>
+        <div className="av-acc-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Report line</th>
+                {MONTH_ABBR.map((m) => (
+                  <th key={m}>{m}</th>
+                ))}
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {REPORT_LINES.map((l) => {
+                const row = rep.lines[l.key];
+                return (
+                  <tr key={l.key}>
+                    <td>
+                      <b>{l.key}.</b> {l.label}
+                    </td>
+                    {row.map((v, i) => (
+                      <td key={i} className={v ? '' : 'z'}>
+                        {v || '–'}
+                      </td>
+                    ))}
+                    <td className="tot">{sumTo(row) || '–'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td>Total services</td>
+                {rep.delivered.map((v, i) => (
+                  <td key={i}>{v || '–'}</td>
+                ))}
+                <td className="tot">{sumTo(rep.delivered)}</td>
+              </tr>
+              {targets && (
+                <tr className="sub">
+                  <td>{year} target</td>
+                  {targets.map((v, i) => (
+                    <td key={i}>{v}</td>
+                  ))}
+                  <td className="tot">{sumTo(targets)}</td>
+                </tr>
+              )}
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div className="av-card av-acc-table">
+        <div className="av-acc-th">Requests and results</div>
+        <div className="av-acc-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>By event month</th>
+                {MONTH_ABBR.map((m) => (
+                  <th key={m}>{m}</th>
+                ))}
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(
+                [
+                  ['Requests', rep.requests],
+                  ['Served', rep.served],
+                  ['Not served (declined)', rep.declined],
+                  ['Excluded (cancelled or moved)', rep.excluded],
+                ] as [string, number[]][]
+              ).map(([label, row]) => (
+                <tr key={label}>
+                  <td>{label}</td>
+                  {row.map((v, i) => (
+                    <td key={i} className={v ? '' : 'z'}>
+                      {v || '–'}
+                    </td>
+                  ))}
+                  <td className="tot">{sumTo(row) || '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Admin lamang: ang mga lumang event mula sa Excel na Approved pero hindi pa Delivered. */
+function BackfillCard({ count, onRun, busy }: { count: number; onRun: () => void; busy: boolean }) {
+  if (!count) return null;
+  return (
+    <div className="av-card av-backfill no-print">
+      <div>
+        <p className="t">
+          {count} past event{count === 1 ? '' : 's'} from the Excel {count === 1 ? 'is' : 'are'} approved but not
+          marked delivered
+        </p>
+        <p className="s">
+          Marks each one delivered without a delivery date, so none of them shows as late. Only events whose Remarks
+          start with “Backfill BASIS_FOR_NEXUS.xlsx” are touched.
+        </p>
+      </div>
+      <button type="button" className="av-btn" disabled={busy} onClick={onRun}>
+        {busy ? 'Queued' : `Mark ${count} delivered`}
+      </button>
+    </div>
+  );
+}
+
+/** Ano ang nakikita ng bawat role sa nav. Ang can() at ang server pa rin ang hukom. */
+const NAV_FOR_ROLE: Record<string, ViewKey[]> = {
+  staff: ['events', 'production', 'pulse', 'reports', 'portfolio', 'gatepass'],
+  evaluator: ['events', 'production', 'pulse', 'compliance', 'accomplishments', 'reports', 'portfolio', 'gatepass'],
+  srs: ['events', 'production', 'pulse', 'compliance', 'accomplishments', 'reports'],
+  dc: ['events', 'compliance', 'accomplishments'],
+};
+
 /* ------------------------------------------------------------ APP SHELL -- */
 
 /** Sidebar grouping. Ang VIEWS pa rin ang pinagmumulan ng label at hint. */
@@ -11820,6 +12351,7 @@ const NAV_GROUPS: { title: string; items: { key: ViewKey; icon: IconName }[] }[]
     title: 'Assurance',
     items: [
       { key: 'compliance', icon: 'compliance' },
+      { key: 'accomplishments', icon: 'chart' },
       { key: 'reports', icon: 'reports' },
     ],
   },
@@ -13998,6 +14530,85 @@ function AppMain() {
 
   /** CREW TASKS — ang production board at ang mga profile, galing sa events. */
   const tasks = useMemo(() => buildTasks(events, assignments), [events, assignments]);
+
+  /* v7: Tally, Rundown at Accomplishments — galing lahat sa umiiral na memos at helpers. */
+  const tally = useMemo<TallyItem[]>(
+    () =>
+      TEAM.map((m) => {
+        const onSite = todayLoad?.people.get(m.name) ?? [];
+        const mine = tasks.filter((t) => t.person.toLowerCase() === m.name.toLowerCase());
+        const open = mine.filter((t) => t.stage === 'assigned' || t.stage === 'progress');
+        const working = mine.filter((t) => t.stage === 'progress');
+        const state: TallyState = onSite.length ? 'live' : working.length ? 'progress' : 'off';
+        return {
+          name: m.name,
+          image: m.image,
+          rank: shortRank(OFFICIAL[m.name]?.designation || ''),
+          state,
+          onSite,
+          open: open.length,
+          working: working.length,
+          overdue: mine.filter((t) => t.overdue).length,
+        };
+      }),
+    [todayLoad, tasks, cfg.version]
+  );
+  const tallyOf = useCallback(
+    (name: string): TallyState => tally.find((t) => t.name === name)?.state ?? 'off',
+    [tally]
+  );
+  const rundown = useMemo<RundownRow[]>(() => {
+    const from = new Date();
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 6);
+    const out: RundownRow[] = [];
+    // dayLoads keeps insertion order (newest event first), so sort the days: today on top.
+    const days = Array.from(dayLoads(events, crewByEvent, from, to).values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+    days.forEach((d) => {
+      const push = (ev: AVEvent, tentative: boolean) => {
+        const start = new Date(ev.eventDate || d.date);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(ev.endDate || start);
+        end.setHours(0, 0, 0, 0);
+        const crew = activeCrew(crewByEvent, ev.id).map((a) => a.personnel);
+        out.push({
+          ev,
+          day: d.date,
+          dayN: Math.max(1, Math.round((d.date.getTime() - start.getTime()) / 864e5) + 1),
+          dayOf: Math.max(1, Math.round((end.getTime() - start.getTime()) / 864e5) + 1),
+          tentative,
+          crew,
+          unstaffed: d.unstaffed.includes(ev),
+          clash: crew.some((c) => d.clashes.includes(c)),
+        });
+      };
+      d.events.forEach((ev) => push(ev, false));
+      d.tentative.forEach((ev) => push(ev, true));
+    });
+    return out;
+  }, [events, crewByEvent]);
+  const accRows = useMemo<AccRow[]>(
+    () =>
+      events.map((ev) => ({
+        title: ev.title,
+        client: ev.client,
+        date: ev.eventDate,
+        end: ev.endDate,
+        remarks: ev.remarks,
+        delivered: isDelivered(ev),
+        services: deliveredServicesOf(ev),
+        approval: ev.approval,
+      })),
+    [events]
+  );
+  const backfillPending = useMemo(
+    () =>
+      events.filter(
+        (ev) => /Backfill BASIS_FOR_NEXUS\.xlsx/.test(ev.remarks) && ev.approval === 'approved' && !isDelivered(ev)
+      ),
+    [events]
+  );
   const activeTaskEvents = useMemo(
     () => new Set(tasks.filter((t) => t.stage === 'assigned' || t.stage === 'progress').map((t) => t.ev.id)).size,
     [tasks]
@@ -14889,6 +15500,31 @@ function AppMain() {
     flushRef.current(true);
   };
 
+  /* v7: tapusin ang backfill gamit ang umiiral na markDone (backfill mode: walang petsa ng delivery). */
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  const finishBackfill = useCallback(() => {
+    if (!backfillPending.length) return;
+    setBackfillBusy(true);
+    backfillPending.forEach((ev) => markDone(ev, { quiet: true, backfill: true }));
+    toast(
+      `Marking ${backfillPending.length} past events delivered. They sync to the sheet one by one, so this takes a few minutes.`,
+      'ok'
+    );
+    setTimeout(() => setBackfillBusy(false), 5000);
+  }, [backfillPending, markDone, toast]);
+
+  /* v7: ang nav ng bawat role. Display lamang; ang can() at ang server pa rin ang hukom. */
+  const navKeys = useMemo<ViewKey[] | null>(() => {
+    if (myRole === 'admin' || myRole === 'none') return null;
+    return NAV_FOR_ROLE[myRole === 'staff' && evaluator ? 'evaluator' : myRole] || null;
+  }, [myRole, evaluator]);
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || !navKeys) return;
+    landed.current = true;
+    setView(myRole === 'staff' && !evaluator ? 'production' : 'events');
+  }, [navKeys, myRole, evaluator]);
+
   /* --------------------------------------------------------------- VIEW -- */
 
   // Walang makikita hangga't hindi naka-sign in, kapag naka-on ang auth.
@@ -14935,12 +15571,13 @@ function AppMain() {
         </div>
 
         <nav className="av-side-scroll custom-scrollbar">
-          {NAV_GROUPS.map((g) => (
+          {NAV_GROUPS.filter((g) => !navKeys || g.items.some((it) => navKeys.includes(it.key))).map((g) => (
             <div key={g.title} className="mb-1">
               <p className="av-nav-sec">{g.title}</p>
               {g.items.map((it) => {
                 const v = VIEWS.find((x) => x.key === it.key);
                 if (!v) return null;
+                if (navKeys && !navKeys.includes(v.key)) return null;
                 const active = view === v.key;
                 const badge =
                   v.key === 'events' ? events.length
@@ -15571,6 +16208,7 @@ function AppMain() {
 
             {view === 'production' && (
               <>
+                <TallyWall items={tally} picked={prodPerson} onPick={setProdPerson} />
                 <section ref={boardRef}>
                   <SectionHead
                     title="Production board"
@@ -15983,6 +16621,19 @@ function AppMain() {
                       : undefined;
                   return <TodoCenter who={rosterName || myName} roleName={roleName} duty={duty} rows={rows} note={note} />;
                 })()}
+                {myRole === 'admin' && (
+                  <BackfillCard count={backfillPending.length} onRun={finishBackfill} busy={backfillBusy} />
+                )}
+                <Rundown
+                  rows={rundown}
+                  today={new Date()}
+                  stateOf={tallyOf}
+                  onOpen={openEv}
+                  onCalendar={() => {
+                    setView('compliance');
+                    setTimeout(() => calRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+                  }}
+                />
                 <section>
                   <SectionHead
                     title="Event monitoring"
@@ -16458,6 +17109,8 @@ function AppMain() {
             )}
 
             {/* ====================================== COMPLIANCE ====== */}
+            {view === 'accomplishments' && <AccomplishmentsView rows={accRows} now={new Date()} />}
+
             {view === 'compliance' && prodReady === 'missing' && events.length === 0 && (
               <section>
                 <SectionHead
@@ -17242,7 +17895,9 @@ function AppMain() {
             { k: 'pulse', label: 'Archive', g: 'archive', badge: 0 },
             { k: 'reports', label: 'Reports', g: 'reports', badge: 0 },
           ] as { k: ViewKey; label: string; g: IconName; badge: number }[]
-        ).map((m) => (
+        )
+          .filter((m) => !navKeys || navKeys.includes(m.k))
+          .map((m) => (
           <button
             key={m.k}
             onClick={() => {
@@ -17270,7 +17925,7 @@ function AppMain() {
         className="av-fab no-print"
         style={{
           bottom: 'calc(78px + env(safe-area-inset-bottom, 0px))',
-          background: 'var(--signal)',
+          background: 'var(--btn-primary)',
           borderRadius: 'var(--r-pill)',
         }}
       >
@@ -18334,4 +18989,268 @@ details.av-card > summary::-webkit-details-marker { display: none; }
 /* Sa phone na mas makitid sa 375px, 11px ang label ng bottom nav (gaya ng tab bar ng iOS). */
 @media screen and (max-width: 374px) { .av-mobtab { font-size: 11px; } }
 
+
+/* =====================================================================
+   v7 · TALLY DESIGN LAYER
+   Calm, exact, on-air. Comes last, so it wins over the rules above.
+   BDMS palette: blue #427AA1, red #A30000, gold #FFBF1F (accent only).
+   ===================================================================== */
+:root {
+  --ink: #15191E; --ink-2: #3D4650; --ink-3: #5B6570; --ink-4: #87919B;
+  --paper: #F4F6F8; --card: #FFFFFF; --surface-2: #F7F9FB;
+  --rule: #DEE3E9; --rule-soft: #ECEFF3; --rule-strong: #CBD3DC;
+  --signal: #427AA1; --signal-strong: #2F5F82; --signal-soft: #EAF2F8;
+  --brand-red: #A30000; --brand-gold: #FFBF1F;
+  --tally-live: #A30000; --tally-post: #FFBF1F; --tally-off: #CBD3DC; --live-text: #A30000;
+  --btn-primary: #2F5F82; --btn-primary-hover: #28526F;
+  --ease-out: cubic-bezier(.16,1,.3,1); --ease-state: cubic-bezier(.4,0,.2,1);
+}
+html[data-theme='dark'] {
+  --tally-live: #E5484D; --tally-post: #FFBF1F; --tally-off: #33404C; --live-text: #F08A8A;
+  --btn-primary: #427AA1; --btn-primary-hover: #2F5F82;
+}
+
+/* Text floor: nothing under ~12px. Attribute selectors avoid escaping in this string. */
+.av-page [class~="text-[9px]"], .av-page [class~="text-[10px]"] { font-size: 11.5px; }
+.av-page [class~="text-[11px]"], .av-page [class~="text-[11.5px]"] { font-size: 12.5px; }
+.av-page [class~="text-xs"], .av-page [class~="text-[12px]"] { font-size: 13px; }
+.av-page [class~="text-[12.5px]"] { font-size: 13.5px; }
+
+/* Calm page header instead of the blue band. */
+.av-band { background: transparent; color: var(--ink); }
+.av-band::before, .av-band::after { display: none; }
+.av-hero { padding: 28px 16px 20px; border-radius: 0; }
+@media (min-width: 768px) { .av-hero { padding: 36px 32px 24px; } }
+.av-hero.slim { padding-bottom: 20px; }
+.av-hero-k { color: var(--ink-3); font-size: 14px; }
+.av-hero-h { color: var(--ink); font-weight: 600; letter-spacing: -0.02em; font-size: clamp(28px, 1.6vw + 18px, 36px); }
+.av-hero-p { color: var(--ink-3); font-size: 15.5px; }
+.av-hero [class~="text-white/80"] { color: var(--ink-3); }
+.av-hero-btn {
+  background-color: var(--card); color: var(--ink-2); border: 1px solid var(--rule-strong);
+  backdrop-filter: none; font-size: 14.5px;
+}
+.av-hero-btn:hover { background-color: var(--surface-2); color: var(--ink); }
+
+/* KPI strip: number first, no rings, no overlap. */
+.av-kpis { margin: 0 auto; }
+.av-kpis .av-kpi > span:first-child { display: none; }
+.av-kpi { box-shadow: var(--lift); padding: 18px 20px; }
+.av-kpi.link:hover { transform: none; box-shadow: var(--lift-raise); }
+.av-kpi .l { font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink-2); overflow-wrap: normal; }
+.av-kpi .v { margin-top: 6px; font-size: clamp(30px, 1.4vw + 18px, 40px); font-weight: 500; letter-spacing: -0.025em; line-height: 1.05; }
+.av-kpi .s { margin-top: 6px; font-size: 13.5px; white-space: normal; }
+@media (max-width: 639px) {
+  .av-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .av-kpis .av-kpi, .av-kpi.flat { padding: 14px; align-items: flex-start; }
+  .av-kpis .av-kpi .l, .av-kpi.flat .l { font-size: 13px; }
+  .av-kpis .av-kpi .v, .av-kpi.flat .v { font-size: 28px; }
+  .av-kpis .av-kpi .s, .av-kpi.flat .s { font-size: 13px; }
+  .av-kpi.flat > span:last-child { display: none; }
+}
+
+/* Sidebar: quiet active state. */
+.av-nav[data-on='1'] { background-color: var(--signal-soft); color: var(--signal-strong); box-shadow: inset 3px 0 0 var(--signal-strong); }
+.av-nav[data-on='1'] svg { color: var(--signal-strong); }
+.av-nav[data-on='1'] .ct { background: var(--card); color: var(--signal-strong); }
+.av-nav[data-on='1'] .av-nav-dot { box-shadow: 0 0 0 2px var(--signal-soft); }
+html[data-theme='dark'] .av-nav[data-on='1'] { background-color: rgba(66,122,161,.22); color: #E8EDF2; box-shadow: inset 3px 0 0 #8DBAD9; }
+html[data-theme='dark'] .av-nav[data-on='1'] svg { color: #8DBAD9; }
+
+/* Buttons. */
+.av-fab { box-shadow: 0 10px 24px -10px rgba(21,25,30,.5); }
+.av-btn, html[data-theme='dark'] .av-btn { background-color: var(--btn-primary); }
+.av-btn:hover, html[data-theme='dark'] .av-btn:hover { background-color: var(--btn-primary-hover); }
+.av-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Section rows shared by the new blocks. */
+.av-sec-row { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; margin-bottom: 14px; }
+.av-sec-title { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--ink); }
+.av-sec-sub { margin-top: 4px; font-size: 14.5px; color: var(--ink-3); }
+.av-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 26px; padding: 0 9px;
+  border-radius: 999px; background: var(--tally-live); color: #fff; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.av-flag {
+  display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 999px; white-space: nowrap;
+  background: var(--tint-slate); color: var(--ink-3); font-size: 13px; font-weight: 600;
+}
+.av-flag.refused { background: var(--tint-red); color: var(--refused); }
+.av-flag.waiting { background: var(--tint-amber); color: var(--waiting); }
+
+/* ---------------------------------------------------------- Tally wall -- */
+.av-tally-wrap { margin-bottom: 32px; }
+.av-tally-legend { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; color: var(--ink-3); }
+.av-tally-legend span { display: inline-flex; align-items: center; gap: 8px; }
+.av-tally-legend i { width: 10px; height: 10px; border-radius: 50%; background: var(--tally-off); }
+.av-tally-legend i[data-s='live'] { background: var(--tally-live); }
+.av-tally-legend i[data-s='progress'] { background: var(--tally-post); }
+.av-tally { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 1024px) { .av-tally { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.av-tally-card {
+  position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; text-align: left;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-card); box-shadow: var(--lift);
+  transition: border-color .16s var(--ease-state), box-shadow .16s var(--ease-state);
+}
+.av-tally-card:hover { border-color: var(--rule-strong); box-shadow: var(--lift-raise); }
+.av-tally-card[data-on='1'] { border-color: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft), var(--lift-raise); }
+.av-tally-card:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.av-tally-card .lamp { position: absolute; inset: 0 0 auto 0; z-index: 2; height: 6px; background: var(--tally-off); transition: background-color .2s; }
+.av-tally-card[data-s='live'] .lamp { background: var(--tally-live); }
+.av-tally-card[data-s='progress'] .lamp { background: var(--tally-post); }
+.av-tally-card .pic { position: relative; display: block; aspect-ratio: 16 / 10; overflow: hidden; background: #1E2223; }
+.av-tally-card .pic img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 16%; }
+.av-tally-card .pic .ini { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #E8EDF2; font-size: 28px; font-weight: 600; }
+.av-tally-card .tag {
+  position: absolute; left: 12px; top: 18px; padding: 4px 8px; border-radius: 6px;
+  background: var(--tally-live); color: #fff; font-size: 12.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+}
+.av-tally-card[data-s='progress'] .tag { background: var(--tally-post); color: #15191E; }
+.av-tally-card .cap { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 12px; }
+.av-tally-card .nm { font-size: 17px; font-weight: 600; color: var(--ink); }
+.av-tally-card .rk { font-size: 14px; color: var(--ink-3); }
+.av-tally-card .st { margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; font-weight: 500; color: var(--ink-3); }
+.av-tally-card[data-s='live'] .st { color: var(--live-text); }
+.av-tally-card[data-s='progress'] .st { color: var(--waiting); }
+.av-tally-card .ctr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: auto; border-top: 1px solid var(--rule-soft); }
+.av-tally-card .ctr span { display: flex; flex-direction: column; padding: 10px 16px; font-size: 13px; color: var(--ink-3); }
+.av-tally-card .ctr span + span { border-left: 1px solid var(--rule-soft); }
+.av-tally-card .ctr b { font-size: 20px; font-weight: 500; line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums; }
+.av-tally-card .ctr [data-alert='1'] b { color: var(--refused); }
+@media (max-width: 479px) {
+  .av-tally { grid-template-columns: minmax(0, 1fr); }
+  .av-tally-card { display: grid; grid-template-columns: 92px minmax(0, 1fr); }
+  .av-tally-card .pic { grid-row: 1 / span 2; aspect-ratio: auto; height: 100%; min-height: 118px; }
+  .av-tally-card .pic img { object-position: 50% 12%; }
+  .av-tally-card .tag { display: none; }
+  .av-tally-card .ctr span { padding: 8px 12px; }
+}
+
+/* ------------------------------------------------------------- Rundown -- */
+.av-run { margin: 28px 0 32px; }
+.av-run-list { margin: 0; padding: 0; list-style: none; overflow: hidden; background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-card); box-shadow: var(--lift); }
+.av-run-list li + li { border-top: 1px solid var(--rule-soft); }
+.av-run-row {
+  display: grid; grid-template-columns: 100px minmax(0, 1fr) auto auto; align-items: center; gap: 16px;
+  width: 100%; min-height: 68px; padding: 14px 20px; text-align: left; transition: background-color .16s var(--ease-state);
+}
+.av-run-row:hover { background: var(--surface-2); }
+.av-run-row:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+.av-run-row[data-today='1'] { box-shadow: inset 4px 0 0 var(--tally-live); }
+.av-run-row[data-tent='1'] .main, .av-run-row[data-tent='1'] .day { opacity: .62; }
+.av-run-row .day { display: flex; flex-direction: column; gap: 2px; }
+.av-run-row .dw { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.av-run-row[data-today='1'] .dw { color: var(--live-text); }
+.av-run-row .dd { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 15px; font-weight: 500; letter-spacing: .02em; color: var(--ink); }
+.av-run-row .dn { font-size: 13px; color: var(--ink-3); }
+.av-run-row .main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.av-run-row .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; color: var(--ink); }
+.av-run-row .m { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--ink-3); }
+.av-run-row .crew { display: flex; align-items: center; }
+.av-run-row .crew .av-flag { margin-left: 10px; }
+.av-run-av {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-left: -6px;
+  border-radius: 50%; background: #1E2223; color: #E8EDF2; font-size: 12.5px; font-weight: 600; box-shadow: 0 0 0 2px var(--card);
+}
+.av-run-av:first-child { margin-left: 0; }
+.av-run-av img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.av-run-av::after { content: ''; position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: var(--tally-off); box-shadow: 0 0 0 2px var(--card); }
+.av-run-av[data-s='live']::after { background: var(--tally-live); }
+.av-run-av[data-s='progress']::after { background: var(--tally-post); }
+.av-run-row .st { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.av-run-more { display: block; width: 100%; padding: 14px 20px; text-align: left; font-size: 14.5px; font-weight: 600; color: var(--signal-strong); }
+.av-run-more:hover { background: var(--surface-2); text-decoration: underline; text-underline-offset: 3px; }
+html[data-theme='dark'] .av-run-more { color: #8DBAD9; }
+.av-run-empty { padding: 20px; border: 1px dashed var(--rule-strong); border-radius: var(--r-card); background: var(--card); font-size: 15px; color: var(--ink-3); }
+@media (max-width: 767px) {
+  .av-run-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 14px 16px; }
+  .av-run-row .day { grid-column: 1 / -1; flex-direction: row; align-items: baseline; gap: 10px; }
+  .av-run-row .main { grid-column: 1 / -1; }
+  .av-run-row .t { white-space: normal; }
+  .av-run-row .st { justify-content: flex-end; }
+}
+
+/* ------------------------------------------------------ Accomplishments -- */
+.av-acc { display: flex; flex-direction: column; gap: 20px; }
+.av-acc-kpis { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 1024px) { .av-acc-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.av-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 18px 20px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--r-card); box-shadow: var(--lift); }
+.av-stat .l { font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.av-stat .v { font-size: clamp(32px, 1.6vw + 20px, 44px); font-weight: 500; line-height: 1.05; letter-spacing: -0.025em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.av-stat .v small { font-size: 18px; font-weight: 500; letter-spacing: 0; color: var(--ink-3); }
+.av-stat .s { font-size: 14px; color: var(--ink-3); }
+.av-stat[data-tone='served'] .v { color: var(--served); }
+.av-stat[data-tone='waiting'] .v { color: var(--waiting); }
+.av-stat[data-tone='refused'] .v { color: var(--refused); }
+.av-acc-chart { margin: 0; padding: 18px 20px 14px; overflow-x: auto; }
+.av-acc-chart figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; margin-bottom: 10px; }
+.av-acc-chart figcaption .t { font-size: 17px; font-weight: 600; color: var(--ink); }
+.av-acc-chart .lg { display: flex; flex-wrap: wrap; gap: 16px; font-size: 14px; color: var(--ink-3); }
+.av-acc-chart .lg span { display: inline-flex; align-items: center; gap: 8px; }
+.av-acc-chart .lg i { display: inline-block; width: 14px; height: 10px; border-radius: 3px; }
+.av-acc-chart .lg i.b { background: var(--signal); }
+.av-acc-chart .lg i.t { height: 2px; border-radius: 0; background: var(--ink); }
+.av-acc-chart .lg i.p { width: 6px; background: var(--rule-strong); }
+.av-acc-chart svg { display: block; width: 100%; min-width: 720px; height: auto; }
+.av-acc-chart .grid { stroke: var(--rule-soft); stroke-width: 1; }
+.av-acc-chart .ax { fill: var(--ink-3); font-size: 13px; font-family: inherit; }
+.av-acc-chart .bar { fill: var(--signal); }
+.av-acc-chart .bar.future { fill: var(--rule); }
+.av-acc-chart .prev { fill: var(--rule-strong); }
+.av-acc-chart .tgt { stroke: var(--ink); stroke-width: 2; }
+.av-acc-chart .val { fill: var(--ink); font-size: 13px; font-weight: 600; font-family: inherit; }
+.av-acc-table { padding: 0; overflow: hidden; }
+.av-acc-th { padding: 16px 20px; border-bottom: 1px solid var(--rule); font-size: 17px; font-weight: 600; color: var(--ink); }
+.av-acc-scroll { overflow-x: auto; }
+.av-acc-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.av-acc-table th { padding: 12px; white-space: nowrap; text-align: right; background: var(--surface-2); font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); }
+.av-acc-table td { padding: 11px 12px; white-space: nowrap; text-align: right; border-top: 1px solid var(--rule-soft); font-size: 15px; color: var(--ink-2); }
+.av-acc-table th:first-child, .av-acc-table td:first-child { position: sticky; left: 0; z-index: 1; min-width: 250px; text-align: left; }
+.av-acc-table tbody tr, .av-acc-table tbody td:first-child { background: var(--card); }
+.av-acc-table td:first-child { color: var(--ink); }
+.av-acc-table td.z { color: var(--ink-4); }
+.av-acc-table td.tot { font-weight: 600; color: var(--ink); background: var(--surface-2); }
+.av-acc-table tfoot tr, .av-acc-table tfoot td:first-child { background: var(--surface-2); }
+.av-acc-table tfoot td { font-weight: 600; color: var(--ink); border-top: 1px solid var(--rule); }
+.av-acc-table tfoot tr.sub td { font-weight: 500; color: var(--ink-3); border-top: 1px solid var(--rule-soft); }
+@media (max-width: 639px) {
+  .av-acc-table th:first-child, .av-acc-table td:first-child { min-width: 168px; max-width: 168px; white-space: normal; }
+}
+.av-toggle { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 1px solid var(--rule-strong); border-radius: var(--r-ctl); background: var(--card); font-size: 14.5px; color: var(--ink-2); cursor: pointer; }
+.av-toggle input { width: 16px; height: 16px; accent-color: var(--signal-strong); }
+
+/* ---------------------------------------------------------- Backfill -- */
+.av-backfill { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 20px; margin: 20px 0; padding: 18px 20px; border-left: 4px solid var(--brand-gold); }
+.av-backfill .t { font-size: 16px; font-weight: 600; color: var(--ink); }
+.av-backfill .s { margin-top: 4px; max-width: 720px; font-size: 14px; color: var(--ink-3); }
+
+/* ------------------------------------------------------------- Sign-in -- */
+.av-signin { position: relative; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; overflow: hidden; background: #0E1318; color: #E8EDF2; }
+.av-signin-bg, .av-signin-bg img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.av-signin-bg img { object-fit: cover; object-position: 62% 50%; animation: avSettle 1.6s var(--ease-out) both; }
+.av-signin-scrim { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(14,19,24,.94) 0%, rgba(14,19,24,.80) 38%, rgba(14,19,24,.28) 100%); }
+.av-signin-top { position: relative; z-index: 2; display: flex; align-items: center; gap: 16px; padding: 24px 6vw; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.av-signin-top img { width: 200px; height: 45px; object-fit: cover; object-position: 50% 54%; }
+.av-signin-top span { padding-left: 16px; border-left: 1px solid rgba(232,237,242,.3); }
+.av-signin-copy { position: relative; z-index: 2; max-width: calc(520px + 12vw); margin: auto 0; padding: 0 6vw 64px; }
+.av-signin-copy.wide { max-width: calc(640px + 12vw); }
+.av-signin-copy .k { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: rgba(232,237,242,.72); animation: avRise .6s var(--ease-out) both; }
+.av-signin-copy h1 { margin-top: 16px; font-size: clamp(40px, 5vw, 68px); font-weight: 600; line-height: 1.02; letter-spacing: -0.03em; color: #E8EDF2; animation: avRise .6s .1s var(--ease-out) both; }
+.av-signin-copy h1 span { opacity: .72; }
+.av-signin-copy .sub { max-width: 440px; margin-top: 18px; font-size: 17px; line-height: 1.55; color: rgba(232,237,242,.8); animation: avRise .6s .2s var(--ease-out) both; }
+.av-signin-copy .note { max-width: 440px; margin-top: 10px; font-size: 14.5px; line-height: 1.5; color: rgba(232,237,242,.66); animation: avRise .6s .25s var(--ease-out) both; }
+.av-signin-btn { min-height: 44px; margin-top: 28px; animation: avRise .6s .3s var(--ease-out) both; }
+.av-signin-msg { margin-top: 14px; max-width: 440px; font-size: 14.5px; line-height: 1.5; color: rgba(232,237,242,.8); }
+@keyframes avRise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes avSettle { from { transform: scale(1.04); } to { transform: none; } }
+@media (max-width: 767px) {
+  .av-signin-scrim { background: linear-gradient(0deg, rgba(14,19,24,.95) 0%, rgba(14,19,24,.72) 55%, rgba(14,19,24,.38) 100%); }
+  .av-signin-top { padding: 20px; }
+  .av-signin-top img { width: 150px; height: 34px; }
+  .av-signin-copy { margin: auto 0 0; padding: 0 20px calc(32px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .av-signin-bg img, .av-signin-copy .k, .av-signin-copy h1, .av-signin-copy .sub, .av-signin-copy .note, .av-signin-btn { animation: none; }
+}
+@media print { .av-tally-wrap, .av-run, .av-backfill { display: none; } }
 `;
