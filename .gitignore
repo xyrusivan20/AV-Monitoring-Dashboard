@@ -1,0 +1,10 @@
+
+# Internal data and QA output: never commit (public repository)
+data/
+seed/
+qa/
+server/
+
+# Build output and dependencies
+node_modules/
+dist/
