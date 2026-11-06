@@ -12788,6 +12788,19 @@ function AppMain() {
         ];
         out.ok = false;
       }
+      // v7.3: luma pa ba ang naka-deploy na AVNexus.gs? Ang na-paste na code ay hindi
+      // tumatakbo hangga't walang "New version" sa deployment — kaya sinasabi rito.
+      const bv = String(out?.version || '').match(/v(\d+)(?:\.(\d+))?/);
+      if (bv && (Number(bv[1]) < 7 || (Number(bv[1]) === 7 && Number(bv[2] || 0) < 3))) {
+        out.problems = [
+          `The live AVNexus.gs is an older version (${out.version}). Until it is updated, edits to venue, title and dates ` +
+            'do not save, and request letters over 100 KB are refused.\n' +
+            'In Apps Script: paste the v7.3 code.gs and save, then Deploy → Manage deployments → ✏️ → ' +
+            'Version: New version → Deploy, on both deployments.',
+          ...(out.problems || []),
+        ];
+        out.ok = false;
+      }
 
       // FIX: kapag walang "problems" ang sagot ng backend, bumabagsak ang buong dashboard.
       setHealth({ ...out, problems: Array.isArray(out?.problems) ? out.problems : [] });
