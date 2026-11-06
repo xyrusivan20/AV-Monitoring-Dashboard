@@ -12909,8 +12909,17 @@ function AppMain() {
   evaluatorRef.current = evaluator;
   const rosterName = useMemo(() => TEAM.find((t) => nameMatches(myName, t.name))?.name || '', [myName]);
 
+  /**
+   * v7.3 FIX: dati, tumatakbo lang ito kapag may Google user. Pero pagka-reload,
+   * ang session na lang ang natitira (walang Google user hangga't hindi muling
+   * nagsa-sign in), kaya ang papel ay nananatili sa kung ano ito noong nag-sign
+   * in — hanggang labindalawang oras. Kapag ginawang admin ang isang tao sa USERS,
+   * "AV staff" pa rin ang nakikita niya. Ngayon, tinatanong ang server sa bawat
+   * pagbukas, at itinatago ang sagot sa session.
+   */
+  const whoKey = (user?.email || session?.email || (session?.token ? 'session' : '')).toLowerCase();
   useEffect(() => {
-    if (!AUTH_ENABLED || !user) {
+    if (!AUTH_ENABLED || !whoKey) {
       setServerRole('');
       return;
     }
@@ -12918,7 +12927,15 @@ function AppMain() {
     (async () => {
       try {
         const out = await authedPost({ action: 'whoami' });
-        if (!cancelled && out && out.role) setServerRole(String(out.role));
+        if (cancelled || !out || !out.role) return;
+        const role = String(out.role);
+        setServerRole(role);
+        const cur = sessionRef.current;
+        if (cur && cur.role !== role) {
+          const next: StoredSession = { ...cur, role, name: String(out.name || cur.name) };
+          setSession(next);
+          saveSession(next);
+        }
       } catch {
         /* hahayaan ang hulang papel; ang server pa rin ang magpapatupad */
       }
@@ -12927,7 +12944,7 @@ function AppMain() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email]);
+  }, [whoKey]);
 
   const authedPost = useCallback(
     async (body: Record<string, unknown>, opts: NetOptions = {}) => {
