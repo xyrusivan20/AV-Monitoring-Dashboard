@@ -347,6 +347,14 @@ function letterOf(v: string | undefined): unknown {
 /** Mga aksiyong ligtas ulitin: pareho ang resulta kahit maipadala nang dalawang beses. */
 const REPEATABLE_ACTIONS = new Set(['signIn', 'whoami', 'updateEvent', 'updateRequest', 'updateStage', 'setAssignments']);
 
+/**
+ * v7.3.2: ang lumang Request Register ay BINABASA lang. Walang addRequest o
+ * updateRequest ang AVNexus.gs, kaya ang bawat pag-save dito ay tinatanggihan
+ * ("Unknown action"). Ang Events na ang master record ng bawat kahilingan.
+ * Gawing true lamang kapag may handler na sa backend.
+ */
+const REQUEST_REGISTER_WRITABLE = false;
+
 /** Pinakamalaking request letter na ipinapadala sa server. */
 const MAX_LETTER_BYTES = 500 * 1024;
 /**
@@ -6134,6 +6142,27 @@ seed?.pipeline ?? {
     return dayKey(addWorkingDays(base, sla));
   }, [f.targetDate, f.dateRequested, f.eventDate, f.endDate, sla]);
 
+  /**
+   * v7.3.2: ANG AUTO NA TARGET AY SUMUSUNOD SA PETSA — NAKIKITA NA SA FORM.
+   * Dati, sa backend lang ito nangyayari pagka-save, kaya mukhang "kusang
+   * nagbabago" ang target. Ngayon, kapag ang naka-save na target ay ang mismong
+   * SLA ng naka-save na mga petsa (kinalkula lang, hindi itinakda ng tao), sumusunod
+   * ito habang binabago ang petsa o ang serbisyo. Kapag nag-type ka ng sariling
+   * target, hihinto ang pagsunod.
+   */
+  const autoTarget = useMemo(() => {
+    const got = parseDate(f.dateRequested);
+    const ends = parseDate(f.endDate) || parseDate(f.eventDate);
+    const base = !got ? ends : !ends ? got : (ends.getTime() > got.getTime() ? ends : got);
+    return base ? dayKey(addWorkingDays(base, sla)) : '';
+  }, [f.dateRequested, f.eventDate, f.endDate, sla]);
+  const followTarget = useRef<boolean | null>(null);
+  if (followTarget.current === null) followTarget.current = !!f.targetDate && f.targetDate === autoTarget;
+  useEffect(() => {
+    if (followTarget.current && autoTarget && f.targetDate !== autoTarget) set('targetDate', autoTarget);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoTarget]);
+
   // Ang mga approver ay maaaring mag-aprub, pero hindi mag-edit ng nilalaman.
   const isApprover = role === 'dc' || role === 'srs';
   const approvalOnly = isApprover && !!existing;
@@ -6193,6 +6222,18 @@ seed?.pipeline ?? {
   // Wala nang manu-manong delivered list, kaya wala nang maaaring maligaw.
   const strayDelivered: string[] = [];
 
+  /**
+   * v7.3.2: ang "Date served" ay nangyari na — hindi ito maaaring sa hinaharap,
+   * at hindi bago pa magsimula ang event. Nahuli sa scan ang isang Nobyembre 19
+   * para sa event na Hunyo 18 — mukhang typo, at ginagawa nitong OVERDUE ang record.
+   */
+  const servedProblem = useMemo(() => {
+    if (!f.dateDelivered) return '';
+    if (f.dateDelivered > dayKey(new Date())) return 'Date served is later than today.';
+    if (f.eventDate && f.dateDelivered < f.eventDate) return 'Date served is before the event date.';
+    return '';
+  }, [f.dateDelivered, f.eventDate]);
+
   const canSave =
     !reasonMissing &&
     !submitting &&
@@ -6200,7 +6241,7 @@ seed?.pipeline ?? {
     // FIX: dati, puwedeng i-save habang pinapaliit pa ang larawan — walang sulat na naisasama.
     !letterBusy &&
     strayDelivered.length === 0 &&
-    (approvalOnly || (canEdit && missingFields.length === 0));
+    (approvalOnly || (canEdit && missingFields.length === 0 && !servedProblem));
 
   const field =
     `w-full rounded-[9px] border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15${
@@ -6999,11 +7040,20 @@ seed?.pipeline ?? {
                 type="date"
                 className={field}
                 value={f.targetDate}
-                onChange={(e) => set('targetDate', e.target.value)}
+                onChange={(e) => {
+                  followTarget.current = false;
+                  set('targetDate', e.target.value);
+                }}
               />
               {!f.targetDate && previewTarget && (
                 <p className="mt-1 font-mono text-[10px] text-blue-600">
-                  Auto: {previewTarget} ({sla} WD from receipt)
+                  Auto: {previewTarget} ({sla} WD after the event, or after receipt if later)
+                </p>
+              )}
+              {!!f.targetDate && followTarget.current && f.targetDate === autoTarget && (
+                <p className="av-note av-dim mt-1">
+                  Automatic: {sla} WD after the event, or after receipt if later. It moves with the dates. Type
+                  a date only for a deadline agreed after the event.
                 </p>
               )}
               {slaFix && (
@@ -7023,6 +7073,11 @@ seed?.pipeline ?? {
                 value={f.dateDelivered}
                 onChange={(e) => set('dateDelivered', e.target.value)}
               />
+              {servedProblem && (
+                <p className="av-note mt-1" style={{ color: 'var(--refused)' }}>
+                  {servedProblem}
+                </p>
+              )}
               {existing && eventTAT(existing) !== null && (
                 <p className="mt-1 font-mono text-[10px] text-slate-400">
                   Turnaround {eventTAT(existing)} WD from receipt
@@ -7077,6 +7132,8 @@ seed?.pipeline ?? {
               ? `Marked delivered but never agreed: ${strayDelivered.join(', ')}. Tick them under Pinangako first.`
               : missingFields.length > 0
               ? `Still required: ${missingFields.join(', ')}.`
+              : servedProblem
+              ? `${servedProblem} Check the date before saving.`
               : reasonMissing
               ? 'A reason is required before saving.'
               : letterBusy
@@ -14518,6 +14575,12 @@ function AppMain() {
         toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
         return;
       }
+      // v7.3.2: walang addRequest/updateRequest ang AVNexus.gs — laging "Unknown action".
+      if (!REQUEST_REGISTER_WRITABLE) {
+        toast('The Request Register is read-only. Log the request as an event with New request.', 'info');
+        setReqModal({ open: false, editing: null });
+        return;
+      }
       const body = id
         ? {
             action: 'updateRequest',
@@ -15591,16 +15654,21 @@ function AppMain() {
           setEvPriority('High');
         },
       },
-      {
-        id: 'log-request',
-        label: 'Log a service request',
-        hint: 'Register',
-        group: 'Actions',
-        run: () => {
-          setView('requests');
-          setReqModal({ open: true, editing: null });
-        },
-      },
+      // v7.3.2: nakatago habang read-only ang lumang Request Register.
+      ...(REQUEST_REGISTER_WRITABLE
+        ? [
+            {
+              id: 'log-request',
+              label: 'Log a service request',
+              hint: 'Register',
+              group: 'Actions',
+              run: () => {
+                setView('requests');
+                setReqModal({ open: true, editing: null });
+              },
+            },
+          ]
+        : []),
       {
         id: 'new-event',
         label: 'Create a new event request',
