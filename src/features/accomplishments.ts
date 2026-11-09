@@ -40,6 +40,7 @@ const DEFAULT_LINES: Record<string, string[]> = {
 };
 
 export interface AccRow {
+  id?: string;
   title?: string;
   client?: string;
   end?: Date | null;
@@ -50,7 +51,12 @@ export interface AccRow {
   services: string[];
   /** ApprovalKey */
   approval: string;
+  /** v7.3.3: tapos ang Script approval ng isang Video / Full Video Production. */
+  scriptDone?: boolean;
 }
+
+const LINE_ORDER = REPORT_LINES.map((l) => l.key);
+const byOrder = (xs: string[]) => xs.slice().sort((a, b) => LINE_ORDER.indexOf(a) - LINE_ORDER.indexOf(b));
 
 export function parseReportLines(remarks: string): string[] | null {
   const m = /Report lines\s+([a-m](?:\s*,\s*[a-m])*)/i.exec(String(remarks || ''));
@@ -58,12 +64,68 @@ export function parseReportLines(remarks: string): string[] | null {
   return Array.from(new Set(m[1].toLowerCase().split(/\s*,\s*/)));
 }
 
+/**
+ * Ang mga linya mula sa mismong serbisyo. v7.3.3: ang Scriptwriting (j) ay
+ * binibilang kapag may naaprubahang script ang isang Video / Full Video
+ * Production — dati, hindi kailanman nabibilang ang j sa bagong event.
+ */
+export function defaultLinesFor(services: string[], scriptDone = false): string[] {
+  const out: string[] = [];
+  services.forEach((s) => (DEFAULT_LINES[s.trim().toLowerCase()] || []).forEach((l) => out.includes(l) || out.push(l)));
+  if (scriptDone && services.some((s) => /production/i.test(s)) && !out.includes('j')) out.push('j');
+  return byOrder(out);
+}
+
 export function reportLinesOf(row: AccRow): string[] {
   const tagged = parseReportLines(row.remarks);
   if (tagged) return tagged;
-  const out: string[] = [];
-  row.services.forEach((s) => (DEFAULT_LINES[s.trim().toLowerCase()] || []).forEach((l) => out.includes(l) || out.push(l)));
-  return out;
+  return defaultLinesFor(row.services, row.scriptDone);
+}
+
+/** Saan galing ang bilang ng event: tsek sa "Report lines", o ang mismong serbisyo. */
+export function lineSource(row: AccRow): 'tag' | 'services' {
+  return parseReportLines(row.remarks) ? 'tag' : 'services';
+}
+
+/**
+ * Para sa may "Report lines" na tsek: ano ang hindi tugma sa naihatid na
+ * serbisyo? `missing` = may serbisyo pero walang tsek (hindi nabibilang);
+ * `unbacked` = may tsek pero walang serbisyong sumusuporta (hal. j sa coverage).
+ * Ang c, f at g ay mas pino kaysa sa katalogo, kaya hindi sila sinisita.
+ */
+export function lineMismatch(row: AccRow): { missing: string[]; unbacked: string[] } {
+  const tagged = parseReportLines(row.remarks);
+  if (!tagged) return { missing: [], unbacked: [] };
+  const has = (re: RegExp) => row.services.some((s) => re.test(s));
+  const PROD_LINES = ['b', 'c', 'e', 'f', 'g', 'h', 'i'];
+  const prod = has(/production|shoot/i);
+  const missing: string[] = [];
+  const unbacked: string[] = [];
+  // Coverage at SDE: tig-iisang linya, kaya mahigpit.
+  ([['a', /^photo coverage$/i], ['d', /^video coverage$/i], ['m', /^sde$/i]] as [string, RegExp][]).forEach(([l, re]) => {
+    if (has(re) && !tagged.includes(l)) missing.push(l);
+    if (!has(re) && tagged.includes(l)) unbacked.push(l);
+  });
+  // Livestream: ang k at l ay puwedeng isa lang — basta may isa.
+  if (has(/livestream/i) && !tagged.includes('k') && !tagged.includes('l')) missing.push('k', 'l');
+  // Production: ang tsek ay mas pino kaysa sa katalogo (b/c, e/f/g/h/i) — basta may isa.
+  if (prod && !tagged.some((l) => PROD_LINES.includes(l))) {
+    defaultLinesFor(row.services).filter((l) => PROD_LINES.includes(l)).forEach((l) => missing.push(l));
+  }
+  if (!prod) tagged.filter((l) => PROD_LINES.includes(l) || l === 'j').forEach((l) => unbacked.push(l));
+  return { missing: byOrder(missing), unbacked: byOrder(unbacked) };
+}
+
+/** Isinusulat muli ang "Report lines …" sa remarks (o tinatanggal kapag wala nang laman). */
+export function withReportLines(remarks: string, lines: string[] | null): string {
+  const base = String(remarks || '')
+    .replace(/Report lines\s+[a-m](?:\s*,\s*[a-m])*/gi, '')
+    .split(/\s*·\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .join(' · ');
+  if (!lines || !lines.length) return base;
+  return `${base ? `${base} · ` : ''}Report lines ${byOrder(lines).join(', ')}`;
 }
 
 export interface MonthlyReport {
