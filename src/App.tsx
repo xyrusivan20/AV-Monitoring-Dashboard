@@ -5,6 +5,11 @@ import {
   ACTUAL_2025,
   monthlyReport,
   reportLinesOf,
+  defaultLinesFor,
+  lineSource,
+  lineMismatch,
+  parseReportLines,
+  withReportLines,
   sum as sumTo,
   type AccRow,
 } from './features/accomplishments';
@@ -2004,9 +2009,21 @@ const PIPELINE_STEPS: {
   },
 ];
 
+/**
+ * v7.3.3: may EDITED na output ba (Video / Full Video Production)? Ang script at
+ * ang final cut approval ay para lang dito. Ang Photo Shoot at Video Shoot ay
+ * raw na kuha — Production pa rin para sa 13 WD na SLA, pero walang script na
+ * isusulat at walang final cut na aaprubahan. Dati, lumalabas ang Script
+ * approval sa bawat shoot kahit walang scriptwriting sa request.
+ */
+function needsScriptStep(services: string[]): boolean {
+  return services.some((raw) => /production|editing|script|motion/i.test(raw));
+}
+
 /** Aling hakbang ang totoong applicable sa event na ito. */
-function stepsFor(stream: Stream) {
-  return PIPELINE_STEPS.filter((s) => !s.only || s.only === stream);
+function stepsFor(stream: Stream, services?: string[]) {
+  const edited = stream === 'production' && (!services || needsScriptStep(services));
+  return PIPELINE_STEPS.filter((s) => !s.only || (s.only === stream && edited));
 }
 
 /**
@@ -2207,13 +2224,21 @@ function inProduction(ev: AVEvent): boolean {
 }
 
 /**
- * Ang naihatid na serbisyo. Hindi na isinusulat ng modal ang "Delivered
- * Services" — ang pipeline na ang nagsasabi. Kaya kapag Done ang Client
- * delivery at blangko ang column, ang pinangako ang naihatid.
+ * Ang naihatid na serbisyo. Hindi na ito ini-input nang hiwalay — ang
+ * pipeline na ang nagsasabi. Kaya kapag Done ang Client delivery, ang
+ * pinangako ang naihatid.
+ *
+ * v7.3.3: ang pinangako NA LANG, kahit may laman ang column — iisang
+ * pinagmumulan, gaya ng nakasulat sa backend. Ang column ay itinatatak lang sa
+ * araw ng paghahatid (o ng import), kaya naiiwan kapag dinagdagan ang serbisyo
+ * pagkatapos. Walo ang ganito sa sheet: hal. EVT-2026-0041, Photo Coverage lang
+ * sa import, dinagdagan ng Video Coverage at Livestreaming — "3 agreed ·
+ * 1 delivered" ang card, berde ang ledger, "missed" sa Service gap. Hindi
+ * nagta-tally. Isinusulat na rin ng modal ang column kapag nag-iba.
  */
 function deliveredServicesOf(ev: AVEvent): string[] {
   if (!isDelivered(ev)) return [];
-  return ev.delivered.length ? ev.delivered : agreedVolume(ev);
+  return agreedVolume(ev);
 }
 
 /** Naibigay pero hindi orihinal na hiniling — dagdag na serbisyo. */
@@ -2339,6 +2364,20 @@ function eventSLA(ev: AVEvent): SLAState {
  */
 function isClosed(ev: AVEvent): boolean {
   if (!isAuthorised(ev)) return false;
+  return stepsFor(streamOfServices(ev.requested), ev.requested).every((st) => {
+    const v = ev.pipeline[st.key];
+    return v === 'done' || v === 'na';
+  });
+}
+
+/**
+ * v7.3.3: ang tuntunin ng backend (isRecordClosed_ sa AVNexus.gs) — Approved, at
+ * Done o N/A ang bawat hakbang ng stream, kasama ang Script at Final cut ng bawat
+ * Production, pati shoot. Mas maluwag na ang isClosed para sa shoot; ito ang
+ * tinitingnan kapag kailangang malaman kung tatanggihan ng server ang isang edit.
+ */
+function serverClosed(ev: AVEvent): boolean {
+  if (ev.approval !== 'approved') return false;
   return stepsFor(streamOfServices(ev.requested)).every((st) => {
     const v = ev.pipeline[st.key];
     return v === 'done' || v === 'na';
@@ -2349,7 +2388,7 @@ function isClosed(ev: AVEvent): boolean {
 function pipelineProgress(ev: AVEvent): number {
   // Ang hindi applicable na hakbang ay hindi binibilang, hindi ibinibilang
   // na tapos — kung hindi, laging mas mataas ang coverage kaysa production.
-  const steps = stepsFor(streamOfServices(ev.requested));
+  const steps = stepsFor(streamOfServices(ev.requested), ev.requested);
   const score = steps.reduce((a, s) => {
     const st = ev.pipeline[s.key];
     if (st === 'done' || st === 'na') return a + 1;
@@ -2362,7 +2401,7 @@ function pipelineProgress(ev: AVEvent): number {
 /** Ang susunod na hakbang na dapat asikasuhin. */
 function nextPipelineStep(ev: AVEvent): { key: PipelineKey; label: string } | null {
   if (!isAuthorised(ev)) return null;
-  for (const step of stepsFor(streamOfServices(ev.requested))) {
+  for (const step of stepsFor(streamOfServices(ev.requested), ev.requested)) {
     const st = ev.pipeline[step.key];
     if (st === 'not-started' || st === 'in-progress') return { key: step.key, label: step.label };
   }
@@ -5331,7 +5370,7 @@ function PipelineTrack({
   const locked = !isAuthorised(ev) || readOnly || isClosed(ev);
   const cycle: PipelineState[] = ['not-started', 'in-progress', 'done', 'na'];
 
-  const steps = stepsFor(streamOfServices(ev.requested));
+  const steps = stepsFor(streamOfServices(ev.requested), ev.requested);
 
   /**
    * Labing-isang hakbang ang PM pipeline. Hindi kasya ang labing-isang chip
@@ -5972,6 +6011,39 @@ seed?.pipeline ?? {
   const extra: string[] = [];
 
   /**
+   * v7.3.3: ang "Delivered Services" sa sheet ay sumusunod sa Pinangako kapag Done
+   * na ang Client delivery. Dati, hindi ito ipinapadala, kaya naiiwan ang lumang
+   * halaga kapag binago ang serbisyo pagkatapos maihatid — at tinatanggihan pa ng
+   * server ang pag-save kapag may tinanggal na serbisyo ("marked delivered but never
+   * requested"). Ipinapadala lang kapag may nagbago; kung hindi, hindi ginagalaw.
+   */
+  const deliveredPatch =
+    existing && !notApproved && pipeline.delivery === 'done' && agreedEff.join(', ') !== existing.delivered.join(', ')
+      ? agreedEff.join(', ')
+      : undefined;
+
+  /**
+   * v7.3.3: paano ito binibilang sa Accomplishments (a–m). Ang tsek ay nasa
+   * Remarks bilang "Report lines …" — iyon ang 110 event mula sa 2026 workbook.
+   * Kapag walang tsek, ang naihatid na serbisyo ang batayan. Dati, hindi ito
+   * makikita o mababago kahit saan, kaya hindi matunton ang tatlong j noong Hunyo.
+   */
+  const accLines = useMemo(() => {
+    const services = agreedEff;
+    const scriptDone = pipeline.script === 'done' && needsScriptStep(requested);
+    const tagged = parseReportLines(f.remarks);
+    const auto = defaultLinesFor(services, scriptDone);
+    const mm = lineMismatch({ remarks: f.remarks, services, date: null, delivered: true, approval: approvalKey, scriptDone });
+    const fix = tagged
+      ? REPORT_LINES.map((l) => l.key).filter(
+          (k) => (tagged.includes(k) && !mm.unbacked.includes(k)) || mm.missing.includes(k)
+        )
+      : auto;
+    return { tagged, auto, lines: tagged ?? auto, mm, fix };
+  }, [f.remarks, pipeline.script, agreedEff, requested, approvalKey]);
+  const setLines = (lines: string[] | null) => set('remarks', withReportLines(f.remarks, lines));
+
+  /**
    * ANG DATING BUG: `approvalKey === 'approved'` lang ang tinitingnan.
    * Pero ang paghahatid ay nangyayari kapag ENDORSED na — kaya sa mismong
    * yugtong may kulang na serbisyo, NAWAWALA ang reason box. Wala tuloy
@@ -6099,7 +6171,7 @@ seed?.pipeline ?? {
 
   const streamKey = streamOfServices(requested);
   const sla = SLA_WD[streamKey];
-  const applicableSteps = useMemo(() => stepsFor(streamKey), [streamKey]);
+  const applicableSteps = useMemo(() => stepsFor(streamKey, requested), [streamKey, requested]);
 
   /**
    * Pinalitan ng PM catalogue ang lumang listahan ng serbisyo. Ang mga
@@ -6234,6 +6306,18 @@ seed?.pipeline ?? {
     return '';
   }, [f.dateDelivered, f.eventDate]);
 
+  /**
+   * v7.3.3: kapag ngayon lang minarkahang Done ang Client delivery at blangko ang
+   * "Date served", ang petsa ngayon ang itinatatak ng backend. Sa event na matagal
+   * nang tapos, OVERDUE agad — gaya ng EVT-2026-0102 at 0103 (Oktubre, natatakan
+   * ng 8 Nobyembre). Babala lang ito; minsan, ngayon talaga naihatid.
+   */
+  const servedBlank = useMemo(() => {
+    if (f.dateDelivered || pipeline.delivery !== 'done' || !existing || isDelivered(existing)) return null;
+    const target = slaFix || f.targetDate || previewTarget || '';
+    return { target, late: !!target && today > target };
+  }, [f.dateDelivered, pipeline.delivery, existing, slaFix, f.targetDate, previewTarget, today]);
+
   const canSave =
     !reasonMissing &&
     !submitting &&
@@ -6268,6 +6352,8 @@ seed?.pipeline ?? {
         team: crew.map((c) => c.personnel).filter(Boolean).join(', '),
         requestedServices: requested.join(', '),
         agreedServices: agreedEff.join(', '),
+        // v7.3.3: ipinapadala lang kapag may babaguhin sa talaan ng naihatid.
+        ...(deliveredPatch !== undefined ? { deliveredServices: deliveredPatch } : {}),
         reopen: reopen ? 'yes' : '',
         requestLetter: letter ? JSON.stringify(letter) : '',
         ...Object.fromEntries(
@@ -7003,12 +7089,20 @@ seed?.pipeline ?? {
                   {applicableSteps.length} steps
                 </span>
               </div>
-              {streamKey === 'coverage' && (
+              {streamKey === 'coverage' ? (
                 <p className="mb-3 text-[10px] leading-relaxed text-slate-400">
                   Script approval and final-cut approval are Production-only steps under
                   PM 3A, so they are not shown for a Coverage request and are recorded
                   as N/A.
                 </p>
+              ) : (
+                !applicableSteps.some((s) => s.key === 'script') && (
+                  <p className="mb-3 text-[10px] leading-relaxed text-slate-400">
+                    Script approval and final-cut approval are for Video Production and Full Video
+                    Production. A Video Shoot or Photo Shoot has no script to write and no cut to
+                    approve, so they are not shown and are recorded as N/A.
+                  </p>
+                )
               )}
               <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                 {applicableSteps.map((step) => (
@@ -7078,6 +7172,15 @@ seed?.pipeline ?? {
                   {servedProblem}
                 </p>
               )}
+              {servedBlank && (
+                <p className="av-note mt-1" style={servedBlank.late ? { color: 'var(--refused)' } : undefined}>
+                  Blank, so the sheet will record today ({fmtDate(parseDate(today))}) as the date served
+                  {servedBlank.late
+                    ? `. That is after the target (${fmtDate(parseDate(servedBlank.target))}), so it will count as overdue`
+                    : ''}
+                  . If it was delivered earlier, enter that date.
+                </p>
+              )}
               {existing && eventTAT(existing) !== null && (
                 <p className="mt-1 font-mono text-[10px] text-slate-400">
                   Turnaround {eventTAT(existing)} WD from receipt
@@ -7105,6 +7208,74 @@ seed?.pipeline ?? {
                 placeholder="https://…"
               />
             </div>
+
+            {!notApproved && (
+              <div className="md:col-span-2">
+                <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                  <span className={lab} style={{ marginBottom: 0 }} id="acc-lines-l">
+                    Counts in Accomplishments as
+                  </span>
+                  <span className="av-note av-dim">
+                    {accLines.tagged
+                      ? /^Backfill BASIS_FOR_NEXUS/i.test(f.remarks)
+                        ? 'Ticked in the 2026 workbook (Report lines in Remarks)'
+                        : 'Ticked by hand (Report lines in Remarks)'
+                      : 'Follows the services'}
+                    {pipeline.delivery !== 'done' && ' · counted once delivered'}
+                    {accLines.tagged && !readOnly && !approvalOnly && !frozen && (
+                      <>
+                        {' · '}
+                        <button type="button" className="underline" onClick={() => setLines(null)}>
+                          Follow the services instead
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div className="av-lines" role="group" aria-labelledby="acc-lines-l">
+                  {REPORT_LINES.map((l) => {
+                    const on = accLines.lines.includes(l.key);
+                    const unbacked = accLines.mm.unbacked.includes(l.key);
+                    const missing = accLines.mm.missing.includes(l.key);
+                    return (
+                      <button
+                        key={l.key}
+                        type="button"
+                        aria-pressed={on}
+                        className={`av-line${unbacked || missing ? ' warn' : ''}`}
+                        disabled={readOnly || approvalOnly || frozen || (on && accLines.lines.length === 1)}
+                        title={
+                          unbacked
+                            ? 'Ticked, but no matching service is delivered'
+                            : missing
+                            ? 'Delivered, but not ticked — not counted'
+                            : undefined
+                        }
+                        onClick={() =>
+                          setLines(on ? accLines.lines.filter((k) => k !== l.key) : [...accLines.lines, l.key])
+                        }
+                      >
+                        <b>{l.key}</b>
+                        {l.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {(accLines.mm.unbacked.length > 0 || accLines.mm.missing.length > 0) && (
+                  <p className="av-note mt-1.5" style={{ color: 'var(--waiting)' }}>
+                    {accLines.mm.unbacked.length > 0 &&
+                      `Ticked without a matching service: ${accLines.mm.unbacked.join(', ')}. `}
+                    {accLines.mm.missing.length > 0 && `Delivered but not ticked: ${accLines.mm.missing.join(', ')}. `}
+                    {importCheckOf(f.remarks) && `Import note: ${importCheckOf(f.remarks)}. `}
+                    {!readOnly && !approvalOnly && !frozen && (
+                      <button type="button" className="underline" onClick={() => setLines(accLines.fix)}>
+                        Match the services
+                      </button>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="md:col-span-2">
               <label className={lab}>Remarks</label>
@@ -9791,18 +9962,69 @@ function titleOverlap(a: string, b: string): number {
   return both / (A.size + B.size - both);
 }
 
+/**
+ * v7.3.3: ang pamagat at ahensiya sa iisang anyo, para lang sa pagtutugma ng
+ * form at event. Ang form ay "2026 Regional Science, Technology, and Innovation
+ * Week" ng "DOST- Central Visayas"; ang event ay "RSTW - DOST Region VII".
+ * Parehong event — pero walang salitang magkapareho kaya hindi nagtutugma.
+ */
+const MATCH_ALIASES: [RegExp, string][] = [
+  [/ regional science technology (and )?innovation week /g, ' rstw '],
+  [/ regional scientific meeting /g, ' rsm '],
+  [/ (national capital region|ncr) /g, ' regncr '],
+  [/ (cordillera administrative region|cordillera) /g, ' regcar '],
+  [/ (region (iv a|iva|4 a|4a)|calabarzon) /g, ' reg4a '],
+  [/ (region (iv b|ivb|4 b|4b)|mimaropa) /g, ' reg4b '],
+  [/ (region (xiii|13)|caraga) /g, ' reg13 '],
+  [/ (region (xii|12)|soccsksargen) /g, ' reg12 '],
+  [/ (region (xi|11)|davao region|davao) /g, ' reg11 '],
+  [/ (region (x|10)|northern mindanao) /g, ' reg10 '],
+  [/ (region (ix|9)|zamboanga peninsula|zampen) /g, ' reg9 '],
+  [/ (region (viii|8)|eastern visayas) /g, ' reg8 '],
+  [/ (region (vii|7)|central visayas) /g, ' reg7 '],
+  [/ (region (vi|6)|western visayas) /g, ' reg6 '],
+  [/ (region (v|5)|bicol region|bicol) /g, ' reg5 '],
+  [/ (region (iii|3)|central luzon) /g, ' reg3 '],
+  [/ (region (ii|2)|cagayan valley) /g, ' reg2 '],
+  [/ (region (i|1)|ilocos region|ilocos) /g, ' reg1 '],
+  [/ (19|20)\d\d /g, ' '],
+  [/ \d+(st|nd|rd|th) /g, ' '],
+];
+const MATCH_STOP = new Set(['dost', 'the', 'and', 'for', 'with', 'from', 'sa', 'ng', 'mga', 'ang']);
+
+function matchText(s: string): string {
+  let t = ` ${normTitle(s)} `;
+  for (const [re, to] of MATCH_ALIASES) t = t.replace(re, to).replace(re, to);
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+function matchOverlap(a: string, b: string): number {
+  const words = (t: string) => new Set(matchText(t).split(' ').filter((w) => w.length > 2 && !MATCH_STOP.has(w)));
+  const A = words(a);
+  const B = words(b);
+  if (!A.size || !B.size) return 0;
+  let both = 0;
+  A.forEach((w) => {
+    if (B.has(w)) both += 1;
+  });
+  return both / (A.size + B.size - both);
+}
+
 /** Ang record na halos tiyak na parehong event ng sagot sa form. */
 function possibleMatch(events: AVEvent[], q: IntakeRequest): AVEvent | null {
   let best: AVEvent | null = null;
   let bestScore = 0;
-  const ag = normTitle(q.agency);
+  const ag = matchText(q.agency);
   for (const e of events) {
     if (!APPROVAL_META[e.approval].live) continue;
     const d = daysApart(e.eventDate, q.start);
     if (d === null || d > 2) continue;
-    const cl = normTitle(e.client);
+    const cl = matchText(e.client);
     const sameAgency = !!ag && !!cl && (cl.includes(ag) || ag.includes(cl));
-    const score = titleOverlap(e.title, q.title) + (sameAgency ? 0.3 : 0) + (d === 0 ? 0.1 : 0);
+    const score =
+      Math.max(titleOverlap(e.title, q.title), matchOverlap(e.title, q.title)) +
+      (sameAgency ? 0.3 : 0) +
+      (d === 0 ? 0.1 : 0);
     if (score >= 0.6 && score > bestScore) {
       best = e;
       bestScore = score;
@@ -9837,6 +10059,7 @@ function IntakeInbox({
   groups,
   canAct,
   canLink,
+  canReopen = false,
   onLog,
   onQuick,
   onLink,
@@ -9846,13 +10069,16 @@ function IntakeInbox({
   groups: IntakeGroup[];
   canAct: boolean;
   canLink: (ev: AVEvent) => boolean;
+  /** Admin: maaaring isulat ang link kahit sarado na ang record (naitatala bilang reopening). */
+  canReopen?: boolean;
   onLog: (q: IntakeRequest, refs: string[]) => void;
   onQuick: (q: IntakeRequest, mode: IntakeMode, refs: string[]) => void;
-  onLink: (refs: string[], ev: AVEvent) => void;
+  onLink: (refs: string[], ev: AVEvent, quiet?: boolean) => void;
   onHide: (refs: string[]) => void;
   onOpen: (ev: AVEvent) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [bulk, setBulk] = useState<'' | 'review' | number>('');
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
   const recent = groups.filter((g) => {
@@ -9860,10 +10086,82 @@ function IntakeInbox({
     return !d || d.getTime() >= cutoff.getTime();
   });
   const list = showAll ? groups : recent;
+  /**
+   * v7.3.3: lahat ng may tugmang record, kasama ang mas luma sa 30 araw. Dati,
+   * isa-isang "Same request" — at karamihan ay pumapalya dahil sarado na ang record.
+   */
+  const linkable = groups.filter(
+    (g): g is IntakeGroup & { match: AVEvent } =>
+      !!g.match && !isLocalId(g.match.id) && canLink(g.match) && (canReopen || !serverClosed(g.match))
+  );
+  const closedTargets = new Set(linkable.filter((g) => serverClosed(g.match)).map((g) => g.match.id)).size;
+  const linkAll = () => {
+    // Iisang pagbabago bawat record: kung dalawang sagot ang tumuturo sa iisang
+    // event, sabay silang isinusulat — hindi magsasapawan ang Remarks.
+    const byEv = new Map<string, { ev: AVEvent; refs: string[] }>();
+    linkable.forEach((g) => {
+      const cur = byEv.get(g.match.id) || { ev: g.match, refs: [] };
+      cur.refs.push(...g.refs);
+      byEv.set(g.match.id, cur);
+    });
+    byEv.forEach(({ ev, refs }) => onLink(refs, ev, true));
+    setBulk(linkable.length);
+  };
   if (!groups.length) return null;
 
   return (
     <div>
+      {canAct && typeof bulk === 'number' && (
+        <p className="av-inbox-bulk av-note">
+          Linking {bulk} form request{bulk === 1 ? '' : 's'} to {bulk === 1 ? 'its record' : 'their records'}. Each
+          one leaves this list now; the sync list shows when they reach the sheet.
+        </p>
+      )}
+      {canAct && linkable.length > 1 && bulk !== 'review' && typeof bulk !== 'number' && (
+        <div className="av-inbox-bulk">
+          <p className="av-note">
+            <b>{linkable.length} of these look like events already in AV Nexus.</b> Link them in one go so they
+            are never logged twice.
+          </p>
+          <button type="button" className="av-btn-ghost text-[13px]" onClick={() => setBulk('review')}>
+            Review and link all
+          </button>
+        </div>
+      )}
+      {canAct && bulk === 'review' && (
+        <div className="av-inbox-bulk is-open">
+          <p className="av-note">
+            <b>
+              Link these {linkable.length} form requests to the records already here?
+            </b>{' '}
+            Each record gets &ldquo;Online request form &hellip;&rdquo; in its Remarks. Check every pair — they are
+            matched on title, agency and date.
+            {closedTargets > 0 &&
+              ` ${closedTargets} of the records ${closedTargets === 1 ? 'is' : 'are'} complete and closed, so the change is logged as a reopening by you.`}
+          </p>
+          <ul className="av-inbox-pairs">
+            {linkable.map((g) => (
+              <li key={g.lead.ref}>
+                <span>
+                  &ldquo;{g.lead.title}&rdquo; <i>{[g.lead.agency, fmtDate(g.lead.start)].filter(Boolean).join(' · ')}</i>
+                </span>
+                <span aria-hidden>→</span>
+                <span>
+                  {g.match.id} &ldquo;{g.match.title}&rdquo; <i>{fmtDate(g.match.eventDate)}</i>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="av-btn text-[13px]" onClick={linkAll}>
+              Link {linkable.length}
+            </button>
+            <button type="button" className="av-btn-ghost text-[13px]" onClick={() => setBulk('')}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <ul className="av-inbox">
         {list.slice(0, showAll ? 100 : 10).map((g) => {
           const q = g.lead;
@@ -10430,7 +10728,7 @@ function intakePrefill(q: IntakeRequest, mode: IntakeMode): AVEvent {
   const ev = eventFromIntake(q);
   if (mode === 'declined' || mode === 'cancelled') ev.reason = q.notes;
   if (mode === 'done') {
-    const steps = stepsFor(q.stream);
+    const steps = stepsFor(q.stream, q.services);
     PIPELINE_STEPS.forEach((st) => {
       if (st.key === 'archiving' || st.key === 'csm') return;
       ev.pipeline[st.key] = steps.some((x) => x.key === st.key) ? 'done' : 'na';
@@ -12274,10 +12572,79 @@ function downloadCSV(name: string, rows: (string | number)[][]) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-function AccomplishmentsView({ rows, now }: { rows: AccRow[]; now: Date }) {
+/** v7.3.3: ang serbisyong dapat nasa likod ng isang tsek (para sa ⚠ sa drill-down). */
+const LINE_NEEDS: Record<string, string> = {
+  a: 'Photo Coverage',
+  d: 'Video Coverage',
+  m: 'SDE',
+  j: 'Video Production or Full Video Production',
+};
+
+/** v7.3.3: ang tala ng import — hal. "Check: Scriptwriting (j) may be Technical setup (k)". */
+function importCheckOf(remarks: string): string {
+  const m = /Check:\s*([^·]+)/i.exec(String(remarks || ''));
+  return m ? m[1].trim() : '';
+}
+
+/** v7.3.3: saan galing ang bilang ng isang event sa isang report line — sagot sa "saan galing ang scriptwriting?" */
+function lineOrigin(r: AccRow, line: string): string {
+  if (lineSource(r) === 'tag') {
+    const lines = parseReportLines(r.remarks) || [];
+    const where = /^Backfill BASIS_FOR_NEXUS/i.test(r.remarks) ? '2026 workbook tick' : 'Ticked in Remarks';
+    return `${where} (Report lines ${lines.join(', ')})`;
+  }
+  if (line === 'j') return `Script approval done · ${r.services.join(', ')}`;
+  return `From the services · ${r.services.join(', ') || 'none'}`;
+}
+
+function AccomplishmentsView({
+  rows,
+  now,
+  onOpen,
+}: {
+  rows: AccRow[];
+  now: Date;
+  onOpen?: (id: string) => void;
+}) {
   const year = now.getFullYear();
   const [withCurrent, setWithCurrent] = useState(false);
   const rep = useMemo(() => monthlyReport(rows, year), [rows, year]);
+
+  /**
+   * v7.3.3: ang drill-down. Bawat bilang sa talahanayan ay may pinanggalingan —
+   * tsek sa 2026 workbook o ang mismong serbisyo. Dati, walang paraan para
+   * malaman kung saan galing ang tatlong Scriptwriting (j) noong Hunyo.
+   */
+  const [pick, setPick] = useState<{ line: string; month: number | null } | null>(null);
+  const counted = useMemo(
+    () =>
+      rows
+        .filter((r) => r.delivered && r.date && r.date.getFullYear() === year)
+        .sort((a, b) => a.date!.getTime() - b.date!.getTime()),
+    [rows, year]
+  );
+  /** Ang mga tsek na hindi tugma sa naihatid na serbisyo, ayon sa linya. */
+  const flagged = useMemo(() => {
+    const byLine: Record<string, AccRow[]> = {};
+    const all: AccRow[] = [];
+    counted.forEach((r) => {
+      const mm = lineMismatch(r);
+      if (!mm.missing.length && !mm.unbacked.length) return;
+      all.push(r);
+      mm.unbacked.forEach((l) => (byLine[l] = [...(byLine[l] || []), r]));
+    });
+    return { byLine, all };
+  }, [counted]);
+  const drill = useMemo(
+    () =>
+      pick
+        ? counted.filter(
+            (r) => (pick.month === null || r.date!.getMonth() === pick.month) && reportLinesOf(r).includes(pick.line)
+          )
+        : [],
+    [pick, counted]
+  );
+  const pickLabel = pick ? REPORT_LINES.find((l) => l.key === pick.line) : null;
   const targets = year === 2026 ? TARGETS_2026 : null;
   const upto = Math.min(12, Math.max(1, now.getMonth() + (withCurrent ? 1 : 0)));
   const delivered = sumTo(rep.delivered, upto);
@@ -12445,14 +12812,41 @@ function AccomplishmentsView({ rows, now }: { rows: AccRow[]; now: Date }) {
             <tbody>
               {REPORT_LINES.map((l) => {
                 const row = rep.lines[l.key];
+                const warn = (flagged.byLine[l.key] || []).length;
+                const on = pick?.line === l.key;
                 return (
-                  <tr key={l.key}>
+                  <tr key={l.key} className={on ? 'on' : ''}>
                     <td>
-                      <b>{l.key}.</b> {l.label}
+                      <button
+                        type="button"
+                        className="av-acc-pick"
+                        aria-expanded={on && pick?.month === null}
+                        disabled={!sumTo(row)}
+                        onClick={() => setPick(on && pick?.month === null ? null : { line: l.key, month: null })}
+                        title={sumTo(row) ? `Show where the ${l.label.toLowerCase()} count comes from` : undefined}
+                      >
+                        <b>{l.key}.</b> {l.label}
+                        {warn > 0 && (
+                          <span className="av-acc-warn no-print" title={`${warn} ticked without a matching service`}>
+                            ⚠ {warn}
+                          </span>
+                        )}
+                      </button>
                     </td>
                     {row.map((v, i) => (
-                      <td key={i} className={v ? '' : 'z'}>
-                        {v || '–'}
+                      <td key={i} className={`${v ? '' : 'z'}${on && pick?.month === i ? ' sel' : ''}`}>
+                        {v ? (
+                          <button
+                            type="button"
+                            className="av-acc-cell"
+                            aria-label={`${v} ${l.label} in ${MONTH_ABBR[i]} — show the events`}
+                            onClick={() => setPick(on && pick?.month === i ? null : { line: l.key, month: i })}
+                          >
+                            {v}
+                          </button>
+                        ) : (
+                          '–'
+                        )}
                       </td>
                     ))}
                     <td className="tot">{sumTo(row) || '–'}</td>
@@ -12480,7 +12874,100 @@ function AccomplishmentsView({ rows, now }: { rows: AccRow[]; now: Date }) {
             </tfoot>
           </table>
         </div>
+        {pick && pickLabel ? (
+          <div className="av-acc-drill no-print" aria-live="polite">
+            <div className="av-acc-drill-h">
+              <p>
+                <b>
+                  {pick.line}. {pickLabel.label}
+                </b>{' '}
+                · {drill.length} event{drill.length === 1 ? '' : 's'}{' '}
+                {pick.month === null ? `in ${year}` : `in ${MONTH_ABBR[pick.month]} ${year}`}
+              </p>
+              <button type="button" className="av-btn-ghost text-[13px]" onClick={() => setPick(null)}>
+                Close
+              </button>
+            </div>
+            <ul className="av-acc-list">
+              {drill.map((r) => {
+                const bad = lineMismatch(r).unbacked.includes(pick.line);
+                const check = importCheckOf(r.remarks);
+                return (
+                  <li key={r.id || `${r.title}-${r.date!.getTime()}`} className={bad ? 'bad' : ''}>
+                    <span className="m">
+                      {MONTH_ABBR[r.date!.getMonth()]} {r.date!.getDate()}
+                    </span>
+                    <span className="b">
+                      <span className="t">{r.title || 'Untitled event'}</span>
+                      <span className="s">{[r.id, r.client].filter(Boolean).join(' · ')}</span>
+                      <span className="o">{lineOrigin(r, pick.line)}</span>
+                      {bad && (
+                        <span className="w">
+                          ⚠ Ticked, but no {LINE_NEEDS[pick.line] || 'production service'} is in the delivered
+                          services.
+                          {check ? ` Import note: ${check}.` : ''}
+                        </span>
+                      )}
+                    </span>
+                    {onOpen && r.id && (
+                      <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onOpen(r.id!)}>
+                        Open
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : (
+          <p className="av-acc-hint no-print">Click a report line or a number to see the events behind it.</p>
+        )}
       </div>
+
+      {flagged.all.length > 0 && (
+        <div className="av-card av-acc-flag no-print">
+          <p className="t">
+            {flagged.all.length} delivered event{flagged.all.length === 1 ? '' : 's'} where the ticks and the
+            services disagree
+          </p>
+          <p className="s">
+            The count above follows the ticks. Open each one and use <b>Counts in Accomplishments as</b> to match
+            the services, or correct the services if the ticks are right.
+          </p>
+          <ul className="av-acc-list">
+            {flagged.all.map((r) => {
+              const mm = lineMismatch(r);
+              const check = importCheckOf(r.remarks);
+              const name = (k: string) => `${k} – ${REPORT_LINES.find((l) => l.key === k)?.label}`;
+              return (
+                <li key={r.id || `${r.title}-${r.date!.getTime()}`} className="bad">
+                  <span className="m">
+                    {MONTH_ABBR[r.date!.getMonth()]} {r.date!.getDate()}
+                  </span>
+                  <span className="b">
+                    <span className="t">{r.title || 'Untitled event'}</span>
+                    <span className="s">
+                      {[r.id, `Report lines ${reportLinesOf(r).join(', ')}`, `Delivered: ${r.services.join(', ') || 'none'}`]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                    <span className="w">
+                      {mm.unbacked.length > 0 && `Ticked without a delivered service: ${mm.unbacked.map(name).join(', ')}. `}
+                      {mm.missing.length > 0 && `Delivered but not ticked: ${mm.missing.map(name).join(', ')}. `}
+                      {check && `Import note: ${check}.`}
+                    </span>
+                  </span>
+                  {onOpen && r.id && (
+                    <button type="button" className="av-btn-ghost text-[13px]" onClick={() => onOpen(r.id!)}>
+                      Open
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="av-card av-acc-table">
         <div className="av-acc-th">Requests and results</div>
@@ -14156,7 +14643,8 @@ function AppMain() {
         ev.dateDelivered || (stale || (opts.backfill && endedBefore) ? null : new Date());
       const pipeline = { ...ev.pipeline };
       const patch: Record<string, string> = {};
-      stepsFor(streamOfServices(ev.requested)).forEach((st) => {
+      const applicable = stepsFor(streamOfServices(ev.requested), ev.requested);
+      applicable.forEach((st) => {
         if (st.key === 'archiving' || st.key === 'csm') return;
         if (pipeline[st.key] === 'na' || pipeline[st.key] === 'done') return;
         pipeline[st.key] = 'done';
@@ -14164,6 +14652,35 @@ function AppMain() {
       });
       if (!ev.dateDelivered && deliveredOn) patch.dateDelivered = dayKey(deliveredOn);
       if (!Object.keys(patch).length) return;
+      /**
+       * v7.3.3: ang petsa ngayon ang itinatatak bilang Date served. Kapag lampas na
+       * ito sa target, OVERDUE ang record — gaya ng walong event noong Oktubre na
+       * minarkahan noong 8 Nobyembre. Itinatanong muna; kapag hindi ngayon naihatid,
+       * binubuksan ang event para mailagay ang tamang petsa.
+       */
+      const due = eventTarget(ev);
+      if (
+        !opts.backfill &&
+        patch.dateDelivered &&
+        due &&
+        patch.dateDelivered > dayKey(due) &&
+        !window.confirm(
+          `Record today, ${fmtDate(deliveredOn)}, as the day “${ev.title || ev.id}” was delivered?\n\n` +
+            `That is after its target (${fmtDate(due)}), so it will count as overdue. ` +
+            'Choose Cancel to open the event and enter the real date served.'
+        )
+      ) {
+        setEvModal({ open: true, editing: ev });
+        toast('Set Client delivery to Done, enter the date served, then save.', 'info');
+        return;
+      }
+      // v7.3.3: ang hindi applicable (hal. script sa isang shoot) ay N/A sa sheet,
+      // hindi "Done" — para walang scriptwriting na lumalabas na hindi naman ginawa.
+      PIPELINE_STEPS.forEach((st) => {
+        if (applicable.some((a) => a.key === st.key) || pipeline[st.key] === 'na') return;
+        pipeline[st.key] = 'na';
+        patch[stepField(st.key)] = PIPELINE_META.na.label;
+      });
       enqueue(
         [
           makeOp('updateEvent', { action: 'updateEvent', id: ev.id, patch }, `Mark “${ev.title || ev.id}” as delivered`, ev.id, {
@@ -14480,26 +14997,6 @@ function AppMain() {
     setEvModal({ open: true, editing: null, prefill: pre, intent: mode });
   }, []);
 
-  /** "Same request": isinusulat ang form ref sa record na nandito na — hindi na mala-log ulit. */
-  const linkIntake = useCallback(
-    (refs: string[], ev: AVEvent) => {
-      if (isLocalId(ev.id)) {
-        toast('That record is still saving — try again in a moment.', 'info');
-        return;
-      }
-      const remarks = withFormRefs(ev.remarks, refs);
-      holdRefs(refs);
-      if (remarks === ev.remarks) return;
-      enqueue([
-        makeOp('updateEvent', { action: 'updateEvent', id: ev.id, patch: { remarks } }, `Link form request to “${ev.title}”`, ev.id, {
-          event: { ...ev, remarks },
-          doneText: `Linked to ${ev.id} — it will not be logged twice`,
-        }),
-      ]);
-    },
-    [toast, enqueue, holdRefs]
-  );
-
   const hideForms = useCallback(
     (refs: string[]) => {
       setHiddenForms((prev) => {
@@ -14510,6 +15007,46 @@ function AppMain() {
       toast('Marked as already recorded on this device.', 'info');
     },
     [toast]
+  );
+
+  /**
+   * "Same request": isinusulat ang form ref sa record na nandito na — hindi na mala-log ulit.
+   *
+   * v7.3.3: tapos at sarado na ang karamihan ng record (110 sa 118). Tinatanggihan ng
+   * server ang anumang pagbabago roon maliban kung bubuksan ng section lead — kaya
+   * dati, pumapalya ang "Same request" at bumabalik ang form sa inbox makalipas ang
+   * 30 minuto. Ngayon: ang admin ay nagpapadala ng reopen (naitatala sa Action Log);
+   * ang iba ay sinasabihan at itinatago ito sa device na ito.
+   */
+  const linkIntake = useCallback(
+    (refs: string[], ev: AVEvent, quiet = false) => {
+      if (isLocalId(ev.id)) {
+        toast('That record is still saving — try again in a moment.', 'info');
+        return;
+      }
+      const locked = serverClosed(ev);
+      if (locked && myRole !== 'admin') {
+        hideForms(refs);
+        toast(`${ev.id} is complete and closed, so only the section lead can write the link to it.`, 'info');
+        return;
+      }
+      const remarks = withFormRefs(ev.remarks, refs);
+      holdRefs(refs);
+      if (remarks === ev.remarks) return;
+      enqueue([
+        makeOp(
+          'updateEvent',
+          { action: 'updateEvent', id: ev.id, patch: locked ? { remarks, reopen: true } : { remarks } },
+          `Link form request to “${ev.title}”`,
+          ev.id,
+          {
+            event: { ...ev, remarks },
+            doneText: quiet ? '' : `Linked to ${ev.id} — it will not be logged twice`,
+          }
+        ),
+      ]);
+    },
+    [toast, enqueue, holdRefs, hideForms, myRole]
   );
 
   const dismissDup = useCallback((g: AVEvent[]) => {
@@ -14894,6 +15431,7 @@ function AppMain() {
   const accRows = useMemo<AccRow[]>(
     () =>
       events.map((ev) => ({
+        id: ev.id,
         title: ev.title,
         client: ev.client,
         date: ev.eventDate,
@@ -14902,6 +15440,7 @@ function AppMain() {
         delivered: isDelivered(ev),
         services: deliveredServicesOf(ev),
         approval: ev.approval,
+        scriptDone: ev.pipeline.script === 'done' && needsScriptStep(ev.requested),
       })),
     [events]
   );
@@ -16794,6 +17333,7 @@ function AppMain() {
                           groups={intakeGroups}
                           canAct
                           canLink={canEditEv}
+                          canReopen={myRole === 'admin'}
                           onLog={openIntake}
                           onQuick={logIntakeAs}
                           onLink={linkIntake}
@@ -17420,7 +17960,16 @@ function AppMain() {
             )}
 
             {/* ====================================== COMPLIANCE ====== */}
-            {view === 'accomplishments' && <AccomplishmentsView rows={accRows} now={new Date()} />}
+            {view === 'accomplishments' && (
+              <AccomplishmentsView
+                rows={accRows}
+                now={new Date()}
+                onOpen={(id) => {
+                  const ev = events.find((e) => e.id === id);
+                  if (ev) openEv(ev);
+                }}
+              />
+            )}
 
             {view === 'compliance' && prodReady === 'missing' && events.length === 0 && (
               <section>
@@ -19183,6 +19732,14 @@ details.av-card > summary::-webkit-details-marker { display: none; }
 .av-inbox-t { font-size: 14px; font-weight: 600; color: var(--ink); }
 .av-inbox-m { font-size: 12.5px; color: var(--ink-3); line-height: 1.45; }
 .av-inbox-dup { margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--waiting); }
+/* v7.3.3: i-link nang sabay-sabay ang mga form na may tugmang record */
+.av-inbox-bulk { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 10px; padding: 12px 14px; border: 1px solid var(--rule); border-left: 4px solid var(--signal); border-radius: 12px; background: var(--surface-2); }
+.av-inbox-bulk.is-open { flex-direction: column; align-items: stretch; }
+.av-inbox-pairs { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; border: 1px solid var(--rule-soft); border-radius: 10px; background: var(--card); }
+.av-inbox-pairs li { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 4px 10px; align-items: baseline; padding: 8px 12px; border-top: 1px solid var(--rule-soft); font-size: 13px; color: var(--ink-2); }
+.av-inbox-pairs li:first-child { border-top: 0; }
+.av-inbox-pairs i { font-style: normal; color: var(--ink-3); }
+@media (max-width: 639px) { .av-inbox-pairs li { grid-template-columns: 1fr; } .av-inbox-pairs li > span[aria-hidden] { display: none; } }
 .av-dup { padding: 14px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card); }
 .av-dup-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 .av-dup-card {
@@ -19529,6 +20086,50 @@ html[data-theme='dark'] .av-run-more { color: #8DBAD9; }
 }
 .av-toggle { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 1px solid var(--rule-strong); border-radius: var(--r-ctl); background: var(--card); font-size: 14.5px; color: var(--ink-2); cursor: pointer; }
 .av-toggle input { width: 16px; height: 16px; accent-color: var(--signal-strong); }
+
+/* v7.3.3: saan galing ang bawat bilang — drill-down at mga hindi tugmang tsek */
+.av-acc-pick { all: unset; display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; cursor: pointer; border-radius: 6px; }
+.av-acc-pick:disabled { cursor: default; }
+.av-acc-pick:not(:disabled):hover { color: var(--signal-strong); text-decoration: underline; text-underline-offset: 3px; }
+.av-acc-pick:focus-visible, .av-acc-cell:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.av-acc-warn { display: inline-flex; padding: 1px 8px; border-radius: var(--r-pill); background: var(--tint-amber); color: var(--waiting); font-size: 12px; font-weight: 600; text-decoration: none; }
+.av-acc-cell { all: unset; cursor: pointer; min-width: 22px; padding: 2px 6px; border-radius: 6px; text-align: right; }
+.av-acc-cell:hover { background: var(--tint-blue); color: var(--signal-strong); }
+.av-acc-table tr.on td:first-child, .av-acc-table tr.on td { background: linear-gradient(var(--tint-blue), var(--tint-blue)), var(--card); }
+.av-acc-table td.sel .av-acc-cell { background: var(--signal-strong); color: #fff; }
+.av-acc-hint { padding: 12px 20px; border-top: 1px solid var(--rule-soft); font-size: 13.5px; color: var(--ink-3); }
+.av-acc-drill { border-top: 1px solid var(--rule); background: var(--surface-2); }
+.av-acc-drill-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 14px 20px 6px; font-size: 15px; color: var(--ink-2); }
+.av-acc-drill-h b { color: var(--ink); font-weight: 600; }
+.av-acc-list { list-style: none; margin: 0; padding: 0 20px 14px; }
+.av-acc-list li { display: flex; align-items: flex-start; gap: 14px; padding: 11px 0; border-top: 1px solid var(--rule-soft); }
+.av-acc-list li:first-child { border-top: 0; }
+.av-acc-list .m { flex: none; width: 54px; padding-top: 1px; font-size: 13px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.av-acc-list .b { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.av-acc-list .t { font-size: 15px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.av-acc-list .s, .av-acc-list .o { font-size: 13px; color: var(--ink-3); overflow-wrap: anywhere; }
+.av-acc-list .o { color: var(--ink-2); }
+.av-acc-list .w { font-size: 13px; font-weight: 500; color: var(--waiting); }
+.av-acc-list li > button { flex: none; }
+.av-acc-flag { padding: 18px 20px 6px; border-left: 4px solid var(--waiting); }
+.av-acc-flag .t { font-size: 16px; font-weight: 600; color: var(--ink); }
+.av-acc-flag .s { margin-top: 4px; max-width: 760px; font-size: 14px; color: var(--ink-3); }
+.av-acc-flag .av-acc-list { padding: 8px 0 8px; }
+@media (max-width: 639px) {
+  .av-acc-list li { flex-wrap: wrap; gap: 6px 12px; }
+  .av-acc-list .m { width: auto; }
+  .av-acc-list .b { flex-basis: 100%; }
+}
+
+/* v7.3.3: report lines sa event form */
+.av-lines { display: flex; flex-wrap: wrap; gap: 6px; }
+.av-line { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border: 1px solid var(--rule-strong); border-radius: var(--r-pill); background: var(--card); font-size: 12.5px; color: var(--ink-3); cursor: pointer; }
+.av-line b { font-weight: 650; color: var(--ink-2); }
+.av-line[aria-pressed="true"] { border-color: transparent; background: var(--tint-green); color: var(--served); }
+.av-line[aria-pressed="true"] b { color: var(--served); }
+.av-line.warn { border-color: var(--waiting); box-shadow: inset 0 0 0 1px var(--waiting); }
+.av-line:disabled { cursor: default; opacity: .65; }
+.av-line:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 
 /* ---------------------------------------------------------- Backfill -- */
 .av-backfill { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 20px; margin: 20px 0; padding: 18px 20px; border-left: 4px solid var(--brand-gold); }
