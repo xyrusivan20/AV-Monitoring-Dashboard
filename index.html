@@ -3,10 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>AV Coverage Dashboard</title>
-    <meta property="og:title" content="AVDMT" />
-    <meta property="og:description" content="AV Coverage and DMC Monitoring Tool" />
+    <title>AV Nexus · DOST-STII Broadcast and Digital Media</title>
+    <meta name="description" content="AV coverage, production and DMC monitoring for the DOST-STII Broadcast and Digital Media Section." />
+    <meta property="og:title" content="AV Nexus" />
+    <meta property="og:description" content="AV coverage, production and DMC monitoring for the DOST-STII Broadcast and Digital Media Section." />
     <meta property="og:type" content="website" />
+
+    <!-- Kulay ng pahina bago pa mag-load ang app, para walang puting kislap — lalo na sa dark mode. -->
+    <style>
+      html, body { margin: 0; background: #F2F3F5; }
+      html[data-theme='dark'], html[data-theme='dark'] body { background: #08090A; }
+    </style>
+    <script>
+      try {
+        var saved = localStorage.getItem('avnexus.theme');
+        var dark = saved === 'dark' || (saved !== 'light' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    </script>
 
     <!--
       HOME-SCREEN SHORTCUT (iOS + Android): tamang pangalan, icon at kulay.
