@@ -1296,6 +1296,12 @@ interface ServiceRequest {
   csm: number; // 0 = not yet rated; 1–5
   link: string;
   remarks: string;
+  /**
+   * v7.4: kailan maaari nang simulan ang trabaho — ang huling araw ng event, o
+   * ang pagtanggap kung mas huli (slaBaseDate). Dito nagsisimula ang orasan ng
+   * SLA. Wala nito ang lumang register; doon, ang pagtanggap ang simula.
+   */
+  clockStart?: Date | null;
 }
 
 /** Turnaround time per PM section 6 — TOTAL TURNAROUND TIME, working days. */
@@ -1585,6 +1591,22 @@ function actualTAT(r: ServiceRequest): number | null {
   const start = tatStart(r);
   if (!start || !r.dateDelivered) return null;
   return workingDaysBetween(start, r.dateDelivered);
+}
+
+/**
+ * v7.4: ang oras ng PAGPROSESO — mula sa araw na maaari nang simulan ang trabaho
+ * (huling araw ng event, o pagtanggap kung mas huli) hanggang maihatid. Ito ang
+ * maihahambing sa SLA, dahil doon din nagsisimula ang orasan ng target.
+ *
+ * Ang actualTAT (pagtanggap → paghahatid) ay kasama ang mga araw ng paghihintay
+ * sa event: ang request na natanggap 47 working days bago ang event at naihatid
+ * sa mismong araw nito ay "47 WD", kaya ang average ng coverage ay lumalabas na
+ * lampas sa 3 WD kahit on time ang lahat. Ipinapakita pa rin iyon, pero hiwalay.
+ */
+function processingTAT(r: ServiceRequest): number | null {
+  const start = r.clockStart ?? tatStart(r);
+  if (!start || !r.dateDelivered) return null;
+  return Math.max(0, workingDaysBetween(start, r.dateDelivered));
 }
 
 /** Ilang working days ang natitira (+) o lumagpas (−) bago ang target. */
@@ -2088,6 +2110,7 @@ function eventAsRequest(ev: AVEvent): ServiceRequest {
     csm: ev.csm,
     link: ev.link,
     remarks: ev.remarks,
+    clockStart: slaBaseDate(ev),
   };
 }
 
@@ -2843,6 +2866,7 @@ function HeroStat({
   hex,
   icon,
   onClick,
+  blank = false,
 }: {
   label: string;
   value: number;
@@ -2852,6 +2876,8 @@ function HeroStat({
   hex: string;
   icon: IconName;
   onClick?: () => void;
+  /** v7.4: walang masusukat (hal. 0 sa 0) — gitling ang ipinapakita, hindi "0%". */
+  blank?: boolean;
 }) {
   const shown = useCountUp(value);
   const body = (
@@ -2864,8 +2890,8 @@ function HeroStat({
       <span className="min-w-0 flex-1">
         <span className="l block break-words">{label}</span>
         <span className="v block">
-          {shown}
-          {suffix}
+          {blank ? '—' : shown}
+          {blank ? '' : suffix}
         </span>
         <span className="s block">{sub}</span>
       </span>
@@ -3446,14 +3472,18 @@ function SectionHead({
   title,
   hint,
   right,
+  tag,
 }: {
   title: string;
   hint?: string;
   right?: React.ReactNode;
+  /** v7.4: ang audit item o PM clause na sinasagot ng seksiyon — "Item 44", "PM 2.2". */
+  tag?: string;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+    <div className="av-sechead mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
       <div className="min-w-0">
+        {tag && <p className="av-tag">{tag}</p>}
         <h2 className="av-h2">{title}</h2>
         {hint && <p className="av-sec-p mt-1 max-w-3xl">{hint}</p>}
       </div>
@@ -3462,33 +3492,35 @@ function SectionHead({
   );
 }
 
+/** v7.4: bilang na walang singsing. Ang estado ay tuldok sa tabi ng tatak; ang bahagi (%) ay maliit na katabi ng bilang. */
 function StatTile({
   label,
   value,
   sub,
-  accent,
-  bar,
+  tone,
+  share,
 }: {
   label: string;
   value: number;
   sub: string;
-  accent: string;
-  bar: number;
+  tone?: 'ok' | 'warn' | 'bad';
+  /** Bahagi ng kabuuan, 0–100. Ipinapakita lang kapag may sinasabi. */
+  share?: number;
 }) {
   const shown = useCountUp(value);
-  const pct = Math.max(0, Math.min(100, bar));
   return (
     <div className="av-kpi flat">
       <div className="min-w-0 flex-1">
-        <p className="l break-words">{label}</p>
-        <p className="v">{shown}</p>
+        <p className="l break-words">
+          {tone && <i className="av-led" data-t={tone} aria-hidden="true" />}
+          {label}
+        </p>
+        <p className="v">
+          {shown}
+          {share !== undefined && <small>{Math.round(Math.max(0, Math.min(100, share)))}%</small>}
+        </p>
         <p className="s">{sub}</p>
       </div>
-      <Ring pct={pct} hex={accent} size={58} stroke={5}>
-        <span className="text-[11px] font-semibold tabular-nums text-[var(--ink-2)]">
-          {Math.round(pct)}%
-        </span>
-      </Ring>
     </div>
   );
 }
@@ -4123,7 +4155,363 @@ function SLABadge({ state }: { state: SLAState }) {
   );
 }
 
-/** KPI ring — target vs actual, para sa PM 2.1 at 2.2. */
+/* ------------------------------------------------- v7.4 · AUDIT FIGURES --
+   Ang mga bilang sa Compliance ay kinukuwenta rito, minsanan — para iisa ang
+   sinasabi ng readiness slate, ng bawat panel at ng checklist. */
+
+/**
+ * "Recorded from the request form sheet" ay hindi dahilan — sinasabi lang nito
+ * kung saan galing ang record. Dati, binibilang itong dahilan, at lumalabas sa
+ * Compliance bilang "Declined … due to recorded from the request form sheet".
+ */
+function hasRealReason(reason: string): boolean {
+  const t = String(reason || '').trim();
+  return !!t && !/^(recorded|logged) from the request form( sheet)?\.?$/i.test(t);
+}
+
+type Tone = 'ok' | 'warn' | 'bad' | 'info';
+
+/** Iisang anyo ng bilang sa buong Compliance: tatak, numero, tala. Ang kulay ay nasa tuldok, hindi sa numero. */
+function Ledger({
+  items,
+}: {
+  items: { k: string; v: React.ReactNode; s?: React.ReactNode; tone?: Tone }[];
+}) {
+  return (
+    <div className="av-ledger" style={{ '--n': items.length } as React.CSSProperties}>
+      {items.map((x) => (
+        <div key={x.k} className="av-ledger-c">
+          <p className="k">
+            {x.tone && <i data-t={x.tone} aria-hidden="true" />}
+            {x.k}
+          </p>
+          <p className="v">{x.v}</p>
+          {x.s && <p className="s">{x.s}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Maliit na babalang tatsulok — inline SVG, hindi na emoji o glyph ng font. */
+function WarnMark() {
+  return (
+    <svg className="av-warn-i" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+      <path d="M8 2 1.4 13.5h13.2L8 2Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M8 6.5v3.2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="8" cy="11.6" r=".9" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Paalala sa loob ng panel — puting card na may kulay sa gilid, hindi punong-kulay na banner. */
+function Notice({ tone = 'info', children }: { tone?: Tone; children: React.ReactNode }) {
+  return (
+    <div className="av-notice" data-t={tone}>
+      {children}
+    </div>
+  );
+}
+
+interface StreamTurnaround {
+  stream: Stream;
+  total: number;
+  /** May petsa ng paghahatid, kaya nasusukat. */
+  measured: number;
+  /** Average na working days ng pagproseso (simula ng orasan → paghahatid). */
+  avg: number | null;
+  worst: number | null;
+  /** Average mula sa pagtanggap ng kahilingan (kasama ang paghihintay sa event). */
+  avgWait: number | null;
+  onTime: number;
+  late: number;
+  onTimePct: number | null;
+  sla: number;
+}
+
+/** ITEM 41 — ang lahat ng bilang ng turnaround. */
+function turnaroundStats(requests: ServiceRequest[]) {
+  const avgOf = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const byStream: StreamTurnaround[] = (['coverage', 'production'] as Stream[]).map((st) => {
+    // Ang kinansela at inilipat ay walang turnaround na masusukat —
+    // hindi sila dapat magpalaki ng n= at magpalabnaw ng on-time rate.
+    const mine = requests.filter((r) => r.stream === st && !REQ_META[r.status].excluded);
+    const proc = mine.map(processingTAT).filter((v): v is number => v !== null);
+    const wait = mine.map(actualTAT).filter((v): v is number => v !== null);
+    const states = mine.map(slaState);
+    const onTime = states.filter((s) => s === 'ontime').length;
+    const late = states.filter((s) => s === 'overdue').length;
+    return {
+      stream: st,
+      total: mine.length,
+      measured: proc.length,
+      avg: avgOf(proc),
+      worst: proc.length ? Math.max(...proc) : null,
+      avgWait: avgOf(wait),
+      onTime,
+      late,
+      // Pababa ang pag-round: hindi "100% on time" hangga't may isang lampas.
+      // Walang porsiyento kapag wala pang nasukat na paghahatid — ang "0% on time"
+      // mula sa iisang bukas na overdue ay hindi sukat ng bilis.
+      onTimePct: proc.length && onTime + late ? Math.floor((onTime * 100) / (onTime + late)) : null,
+      sla: SLA_WD[st],
+    };
+  });
+
+  const inScope = requests.filter((r) => !REQ_META[r.status].excluded);
+  const live = inScope.filter((r) => !r.dateDelivered);
+  const onTime = byStream.reduce((a, x) => a + x.onTime, 0);
+  const late = byStream.reduce((a, x) => a + x.late, 0);
+  const measured = byStream.reduce((a, x) => a + x.measured, 0);
+  return {
+    byStream,
+    overdue: inScope.filter((r) => slaState(r) === 'overdue'),
+    atRisk: live.filter((r) => slaState(r) === 'atrisk'),
+    undated: inScope.filter((r) => !r.dateRequested).length,
+    excluded: requests.length - inScope.length,
+    measured,
+    /** Naihatid pero walang petsa — hindi nasusukat, at sinasabi nang hayagan. */
+    noServedDate: inScope.filter((r) => r.status === 'completed' && !r.dateDelivered).length,
+    onTime,
+    late,
+    onTimePct: measured && onTime + late ? Math.floor((onTime * 100) / (onTime + late)) : null,
+  };
+}
+
+interface DemandMonth {
+  key: string;
+  demand: number;
+  served: number;
+  inflight: number;
+  declined: number;
+  excluded: number;
+}
+
+/**
+ * ITEM 44 — demand laban sa naibigay. Bawat request ay nasa iisang lagayan:
+ * naihatid, ginagawa pa, tinanggihan (atin), o kinansela/inilipat (kliyente).
+ */
+function demandStats(requests: ServiceRequest[]) {
+  const blank = (key = ''): DemandMonth => ({ key, demand: 0, served: 0, inflight: 0, declined: 0, excluded: 0 });
+  const add = (cur: DemandMonth, r: ServiceRequest) => {
+    cur.demand += 1;
+    if (REQ_META[r.status].served) cur.served += 1;
+    // Ang kinansela at inilipat ay hiwalay — hindi tayo nabigyan ng pagkakataon.
+    else if (REQ_META[r.status].excluded) cur.excluded += 1;
+    else if (REQ_META[r.status].unmet) cur.declined += 1;
+    else cur.inflight += 1;
+  };
+  const map = new Map<string, DemandMonth>();
+  const totals = blank();
+  requests.forEach((r) => {
+    add(totals, r);
+    const d = r.dateRequested || r.eventDate;
+    if (!d) return;
+    const k = monthKey(d);
+    const cur = map.get(k) || blank(k);
+    add(cur, r);
+    map.set(k, cur);
+  });
+
+  // Tuloy-tuloy na mga buwan (kasama ang buwang walang request), hanggang 12.
+  // Dati, walong buwan lang ang ipinapakita kahit buong taon ang saklaw.
+  const keys = Array.from(map.keys()).sort();
+  const span: string[] = [];
+  if (keys.length) {
+    const [y0, m0] = keys[0].split('-').map(Number);
+    const [y1, m1] = keys[keys.length - 1].split('-').map(Number);
+    let y = y0;
+    let m = m0;
+    while ((y < y1 || (y === y1 && m <= m1)) && span.length < 240) {
+      span.push(`${y}-${String(m).padStart(2, '0')}`);
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+    }
+  }
+  const shown = span.slice(-12);
+  const months = shown.map((k) => map.get(k) || blank(k));
+  const decided = totals.served + totals.declined;
+  return {
+    months,
+    hiddenMonths: span.length - shown.length,
+    maxV: Math.max(1, ...months.map((x) => x.demand)),
+    totals,
+    /** May kinalabasan na: naihatid, o tinanggihan natin. */
+    decided,
+    // Pababa ang pag-round, gaya ng ibang KPI.
+    fulfilment: decided > 0 ? Math.floor((totals.served * 100) / decided) : null,
+  };
+}
+
+interface AuditRow {
+  item: string;
+  /** id ng seksiyong may ebidensiya. */
+  anchor: string;
+  title: string;
+  ask: string;
+  met: boolean;
+  nodata: boolean;
+  figure: string;
+  unit: string;
+  brief: string;
+  evidence: string;
+}
+
+/**
+ * ISO audit scorecard — direktang mapping ng bawat audit finding sa live data.
+ * Ito ang unang titingnan ng auditor: sagot na may ebidensiya. v7.4: iisang
+ * kuwenta para sa readiness slate (itaas) at sa checklist (ibaba).
+ */
+function auditRows(
+  requests: ServiceRequest[],
+  kpi: {
+    execution: number | null;
+    csm: number | null;
+    rated: number;
+    approvedTotal?: number;
+    deliveredTotal?: number;
+  },
+  events: AVEvent[] = []
+): AuditRow[] {
+  // Kailangan ng dahilan ang LAHAT ng hindi naibigay — pati ang
+  // kinansela at inilipat. Ang exclusion ay sa KPI, hindi sa Item 40.
+  const unmet = requests.filter((r) => REQ_META[r.status].unmet);
+  const ours = unmet.filter((r) => !REQ_META[r.status].excluded).length;
+  const clientSide = unmet.length - ours;
+  const withReason = unmet.filter((r) => hasRealReason(r.reason)).length;
+  const tracked = requests.length;
+  const tat = turnaroundStats(requests);
+  const demand = demandStats(requests);
+  const n = (k: number, w: string) => `${k} ${w}${k === 1 ? '' : 's'}`;
+
+  const decided = events.filter(
+    (ev) => !isExcluded(ev) && (isAuthorised(ev) || !APPROVAL_META[ev.approval].live)
+  );
+  const asked = decided.reduce((a, ev) => a + ev.requested.length, 0);
+  const noCap = decided.reduce((a, ev) => a + capacityGap(ev).length, 0);
+  const undelivered = decided.reduce((a, ev) => a + deliveryGap(ev).length, 0);
+
+  return [
+    {
+      item: 'Item 40',
+      anchor: 'ev-services',
+      title: 'Request monitoring and reason for non-service',
+      ask: 'Record declined, delayed and rescheduled requests together with the reason.',
+      met: tracked > 0 && unmet.length === withReason,
+      nodata: tracked === 0,
+      figure: tracked === 0 ? '—' : unmet.length ? `${withReason}/${unmet.length}` : String(tracked),
+      unit: unmet.length ? 'with a reason' : 'tracked',
+      brief:
+        tracked === 0
+          ? 'No requests on record yet'
+          : unmet.length
+          ? `${n(tracked, 'request')} tracked · ${ours} declined, ${clientSide} cancelled or moved`
+          : 'Every request was served or is in progress',
+      evidence:
+        tracked === 0
+          ? 'No requests on record yet.'
+          : unmet.length === 0
+          ? `${n(tracked, 'request')} tracked from receipt to outcome. None ${
+              tracked === 1 ? 'was' : 'were'
+            } declined, cancelled or moved in this period, so there is no reason to record.`
+          : `${n(tracked, 'request')} tracked from receipt to outcome. ${withReason} of ${unmet.length} unserved ${
+              unmet.length === 1 ? 'request has' : 'requests have'
+            } a recorded reason: ${ours} attributable to DOST (declined) and ${clientSide} client-side (cancelled or moved), which ${
+              clientSide === 1 ? 'is' : 'are'
+            } excluded from the service KPI but still reasoned here.`,
+    },
+    {
+      item: 'Item 41',
+      anchor: 'ev-turnaround',
+      title: 'Turnaround time and workload monitoring',
+      ask: 'Measure actual processing time from receipt of the request until the service is done, and the workload of each staff member.',
+      met: tat.measured > 0,
+      nodata: tat.measured === 0,
+      figure: tat.onTimePct === null ? '—' : `${tat.onTimePct}%`,
+      unit: 'on time',
+      brief: tat.measured
+        ? `${tat.measured} ${tat.measured === 1 ? 'delivery' : 'deliveries'} measured against 3 and 13 working days`
+        : 'No dated deliveries to measure yet',
+      evidence:
+        tat.measured === 0
+          ? 'No served requests with a date served yet to measure.'
+          : `${n(tat.measured, 'completed request')} ${
+              tat.measured === 1 ? 'has' : 'have'
+            } a measured turnaround: working days from the day work could start (the end of the event, or the day the request was received if that is later) to the date served, against the standard (AV Coverage 3 WD, AVP Production 13 WD). ${
+              tat.onTime
+            } on time, ${tat.late} past the target.${
+              tat.noServedDate
+                ? ` ${tat.noServedDate} more ${tat.noServedDate === 1 ? 'was' : 'were'} delivered with no date served on record and ${
+                    tat.noServedDate === 1 ? 'is' : 'are'
+                  } not measured.`
+                : ''
+            } Working days from receipt and the workload of each staff member are in the panels above.`,
+    },
+    {
+      item: 'Item 44',
+      anchor: 'ev-demand',
+      title: 'Demand vs capacity for augmentation',
+      ask: 'Compare actual demand against services rendered to surface unmet requests.',
+      met: tracked > 0,
+      nodata: tracked === 0,
+      figure: demand.fulfilment === null ? '—' : `${demand.fulfilment}%`,
+      unit: 'served',
+      brief:
+        tracked === 0
+          ? 'No demand data yet'
+          : `${demand.totals.served} of ${n(demand.decided, 'decided request')} · ${n(noCap, 'service')} not agreed for capacity`,
+      evidence: (() => {
+        if (tracked === 0) return 'No demand data yet.';
+        const base = `Demand ${tracked} · rendered ${demand.totals.served} · declined ${demand.totals.declined} · in progress ${demand.totals.inflight} · cancelled or moved by the client ${demand.totals.excluded}.`;
+        return asked > 0
+          ? `${base} At service level: ${asked} requested, ${noCap} could not be agreed for lack of capacity, ${undelivered} agreed but past the target date and not yet delivered. The capacity figure is the direct basis for personnel augmentation.`
+          : `${base} The monthly comparison is in the Requests received vs. completed panel.`;
+      })(),
+    },
+    {
+      item: 'PM 2.1',
+      anchor: 'ev-targets',
+      title: '100% of approved requests executed',
+      ask: 'All approved requests are executed and served.',
+      met: kpi.execution !== null && kpi.execution >= KPI_EXECUTION_TARGET,
+      nodata: kpi.execution === null,
+      figure: kpi.execution === null ? '—' : `${kpi.execution}%`,
+      unit: 'completed',
+      brief:
+        kpi.execution === null
+          ? 'No approved requests due yet'
+          : `Target ${KPI_EXECUTION_TARGET}%${
+              kpi.approvedTotal ? ` · ${kpi.deliveredTotal ?? 0} of ${kpi.approvedTotal} due` : ''
+            }`,
+      evidence:
+        kpi.execution === null
+          ? 'No approved requests yet.'
+          : `${kpi.execution}% of approved requests that were due have been completed${
+              kpi.approvedTotal ? ` (${kpi.deliveredTotal ?? 0} of ${kpi.approvedTotal})` : ''
+            }.`,
+    },
+    {
+      item: 'PM 2.2',
+      anchor: 'ev-csm',
+      title: '93% rated Very Satisfactory or higher',
+      ask: 'Client satisfaction rating for served requests.',
+      met: kpi.csm !== null && kpi.csm >= KPI_CSM_TARGET,
+      nodata: kpi.csm === null,
+      figure: kpi.csm === null ? '—' : `${kpi.csm}%`,
+      unit: 'satisfied',
+      brief: kpi.csm === null ? 'No CSM forms answered yet' : `Target ${KPI_CSM_TARGET}% · ${n(kpi.rated, 'response')}`,
+      evidence:
+        kpi.csm === null
+          ? 'No CSM forms answered in this period yet.'
+          : `${kpi.csm}% of ${n(kpi.rated, 'CSM response')} are Very Satisfactory or higher.`,
+    },
+  ];
+}
+
+/** KPI gauge — target vs actual, para sa PM 2.1 at 2.2. v7.4: iisang arko, hindi na tuldok-tuldok. */
 function KPIRing({
   value,
   target,
@@ -4139,30 +4527,26 @@ function KPIRing({
 }) {
   const shown = useCountUp(value ?? 0);
   const pass = value !== null && value >= target;
-  const hex = value === null ? '#cbd5e1' : pass ? '#16a34a' : '#A30000';
 
-  // Tuldok-tuldok na arko (220°), tatlong hanay — ang "Health Score" ng
-  // pangalawang reference. Ang itim na guhit ang target.
-  const N = 34;
+  // 220° na arko. Ang maikling guhit ang target.
   const litPct = value === null ? 0 : Math.max(0, Math.min(100, shown));
-  const lit = Math.round((litPct / 100) * N);
   const cx = 110;
   const cy = 104;
+  const R = 80;
   const A0 = -200;
   const A1 = 20;
   const rad = (deg: number) => (deg * Math.PI) / 180;
-  const dots: { x: number; y: number; i: number; row: number }[] = [];
-  for (let i = 0; i < N; i++) {
-    const t = rad(A0 + ((A1 - A0) * i) / (N - 1));
-    [86, 77, 68].forEach((r, row) =>
-      dots.push({ x: cx + r * Math.cos(t), y: cy + r * Math.sin(t), i, row })
-    );
-  }
-  const ta = rad(A0 + (A1 - A0) * (Math.max(0, Math.min(100, target)) / 100));
+  const at = (deg: number, r = R) => ({ x: cx + r * Math.cos(rad(deg)), y: cy + r * Math.sin(rad(deg)) });
+  const p0 = at(A0);
+  const p1 = at(A1);
+  const arc = `M ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} A ${R} ${R} 0 1 1 ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`;
+  const ta = A0 + (A1 - A0) * (Math.max(0, Math.min(100, target)) / 100);
+  const t0 = at(ta, R - 9);
+  const t1 = at(ta, R + 9);
   const scale = size / 128;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div className="av-gauge flex flex-wrap items-center gap-x-7 gap-y-3">
       <svg
         viewBox="0 0 220 150"
         width={Math.round(220 * scale)}
@@ -4171,38 +4555,39 @@ function KPIRing({
         role="img"
         aria-label={`${label}: ${value === null ? 'no data' : `${value}%`}, target ${target}%`}
       >
-        {dots.map((d) => (
-          <circle key={`${d.i}-${d.row}`} cx={d.x} cy={d.y} r={2.8} style={{ fill: d.i < lit ? hex : 'var(--track)' }} />
-        ))}
+        <path d={arc} fill="none" strokeWidth="9" strokeLinecap="round" style={{ stroke: 'var(--track)' }} />
+        {litPct > 0 && (
+          <path
+            d={arc}
+            fill="none"
+            strokeWidth="9"
+            strokeLinecap="round"
+            pathLength={100}
+            strokeDasharray={`${litPct} 100`}
+            style={{ stroke: value === null ? 'var(--rule-strong)' : 'var(--ink)' }}
+          />
+        )}
         <line
-          x1={cx + 60 * Math.cos(ta)}
-          y1={cy + 60 * Math.sin(ta)}
-          x2={cx + 94 * Math.cos(ta)}
-          y2={cy + 94 * Math.sin(ta)}
-          style={{ stroke: 'var(--ink)' }}
-          strokeWidth="2.2"
-          strokeLinecap="round"
+          x1={t0.x}
+          y1={t0.y}
+          x2={t1.x}
+          y2={t1.y}
+          strokeWidth="5"
+          style={{ stroke: 'var(--card)' }}
         />
-        <text x={cx} y="100" textAnchor="middle" fontSize="32" fontWeight="700" style={{ fill: 'var(--ink)' }}>
+        <line x1={t0.x} y1={t0.y} x2={t1.x} y2={t1.y} strokeWidth="2" style={{ stroke: 'var(--ink-2)' }} />
+        <text x={cx} y="102" textAnchor="middle" fontSize="38" fontWeight="500" letterSpacing="-1.4" style={{ fill: 'var(--ink)' }}>
           {value === null ? '—' : `${shown}%`}
         </text>
-        <text x={cx} y="121" textAnchor="middle" fontSize="11" style={{ fill: 'var(--ink-3)' }}>
+        <text x={cx} y="124" textAnchor="middle" fontSize="11.5" style={{ fill: 'var(--ink-3)' }}>
           target {target}%
         </text>
       </svg>
       <div className="min-w-[11rem] flex-1">
         <p className="av-sec-h">{label}</p>
         <p className="av-note av-dim mt-1">{sub}</p>
-        <span
-          className={`av-pill mt-3 ${
-            value === null
-              ? 'bg-slate-100 text-slate-600'
-              : pass
-              ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-red-50 text-red-700'
-          }`}
-        >
-          <span className="d" aria-hidden />
+        <span className="av-state mt-3" data-t={value === null ? 'none' : pass ? 'ok' : 'bad'}>
+          <i aria-hidden="true" />
           {value === null ? 'No data yet' : pass ? 'On target' : 'Below target'}
         </span>
       </div>
@@ -4216,174 +4601,101 @@ function KPIRing({
  * (na-serve), at hayagang ipinapakita ang gap bilang basehan ng augmentation.
  */
 function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
-  const { months, maxV, totals } = useMemo(() => {
-    const map = new Map<
-      string,
-      { demand: number; served: number; unmet: number; excluded: number }
-    >();
-    requests.forEach((r) => {
-      const d = r.dateRequested || r.eventDate;
-      if (!d) return;
-      const k = monthKey(d);
-      const cur = map.get(k) || { demand: 0, served: 0, unmet: 0, excluded: 0 };
-      cur.demand += 1;
-      if (REQ_META[r.status].served) cur.served += 1;
-      // Ang unmet ay ang HINDI NAIBIGAY NA ATIN. Ang kinansela at inilipat
-      // ay hiwalay — hindi tayo nabigyan ng pagkakataon.
-      if (REQ_META[r.status].excluded) cur.excluded += 1;
-      else if (REQ_META[r.status].unmet) cur.unmet += 1;
-      map.set(k, cur);
-    });
+  const { months, hiddenMonths, maxV, totals, decided, fulfilment } = useMemo(() => demandStats(requests), [requests]);
 
-    const keys = Array.from(map.keys()).sort().slice(-8);
-    const rows = keys.map((k) => ({ key: k, ...map.get(k)! }));
-    const t = requests.reduce(
-      (a, r) => {
-        a.demand += 1;
-        if (REQ_META[r.status].served) a.served += 1;
-        if (REQ_META[r.status].excluded) a.excluded += 1;
-        else if (REQ_META[r.status].unmet) a.unmet += 1;
-        if (r.status === 'pending' || r.status === 'approved' || r.status === 'ongoing')
-          a.inflight += 1;
-        return a;
-      },
-      { demand: 0, served: 0, unmet: 0, excluded: 0, inflight: 0 }
-    );
-    return { months: rows, maxV: Math.max(1, ...rows.map((x) => x.demand)), totals: t };
-  }, [requests]);
-
-  const W = 760;
-  const H = 190;
-  const PAD = 28;
-  const slot = months.length ? (W - PAD * 2) / months.length : 0;
-  const barW = Math.min(26, slot * 0.34);
-
-  /**
-   * Ang denominator ay ang demand na TALAGANG NAABOT NATIN. Ang kinansela
-   * at inilipat ay inaalis — kung hindi, bumababa ang fulfilment tuwing
-   * may bagyo, na wala namang kinalaman sa kakayahan ng seksyon.
-   */
-  const inScope = totals.demand - totals.excluded;
-  const capacityPct = inScope > 0 ? Math.round((totals.served / inScope) * 100) : null;
+  // Bilog na tuktok ng y-axis: 5, 10, 20, 40…
+  const top = [4, 8, 10, 12, 16, 20, 24, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500, 1000].find((v) => v >= maxV) || maxV;
+  const PARTS: { k: keyof DemandMonth; label: string; fill: string }[] = [
+    { k: 'served', label: 'Completed', fill: 'var(--ch-1)' },
+    { k: 'inflight', label: 'In progress', fill: 'var(--ch-2)' },
+    { k: 'declined', label: 'Declined', fill: 'var(--ch-3)' },
+    { k: 'excluded', label: 'Cancelled or moved by the client', fill: 'var(--ch-4)' },
+  ];
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {[
-          { k: 'Service demand', v: totals.demand, c: '#427AA1', s: 'Total requests received' },
-          { k: 'Services rendered', v: totals.served, c: '#16a34a', s: 'Completed / served' },
-          { k: 'In progress', v: totals.inflight, c: '#B07A00', s: 'Pending, approved, ongoing' },
-          { k: 'Unmet requests', v: totals.unmet, c: '#A30000', s: 'Declined — counts against us' },
-          { k: 'Client-side', v: totals.excluded, c: '#64748b', s: 'Cancelled or moved · KPI-excluded' },
-        ].map((x) => (
-          <div
-            key={x.k}
-            className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4"
-            style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
-          >
-            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">{x.v}</p>
-            <p className="mt-1 av-label">
-              {x.k}
-            </p>
-            <p className="mt-0.5 text-[10px] text-slate-400">{x.s}</p>
-          </div>
-        ))}
-      </div>
+      <Ledger
+        items={[
+          { k: 'Requests received', v: totals.demand, s: 'Every request on record in this period' },
+          { k: 'Completed', v: totals.served, s: 'Delivered to the client', tone: 'ok' },
+          { k: 'In progress', v: totals.inflight, s: 'In triage, approved or in production' },
+          {
+            k: 'Declined',
+            v: totals.declined,
+            s: 'Could not be served — counts against us',
+            tone: totals.declined ? 'bad' : undefined,
+          },
+          { k: 'Cancelled or moved', v: totals.excluded, s: 'By the requesting office — not counted' },
+        ]}
+      />
 
       {months.length > 0 ? (
-        <div className="overflow-x-auto custom-scrollbar">
-          <svg viewBox={`0 0 ${W} ${H}`} className="block h-[190px] w-full min-w-[560px]">
-            {[0, 0.5, 1].map((f) => (
-              <line
-                key={f}
-                x1={PAD}
-                x2={W - PAD}
-                y1={H - 34 - f * (H - 60)}
-                y2={H - 34 - f * (H - 60)}
-                stroke="#e2e8f0"
-                strokeWidth="1"
-              />
-            ))}
+        <div className="custom-scrollbar overflow-x-auto">
+          {/* Mga haliging HTML, hindi SVG: buong lapad sa desktop, at nababasa pa rin ang titik sa telepono. */}
+          <div
+            className="av-cols"
+            role="img"
+            aria-label={`Requests received and completed by month: ${months
+              .map((m) => `${monthLabel(m.key)} ${m.demand} received, ${m.served} completed`)
+              .join('; ')}`}
+            style={{ '--n': months.length } as React.CSSProperties}
+          >
+            <div className="ax" aria-hidden="true">
+              {[1, 0.5, 0].map((f) => (
+                <span key={f} data-v={Math.round(top * f)} style={{ bottom: `${f * 100}%` }} />
+              ))}
+            </div>
             {months.map((m, i) => {
-              const x = PAD + i * slot + slot / 2;
-              const dh = (m.demand / maxV) * (H - 60);
-              const sh = (m.served / maxV) * (H - 60);
-              const gap = m.demand - m.served;
+              const firstOfYear = i === 0 || m.key.endsWith('-01');
               return (
-                <g key={m.key}>
-                  <rect
-                    x={x - barW - 2}
-                    y={H - 34 - dh}
-                    width={barW}
-                    height={dh}
-                    rx={3}
-                    fill="#427AA1"
-                    opacity={0.35}
-                  >
-                    <title>{`${monthLabel(m.key)} — demand ${m.demand}`}</title>
-                  </rect>
-                  <rect
-                    x={x + 2}
-                    y={H - 34 - sh}
-                    width={barW}
-                    height={sh}
-                    rx={3}
-                    fill="#16a34a"
-                  >
-                    <title>{`${monthLabel(m.key)} — served ${m.served}`}</title>
-                  </rect>
-                  {gap > 0 && (
-                    <text
-                      x={x}
-                      y={H - 40 - dh}
-                      fill="#A30000"
-                      fontSize="10"
-                      fontFamily="ui-monospace, monospace"
-                      fontWeight="bold"
-                      textAnchor="middle"
-                    >
-                      −{gap}
-                    </text>
-                  )}
-                  <text
-                    x={x}
-                    y={H - 16}
-                    fill="#94a3b8"
-                    fontSize="10"
-                    fontFamily="ui-monospace, monospace"
-                    textAnchor="middle"
-                  >
-                    {monthLabel(m.key).toUpperCase()}
-                  </text>
-                </g>
+                <div key={m.key} className="col">
+                  <div className="plot">
+                    <div className="stack" style={{ height: `${(m.demand / top) * 100}%` }}>
+                      {PARTS.map((p) => {
+                        const v = m[p.k] as number;
+                        if (!v) return null;
+                        return (
+                          <i
+                            key={p.k}
+                            style={{ flexGrow: v, background: p.fill }}
+                            title={`${monthLabel(m.key)} — ${p.label.toLowerCase()}: ${v}`}
+                          />
+                        );
+                      })}
+                      {m.demand > 0 && <span className="val">{m.demand}</span>}
+                    </div>
+                  </div>
+                  <span className="lab">
+                    {monthLabel(m.key)}
+                    {firstOfYear ? ` ’${m.key.slice(2, 4)}` : ''}
+                  </span>
+                </div>
               );
             })}
-          </svg>
+          </div>
         </div>
       ) : (
-        <p className="py-8 text-center text-xs italic text-slate-400">
-          No dated requests yet. Log a request to build this chart.
-        </p>
+        <p className="av-note av-dim py-8 text-center">No dated requests yet. Log a request to build this chart.</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-5 border-t border-slate-200 pt-3">
-        <span className="flex items-center gap-2 text-[10px] text-slate-900">
-          <span className="h-2 w-4 rounded-sm bg-blue-300" /> Demand (received)
-        </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-900">
-          <span className="h-2 w-4 rounded-sm bg-green-500" /> Capacity (rendered)
-        </span>
-        <span className="flex items-center gap-2 text-[10px] text-slate-900">
-          <span className="font-mono font-bold text-red-600">−n</span> Unserved gap
-        </span>
-        {capacityPct !== null && (
-          <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-slate-900">
-            Service fulfilment {capacityPct}%
-            {totals.excluded > 0 && (
-              <span className="text-slate-400">
-                {' '}· {totals.excluded} client-side excluded
-              </span>
-            )}
+      <div className="av-hair flex flex-wrap items-center gap-x-5 gap-y-2 pt-3">
+        {PARTS.map((p) => (
+          <span key={p.k} className="av-key">
+            <i style={{ background: p.fill }} aria-hidden="true" />
+            {p.label}
+          </span>
+        ))}
+        {hiddenMonths > 0 && <span className="av-note av-dim">Showing the latest 12 months.</span>}
+        {fulfilment !== null && (
+          <span className="av-note ml-auto">
+            <b>
+              Served {totals.served} of {decided} decided request{decided === 1 ? '' : 's'} ({fulfilment}%)
+            </b>
+            <span className="av-dim">
+              {' '}
+              · decided means completed or declined; {totals.inflight} still in progress
+              {totals.excluded > 0 ? `, ${totals.excluded} cancelled or moved by the client` : ''}
+            </span>
           </span>
         )}
       </div>
@@ -4393,134 +4705,99 @@ function DemandCapacityPanel({ requests }: { requests: ServiceRequest[] }) {
 
 /**
  * ITEM 41 — Turnaround time monitor.
- * Aktwal na processing time laban sa SLA ng Procedures Manual, bilang mula
- * sa araw na natanggap ang kahilingan.
+ * Aktwal na oras ng pagproseso laban sa SLA ng Procedures Manual. v7.4: ang
+ * inihahambing sa pamantayan ay mula sa araw na maaari nang simulan ang trabaho;
+ * ang bilang mula sa pagtanggap ay ipinapakita pa rin, hiwalay.
  */
 function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
-  const stats = useMemo(() => {
-    const byStream = (['coverage', 'production'] as Stream[]).map((st) => {
-      // Ang kinansela at inilipat ay walang turnaround na masusukat —
-      // hindi sila dapat magpalaki ng n= at magpalabnaw ng on-time rate.
-      const mine = requests.filter(
-        (r) => r.stream === st && !REQ_META[r.status].excluded
-      );
-      const tats = mine.map(actualTAT).filter((v): v is number => v !== null);
-      const rated = mine.map(slaState).filter((s) => s === 'ontime' || s === 'overdue');
-      return {
-        stream: st,
-        total: mine.length,
-        avg: tats.length ? tats.reduce((a, b) => a + b, 0) / tats.length : null,
-        worst: tats.length ? Math.max(...tats) : null,
-        onTimePct: rated.length
-          ? Math.round((rated.filter((s) => s === 'ontime').length / rated.length) * 100)
-          : null,
-        sla: SLA_WD[st],
-      };
-    });
-
-    const inScope = requests.filter((r) => !REQ_META[r.status].excluded);
-    const live = inScope.filter((r) => !r.dateDelivered);
-    return {
-      byStream,
-      overdue: inScope.filter((r) => slaState(r) === 'overdue'),
-      atRisk: live.filter((r) => slaState(r) === 'atrisk'),
-      undated: inScope.filter((r) => !r.dateRequested).length,
-      excluded: requests.length - inScope.length,
-    };
-  }, [requests]);
+  const stats = useMemo(() => turnaroundStats(requests), [requests]);
 
   return (
-    <div className="space-y-5">
-      {stats.excluded > 0 && (
-        <div className="rounded-[12px] border border-[var(--rule)] bg-[var(--rule-soft)] px-4 py-2.5 text-xs text-slate-600">
-          {stats.excluded} cancelled or rescheduled request(s) are not measured here. There
-          is no turnaround to measure when the event did not take place — including them
-          would dilute the on-time rate with something outside the section&rsquo;s control.
-        </div>
-      )}
-      {stats.undated > 0 && (
-        <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
-          {stats.undated} request(s) have no date of receipt, so their turnaround cannot be
-          measured. Turnaround is counted from the day the request was received — fill in
-          that date to bring them into the figures.
-        </div>
+    <div className="space-y-4">
+      {stats.noServedDate > 0 && (
+        <Notice tone="warn">
+          <b>
+            {stats.noServedDate} completed request{stats.noServedDate === 1 ? ' has' : 's have'} no date served on
+            record
+          </b>
+          , so {stats.noServedDate === 1 ? 'it is' : 'they are'} not in these figures. Most were entered from the
+          monthly report, which does not carry delivery dates. Open a record and add the date to measure it.
+        </Notice>
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {stats.byStream.map((x) => {
-          const ratio = x.avg !== null ? Math.min(160, (x.avg / x.sla) * 100) : 0;
+          const ratio = x.avg !== null ? Math.min(100, (x.avg / x.sla) * 100) : 0;
           const over = x.avg !== null && x.avg > x.sla;
           return (
-            <div key={x.stream} className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-5">
-              <div className="mb-3 flex items-baseline justify-between">
-                <span
-                  className="av-label"
-                  style={{ color: STREAM_META[x.stream].hex }}
-                >
-                  {STREAM_META[x.stream].label}
-                </span>
-                <span className="font-mono text-[10px] text-slate-400">
-                  SLA {x.sla} WD · n={x.total}
+            <div key={x.stream} className="av-tat">
+              <div className="hd">
+                <span className="nm">{STREAM_META[x.stream].label}</span>
+                <span className="std">
+                  Standard {x.sla} working days · {x.measured} measured
                 </span>
               </div>
 
-              <div className="flex items-end gap-3">
-                <p className="font-mono text-4xl font-black leading-none text-slate-900 tabular-nums">
-                  {x.avg === null ? '—' : x.avg.toFixed(1)}
+              <div className="row">
+                <p className="fig">{x.avg === null ? '—' : x.avg.toFixed(1)}</p>
+                <p className="cap">
+                  working days to deliver, on average
+                  <span>counted from the end of the event, or from receipt if that is later</span>
                 </p>
-                <p className="pb-1 text-xs text-slate-900">avg working days from receipt</p>
               </div>
 
-              {/* SLA bar: 100% = SLA limit */}
-              <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className="h-full rounded-full transition-all duration-1000"
-                  style={{
-                    width: `${Math.min(100, ratio)}%`,
-                    background: over ? '#A30000' : '#16a34a',
-                  }}
-                />
-                <div className="absolute inset-y-0 right-0 w-px bg-slate-400" />
+              {/* Bar: ang buong lapad ay ang pamantayan. */}
+              <div className="bar" aria-hidden="true">
+                <div style={{ width: `${Math.max(x.avg === null ? 0 : 2, ratio)}%` }} data-over={over ? '1' : '0'} />
               </div>
-              <div className="mt-2 flex items-center justify-between text-[10px]">
-                <span className={over ? 'font-bold text-red-600' : 'text-slate-900'}>
+              <div className="ft">
+                <span data-over={over ? '1' : '0'}>
                   {x.avg === null
-                    ? 'Nothing served yet'
+                    ? 'No dated deliveries yet'
                     : over
-                    ? `${(x.avg - x.sla).toFixed(1)} WD over standard`
-                    : `${(x.sla - x.avg).toFixed(1)} WD within standard`}
+                    ? `${(x.avg - x.sla).toFixed(1)} working days over the standard`
+                    : `${(x.sla - x.avg).toFixed(1)} working days inside the standard`}
                 </span>
-                <span className="font-mono text-slate-900">
-                  {x.onTimePct === null ? '—' : `${x.onTimePct}% on time`}
+                <span className="pc">
+                  {x.onTimePct === null
+                    ? x.late > 0
+                      ? `${x.late} past the target`
+                      : '—'
+                    : `${x.onTimePct}% on time${x.late > 0 ? ` · ${x.late} late` : ''}`}
                 </span>
               </div>
+              {x.avgWait !== null && (
+                <p className="wait">
+                  From receipt of the request: <b>{x.avgWait.toFixed(1)} working days</b> on average. This includes
+                  the days between the request and the event itself.
+                </p>
+              )}
             </div>
           );
         })}
       </div>
 
       {(stats.overdue.length > 0 || stats.atRisk.length > 0) && (
-        <div className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4">
-          <p className="mb-3 av-label">
-            Needs attention · {stats.overdue.length} overdue · {stats.atRisk.length} at risk
+        <div className="av-inset p-4">
+          <p className="av-label mb-2">
+            Needs attention · {stats.overdue.length} past the target · {stats.atRisk.length} at risk
           </p>
-          <div className="space-y-2">
-            {[...stats.overdue, ...stats.atRisk].slice(0, 6).map((r) => {
+          <div className="av-rows">
+            {[...stats.overdue, ...stats.atRisk].slice(0, 8).map((r) => {
               const left = daysToTarget(r);
               return (
-                <div
-                  key={r.id}
-                  className="av-card flex items-center justify-between gap-3 px-3 py-2"
-                >
+                <div key={r.id} className="av-rows-r">
                   <div className="min-w-0">
-                    <p className="line-clamp-2 break-words text-xs font-semibold text-slate-700" title={r.title}>{r.title}</p>
-                    <p className="font-mono text-[10px] text-slate-400">
-                      {r.id} · {r.personnel || 'Unassigned'} ·{' '}
-                      {STREAM_META[r.stream].short}
+                    <p className="t" title={r.title}>
+                      {r.title}
+                    </p>
+                    <p className="s">
+                      {r.id} · {r.personnel || 'Unassigned'} · {STREAM_META[r.stream].short}
+                      {r.dateDelivered ? ` · served ${fmtDate(r.dateDelivered)}` : ' · not yet delivered'}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-900">
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="n">
                       {left === null ? '—' : left < 0 ? `${Math.abs(left)} WD over` : `${left} WD left`}
                     </span>
                     <SLABadge state={slaState(r)} />
@@ -4529,7 +4806,23 @@ function SLAMonitor({ requests }: { requests: ServiceRequest[] }) {
               );
             })}
           </div>
+          {stats.overdue.length + stats.atRisk.length > 8 && (
+            <p className="av-note av-dim mt-2">…and {stats.overdue.length + stats.atRisk.length - 8} more.</p>
+          )}
         </div>
+      )}
+
+      {(stats.excluded > 0 || stats.undated > 0) && (
+        <p className="av-note av-dim">
+          {stats.excluded > 0 &&
+            `${stats.excluded} cancelled or rescheduled request${
+              stats.excluded === 1 ? ' is' : 's are'
+            } not measured: there is no turnaround when the event did not take place. `}
+          {stats.undated > 0 &&
+            `${stats.undated} request${stats.undated === 1 ? ' has' : 's have'} no date received on record, so working days for ${
+              stats.undated === 1 ? 'it' : 'them'
+            } are counted from the end of the event.`}
+        </p>
       )}
     </div>
   );
@@ -4549,7 +4842,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
     [requests]
   );
 
-  const missingReason = unmet.filter((r) => !r.reason.trim()).length;
+  const missingReason = unmet.filter((r) => !hasRealReason(r.reason)).length;
 
   if (unmet.length === 0) {
     return (
@@ -4612,7 +4905,7 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
                   )}
                 </td>
                 <td className="py-3">
-                  {r.reason.trim() ? (
+                  {hasRealReason(r.reason) ? (
                     <span className="text-slate-600">{r.reason}</span>
                   ) : (
                     <span className="font-bold text-red-600">No reason on record</span>
@@ -4628,145 +4921,227 @@ function UnmetRequestsLog({ requests }: { requests: ServiceRequest[] }) {
 }
 
 /**
- * ISO audit scorecard — direktang mapping ng bawat audit finding sa live data.
- * Ito ang unang titingnan ng auditor: sagot na may ebidensiya.
+ * Ang audit checklist sa dulo ng Compliance: bawat finding, ang hinihingi nito,
+ * at ang buong ebidensiya. Ang mga hilera ay galing sa auditRows — pareho ng
+ * nasa readiness slate sa itaas.
  */
-function ComplianceScorecard({
-  requests,
-  kpi,
-  events = [],
-}: {
-  requests: ServiceRequest[];
-  kpi: { execution: number | null; csm: number | null; rated: number };
-  events?: AVEvent[];
-}) {
-  const rows = useMemo(() => {
-    // Kailangan ng dahilan ang LAHAT ng hindi naibigay — pati ang
-    // kinansela at inilipat. Ang exclusion ay sa KPI, hindi sa Item 40.
-    const unmet = requests.filter((r) => REQ_META[r.status].unmet);
-    const ours = unmet.filter((r) => !REQ_META[r.status].excluded).length;
-    const clientSide = unmet.length - ours;
-    const withReason = unmet.filter((r) => r.reason.trim()).length;
-    const tracked = requests.length;
-    const withTat = requests.filter((r) => actualTAT(r) !== null).length;
-    const served = requests.filter((r) => REQ_META[r.status].served).length;
-
-    return [
-      {
-        item: 'Item 40',
-        title: 'Request monitoring & reason for non-service',
-        ask: 'Record declined, delayed and rescheduled requests together with the reason.',
-        met: tracked > 0 && unmet.length === withReason,
-        evidence:
-          tracked === 0
-            ? 'No requests on record yet.'
-            : `${tracked} requests tracked across 7 statuses. ${withReason} of ${unmet.length} unserved requests have a recorded reason — ${ours} attributable to DOST (declined), ${clientSide} client-side (cancelled or moved) and excluded from the service KPI but still reasoned here.`,
-      },
-      {
-        item: 'Item 41',
-        title: 'Turnaround time & workload monitoring',
-        ask: 'Measure actual processing time from receipt of the request until the service is done, and the workload of each staff member.',
-        met: withTat > 0,
-        evidence:
-          withTat === 0
-            ? 'No served requests yet to measure.'
-            : `${withTat} completed request(s) have an actual turnaround, counted from the date received to the date served, measured against the SLA (AV Coverage 3 WD, AVP Production 13 WD).`,
-      },
-      {
-        item: 'Item 44',
-        title: 'Demand vs capacity for augmentation',
-        ask: 'Compare actual demand against services rendered to surface unmet requests.',
-        met: tracked > 0,
-        evidence: (() => {
-          if (tracked === 0) return 'No demand data yet.';
-          const decided = events.filter(
-            (ev) =>
-              !isExcluded(ev) &&
-              (isAuthorised(ev) || !APPROVAL_META[ev.approval].live)
-          );
-          const asked = decided.reduce((a, ev) => a + ev.requested.length, 0);
-          const noCap = decided.reduce((a, ev) => a + capacityGap(ev).length, 0);
-          const undelivered = decided.reduce((a, ev) => a + deliveryGap(ev).length, 0);
-          const base = `Demand ${tracked} · rendered ${served} · unmet ${unmet.length}.`;
-          return asked > 0
-            ? `${base} At service level: ${asked} requested, ${noCap} could not be agreed for lack of capacity, ${undelivered} agreed but past the target date and not yet delivered. The capacity figure is the direct basis for personnel augmentation.`
-            : `${base} The monthly comparison is in the Demand vs Capacity panel.`;
-        })(),
-      },
-      {
-        item: 'PM 2.1',
-        title: '100% of approved requests executed',
-        ask: 'All approved requests are executed and served.',
-        met: kpi.execution !== null && kpi.execution >= KPI_EXECUTION_TARGET,
-        evidence:
-          kpi.execution === null
-            ? 'No approved requests yet.'
-            : `${kpi.execution}% of approved requests have been completed.`,
-      },
-      {
-        item: 'PM 2.2',
-        title: '93% rated Very Satisfactory or higher',
-        ask: 'Client satisfaction rating for served requests.',
-        met: kpi.csm !== null && kpi.csm >= KPI_CSM_TARGET,
-        evidence:
-          kpi.csm === null
-            ? 'No CSM forms answered in this period yet.'
-            : `${kpi.csm}% of ${kpi.rated} CSM response(s) are Very Satisfactory or higher.`,
-      },
-    ];
-  }, [requests, kpi, events]);
-
+function ComplianceScorecard({ rows }: { rows: AuditRow[] }) {
   const metCount = rows.filter((r) => r.met).length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-[12px] border border-[var(--rule)] bg-[var(--rule-soft)] px-5 py-4">
+    <div className="av-card av-check">
+      <div className="av-check-h">
         <div>
-          <p className="text-sm font-semibold tracking-tight text-slate-900">
-            Audit readiness
-          </p>
-          <p className="text-[11px] text-slate-900">
-            PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025
-          </p>
+          <p className="t">Audit readiness</p>
+          <p className="s">AV Services Procedures Manual · PM-CRPD-AV-08-04 Rev 7 · Effectivity 08 July 2025</p>
         </div>
-        <div className="text-right">
-          <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">
-            {metCount}
-            <span className="text-lg text-slate-400">/{rows.length}</span>
-          </p>
-          <p className="text-[10px] uppercase tracking-[0.1em] text-slate-900">criteria met</p>
-        </div>
+        <p className="n">
+          {metCount}
+          <span>/{rows.length}</span>
+          <small>criteria met</small>
+        </p>
       </div>
-
-      <div className="space-y-2">
-        {rows.map((r) => (
-          <div
-            key={r.item}
-            className="flex gap-4 av-card p-4"
-            style={{
-              borderLeftColor: r.met ? '#16a34a' : '#B07A00',
-              borderLeftWidth: 3,
-            }}
-          >
-            <div className="w-20 shrink-0">
-              <p className="font-mono av-note av-dim">
-                {r.item}
-              </p>
-              <p
-                className="mt-1 text-[10px] font-bold uppercase"
-                style={{ color: r.met ? '#16a34a' : '#B07A00' }}
-              >
-                {r.met ? 'Met' : 'Partial'}
-              </p>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-slate-800">{r.title}</p>
-              <p className="mt-0.5 text-[11px] italic text-slate-400">{r.ask}</p>
-              <p className="mt-2 text-xs leading-relaxed text-slate-500">{r.evidence}</p>
-            </div>
+      {rows.map((r) => (
+        <div key={r.item} className="av-check-r avoid-break">
+          <div className="c">
+            <p className="code">{r.item}</p>
+            <span className="av-state" data-t={r.nodata ? 'none' : r.met ? 'ok' : 'warn'}>
+              <i aria-hidden="true" />
+              {r.nodata ? 'No data' : r.met ? 'Met' : 'Partial'}
+            </span>
           </div>
-        ))}
+          <div className="b">
+            <p className="t">{r.title}</p>
+            <p className="a">{r.ask}</p>
+            <p className="e">{r.evidence}</p>
+          </div>
+          <p className="f">
+            {r.figure}
+            <small>{r.unit}</small>
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** v7.4: ang limang audit criteria sa readiness slate. Bawat isa ay tumatalon sa ebidensiya nito. */
+function AuditStrip({
+  rows,
+  period,
+  onJump,
+}: {
+  rows: AuditRow[];
+  period: string;
+  onJump: (anchor: string) => void;
+}) {
+  const met = rows.filter((r) => r.met).length;
+  return (
+    <div className="av-audit" aria-label="Audit readiness">
+      <div className="av-audit-total" data-all={met === rows.length ? '1' : '0'}>
+        <span className="code">Audit readiness</span>
+        <span className="fig">
+          {met}
+          <small>/{rows.length}</small>
+        </span>
+        <span className="t">criteria met</span>
+        <span className="line">
+          {period}
+          <br />
+          <span className="nb">PM-CRPD-AV-08-04 Rev 7</span>
+        </span>
       </div>
+      {rows.map((r, i) => (
+        <button
+          key={r.item}
+          type="button"
+          className="av-audit-cell"
+          data-s={r.nodata ? 'none' : r.met ? 'met' : 'partial'}
+          style={{ '--i': i } as React.CSSProperties}
+          onClick={() => onJump(r.anchor)}
+          title="Show the evidence"
+        >
+          <span className="top">
+            <span className="code">{r.item}</span>
+            <span className="lamp">
+              <i aria-hidden="true" />
+              {r.nodata ? 'No data' : r.met ? 'Met' : 'Partial'}
+            </span>
+          </span>
+          <span className="fig">
+            {r.figure}
+            <small>{r.unit}</small>
+          </span>
+          <span className="t">{r.title}</span>
+          <span className="line">{r.brief}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Mga seksiyon ng Compliance, para sa section nav at sa mga anchor. */
+const AUDIT_SECTIONS: { id: string; label: string }[] = [
+  { id: 'ev-targets', label: 'Targets' },
+  { id: 'ev-csm', label: 'Satisfaction' },
+  { id: 'ev-forms', label: 'Online form' },
+  { id: 'ev-calendar', label: 'Calendar' },
+  { id: 'ev-conflicts', label: 'Double-booked' },
+  { id: 'ev-cancelled', label: 'Cancelled' },
+  { id: 'ev-services', label: 'Services' },
+  { id: 'ev-demand', label: 'Demand' },
+  { id: 'ev-workload', label: 'Workload' },
+  { id: 'ev-turnaround', label: 'Turnaround' },
+  { id: 'ev-checklist', label: 'Checklist' },
+];
+
+function jumpTo(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const calm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
+}
+
+/** Nakadikit na hanay ng mga seksiyon — 8,000px ang Compliance; isang pindot papunta sa ebidensiya. */
+function SectionNav({ items }: { items: { id: string; label: string }[] }) {
+  const [on, setOn] = useState(items[0]?.id || '');
+  const navRef = useRef<HTMLElement | null>(null);
+
+  // Ang kasalukuyang seksiyon ay ang huling ang ulo ay lampas na sa linya sa ilalim ng nav.
+  useEffect(() => {
+    let raf = 0;
+    const pick = () => {
+      raf = 0;
+      const found = items.filter((x) => document.getElementById(x.id));
+      if (!found.length) return;
+      let cur = found[0].id;
+      for (const x of found) {
+        const el = document.getElementById(x.id);
+        if (el && el.getBoundingClientRect().top <= 176) cur = x.id;
+      }
+      const doc = document.documentElement;
+      if (window.innerHeight + window.scrollY >= doc.scrollHeight - 4) cur = found[found.length - 1].id;
+      setOn(cur);
+    };
+    const onScroll = () => {
+      if (!raf) raf = window.requestAnimationFrame(pick);
+    };
+    pick();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [items]);
+
+  // Sa makitid na screen, pahalang na nag-i-scroll ang hanay: panatilihing kita ang kasalukuyan.
+  useEffect(() => {
+    const nav = navRef.current;
+    const chip = nav?.querySelector<HTMLElement>('[data-on="1"]');
+    if (!nav || !chip) return;
+    const left = chip.offsetLeft - 12;
+    const right = chip.offsetLeft + chip.offsetWidth + 12;
+    if (left < nav.scrollLeft) nav.scrollLeft = left;
+    else if (right > nav.scrollLeft + nav.clientWidth) nav.scrollLeft = right - nav.clientWidth;
+  }, [on]);
+
+  return (
+    <nav ref={navRef} className="av-secnav no-print" aria-label="Sections on this page">
+      {items.map((x) => (
+        <button
+          key={x.id}
+          type="button"
+          data-on={on === x.id ? '1' : '0'}
+          aria-current={on === x.id ? 'true' : undefined}
+          onClick={() => jumpTo(x.id)}
+        >
+          {x.label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+/** v7.4: i-print ang nakabukas na view bilang ulat. Dati, ang IPCR sheet ang lumalabas kahit saan pinindot ang Print. */
+function printView() {
+  const root = document.documentElement;
+  root.setAttribute('data-print', 'view');
+  const done = () => {
+    root.removeAttribute('data-print');
+    window.removeEventListener('afterprint', done);
+  };
+  window.addEventListener('afterprint', done);
+  window.setTimeout(() => window.print(), 80);
+}
+
+/** Ulo ng naka-print na ulat. Hindi lumalabas sa screen. */
+function PrintHead({ title, period, asOf }: { title: string; period: string; asOf: string }) {
+  return (
+    <div className="av-print-head" aria-hidden="true">
+      <p className="rp">Republic of the Philippines</p>
+      <p className="ag">Department of Science and Technology</p>
+      <p className="in">Science and Technology Information Institute · Broadcast and Digital Media Section</p>
+      <h1>{title}</h1>
+      <p className="meta">
+        {period} · Generated {asOf} · AV Services Procedures Manual PM-CRPD-AV-08-04 Rev 7
+      </p>
+    </div>
+  );
+}
+
+/** Mga pirma sa dulo ng naka-print na ulat. */
+function PrintSign() {
+  return (
+    <div className="av-print-sign avoid-break" aria-hidden="true">
+      {['Prepared by', 'Reviewed by', 'Noted by'].map((k) => (
+        <div key={k}>
+          <span className="ln" />
+          <p className="k">{k}</p>
+          <p className="s">Name, designation and date</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -4854,7 +5229,7 @@ function RequestTable({
                 </td>
                 <td className="p-3">
                   <ReqBadge status={r.status} dense />
-                  {REQ_META[r.status].unmet && !r.reason.trim() && (
+                  {REQ_META[r.status].unmet && !hasRealReason(r.reason) && (
                     <span className="mt-1 block text-[9px] font-bold text-red-600">
                       no reason
                     </span>
@@ -5674,7 +6049,7 @@ function EventSummary({ events }: { events: AVEvent[] }) {
         !APPROVAL_META[ev.approval].live ||
         capGap.length > 0 ||
         (delGap.length > 0 && decided);
-      if (needsWhy && !ev.reason.trim()) base.noReason += 1;
+      if (needsWhy && !hasRealReason(ev.reason)) base.noReason += 1;
     });
     return base;
   }, [events]);
@@ -5778,31 +6153,36 @@ function EventSummary({ events }: { events: AVEvent[] }) {
         </div>
       </div>
 
-      {t.noAdvice > 0 && (
-        <p className="av-note" style={{ color: 'var(--triage)' }}>
-          {t.noAdvice} request{t.noAdvice === 1 ? ' is' : 's are'} in AV evaluation with no team
-          recommendation yet. That note is what the Division Chief reads in the approval email.
-        </p>
-      )}
-      {t.excluded > 0 && (
-        <p className="av-note av-dim">
-          {t.excluded} request{t.excluded === 1 ? ' was' : 's were'} cancelled or moved by the
-          client. Excluded from the service KPI — the team was never given the chance to deliver —
-          and counted with reasons under Schedule volatility.
-        </p>
-      )}
-      {t.capShort > 0 && (
-        <p className="av-note" style={{ color: 'var(--waiting)' }}>
-          {t.capShort} requested service{t.capShort === 1 ? ' was' : 's were'} never agreed for
-          lack of capacity. This is the service-level evidence for personnel augmentation under
-          Audit Item 44.
-        </p>
-      )}
-      {t.noReason > 0 && (
-        <p className="av-note" style={{ color: 'var(--refused)' }}>
-          {t.noReason} event{t.noReason === 1 ? ' has' : 's have'} a service shortfall with no
-          recorded reason. Audit Item 40 requires one — open the event and add it.
-        </p>
+      {(t.noAdvice > 0 || t.excluded > 0 || t.capShort > 0 || t.noReason > 0) && (
+        <div className="space-y-2">
+          {t.noReason > 0 && (
+            <Notice tone="bad">
+              <b>
+                {t.noReason} event{t.noReason === 1 ? ' has' : 's have'} a service that was not served and no
+                reason on record.
+              </b>{' '}
+              Audit Item 40 requires one. Open the event and write it under Reason.
+            </Notice>
+          )}
+          {t.noAdvice > 0 && (
+            <Notice tone="warn">
+              {t.noAdvice} request{t.noAdvice === 1 ? ' is' : 's are'} in AV evaluation with no team
+              recommendation yet. That note is what the Division Chief reads in the approval email.
+            </Notice>
+          )}
+          {t.capShort > 0 && (
+            <Notice>
+              {t.capShort} requested service{t.capShort === 1 ? ' was' : 's were'} never agreed for lack of
+              capacity. This is the service-level evidence for personnel augmentation under Audit Item 44.
+            </Notice>
+          )}
+          {t.excluded > 0 && (
+            <Notice>
+              {t.excluded} request{t.excluded === 1 ? ' was' : 's were'} cancelled or moved by the client. They
+              are excluded from the service KPI and listed with reasons in Compliance.
+            </Notice>
+          )}
+        </div>
       )}
     </div>
   );
@@ -7429,7 +7809,7 @@ function ServiceGapPanel({
         when: ev.eventDate,
         text: unservedStatement(ev),
         fromForm: false,
-        missing: !ev.reason.trim(),
+        missing: !hasRealReason(ev.reason),
       });
     });
     // Tinanggihan o kinansela sa form sheet pero wala pa sa AV Nexus.
@@ -7441,7 +7821,7 @@ function ServiceGapPanel({
         when: q.start,
         text: formUnservedStatement(q),
         fromForm: true,
-        missing: !q.notes.trim(),
+        missing: !hasRealReason(q.notes),
       });
     });
     return list.sort((a, b) => (b.when?.getTime() ?? 0) - (a.when?.getTime() ?? 0));
@@ -7459,57 +7839,45 @@ function ServiceGapPanel({
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { k: 'Services requested', v: totals.asked, c: '#427AA1' },
-          { k: 'Services served', v: totals.asked - totals.missed, c: '#16a34a' },
-          { k: 'No capacity to agree', v: totals.noCap, c: '#B07A00' },
-          { k: 'Services not served', v: totals.missed, c: '#A30000' },
-        ].map((x) => (
-          <div
-            key={x.k}
-            className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4"
-            style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
-          >
-            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">{x.v}</p>
-            <p className="mt-1 av-label">
-              {x.k}
-            </p>
-          </div>
-        ))}
-      </div>
+      <Ledger
+        items={[
+          { k: 'Services requested', v: totals.asked, s: 'Across every decided request' },
+          { k: 'Services served', v: totals.asked - totals.missed, s: 'Delivered to the client', tone: 'ok' },
+          {
+            k: 'No capacity to agree',
+            v: totals.noCap,
+            s: 'Requested, but the team could not commit',
+            tone: totals.noCap ? 'warn' : undefined,
+          },
+          {
+            k: 'Services not served',
+            v: totals.missed,
+            s: 'Declined, not agreed, or past the target',
+            tone: totals.missed ? 'bad' : undefined,
+          },
+        ]}
+      />
 
-      <div className="space-y-2.5">
+      <div className="av-bars">
         {rows.map((r) => (
-          <div key={r.svc}>
-            <div className="mb-1 flex items-baseline justify-between gap-3">
-              <span className="truncate text-xs font-semibold text-slate-600">{r.svc}</span>
-              <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-900">
-                {r.given}/{r.asked} served
-                {r.missed > 0 && (
-                  <span className="ml-2 font-bold text-red-600">−{r.missed}</span>
-                )}
+          <div key={r.svc} className="av-bars-r">
+            <span className="nm">{r.svc}</span>
+            <span className="tk" aria-hidden="true">
+              <span style={{ width: `${Math.max(4, (r.asked / max) * 100)}%` }}>
+                <i style={{ width: `${r.asked ? (r.given / r.asked) * 100 : 0}%` }} />
+                <i data-miss="1" style={{ width: `${r.asked ? (r.missed / r.asked) * 100 : 0}%` }} />
               </span>
-            </div>
-            <div
-              className="flex h-2 overflow-hidden rounded-full bg-slate-100"
-              style={{ width: `${Math.max(12, (r.asked / max) * 100)}%` }}
-            >
-              <div
-                className="h-full bg-green-500 transition-all duration-1000"
-                style={{ width: `${r.asked ? (r.given / r.asked) * 100 : 0}%` }}
-              />
-              <div
-                className="h-full bg-red-500 transition-all duration-1000"
-                style={{ width: `${r.asked ? (r.missed / r.asked) * 100 : 0}%` }}
-              />
-            </div>
+            </span>
+            <span className="ct">
+              {r.given} of {r.asked} served
+              {r.missed > 0 && <b> · {r.missed} not served</b>}
+            </span>
           </div>
         ))}
       </div>
 
       {reasons.length > 0 && (
-        <div className="av-inset p-4">
+        <div className="av-inset p-4" id="ev-reasons">
           <p className="av-label">Reasons for unserved requests</p>
           <p className="av-note av-dim mb-3 mt-0.5">
             {reasons.length} request{reasons.length === 1 ? ' was' : 's were'} not served in full.
@@ -7566,7 +7934,7 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
     const moved = events.filter((e) => e.approval === 'rescheduled');
     const excluded = [...cancelled, ...moved];
     const lostServices = excluded.reduce((a, e) => a + e.requested.length, 0);
-    const noReason = excluded.filter((e) => !e.reason.trim()).length;
+    const noReason = excluded.filter((e) => !hasRealReason(e.reason)).length;
     const rate = events.length
       ? Math.round((excluded.length / events.length) * 1000) / 10
       : null;
@@ -7583,11 +7951,9 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
 
   if (v.excluded.length === 0) {
     return (
-      <div className="rounded-[16px] border border-dashed border-[var(--rule)] p-8 text-center">
-        <p className="text-sm text-slate-600">No cancellations or reschedules on record.</p>
-        <p className="mt-1 text-xs text-slate-400">
-          Every request received either proceeded or was decided on its merits.
-        </p>
+      <div className="av-empty">
+        <p className="t">No cancellations or reschedules on record.</p>
+        <p className="s">Every request received either proceeded or was decided on its merits.</p>
       </div>
     );
   }
@@ -7596,70 +7962,63 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { k: 'Cancelled by client', v: v.cancelled.length, c: '#64748b' },
-          { k: 'Moved by client', v: v.moved.length, c: '#B07A00' },
-          { k: 'Services stood down', v: v.lostServices, c: '#427AA1' },
-          { k: 'Volatility rate', v: v.rate === null ? 0 : v.rate, c: hot ? '#A30000' : '#16a34a', pct: true },
-        ].map((x) => (
-          <div
-            key={x.k}
-            className="rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-4"
-            style={{ borderLeftColor: x.c, borderLeftWidth: 3 }}
-          >
-            <p className="font-mono text-3xl font-black text-slate-900 tabular-nums">
-              {x.v}
-              {x.pct && <span className="text-lg text-slate-400">%</span>}
-            </p>
-            <p className="mt-1 av-label">
-              {x.k}
-            </p>
-          </div>
-        ))}
-      </div>
+      <Ledger
+        items={[
+          { k: 'Cancelled by client', v: v.cancelled.length, s: 'The event did not push through' },
+          { k: 'Moved by client', v: v.moved.length, s: 'Rescheduled to another date' },
+          { k: 'Services stood down', v: v.lostServices, s: 'Requested on those events' },
+          {
+            k: 'Volatility rate',
+            v: `${v.rate === null ? 0 : v.rate}%`,
+            s: 'Of all requests received · watch level 10%',
+            tone: hot ? 'bad' : 'ok',
+          },
+        ]}
+      />
 
-      <div className="av-card px-4 py-3 av-note">
-        <b>These {v.excluded.length} request(s) are excluded from the service KPI.</b> The
-        AV team was never given the opportunity to deliver, so counting them as unmet
-        service would misstate performance. They remain on record with a reason, and are
-        reported here so the exclusion is visible rather than silent.
-        {v.rate !== null && (
-          <>
-            {' '}Volatility is <b>{v.rate}%</b> of all requests received
-            {hot ? (
-              <span className="text-red-600">
-                {' '}— above the 10% internal watch level. Worth raising with clients on
-                lead time and weather contingency.
-              </span>
-            ) : (
-              <span className="text-slate-500"> — within the 10% internal watch level.</span>
-            )}
-          </>
-        )}
-        {v.worst && (
-          <> Highest month: <b>{monthLabel(v.worst[0])}</b> with {v.worst[1]}.</>
-        )}
+      <div className="av-inset px-4 py-3">
+        <p className="av-note">
+          <b>
+            {v.excluded.length === 1 ? 'This request is' : `These ${v.excluded.length} requests are`} excluded from the
+            service KPI.
+          </b>{' '}
+          The AV team was never given the opportunity to deliver, so counting them as unmet service would misstate
+          performance. They remain on record with a reason, and are reported here so the exclusion is visible.
+          {v.rate !== null && (
+            <>
+              {' '}
+              Volatility is <b>{v.rate}%</b> of all requests received,{' '}
+              {hot
+                ? 'above the 10% internal watch level. Worth raising with clients on lead time and weather contingency.'
+                : 'within the 10% internal watch level.'}
+            </>
+          )}
+          {v.worst && (
+            <>
+              {' '}
+              Highest month: <b>{monthLabel(v.worst[0])}</b> with {v.worst[1]}.
+            </>
+          )}
+        </p>
       </div>
 
       {v.noReason > 0 && (
-        <div className="rounded-[12px] border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700">
-          {v.noReason} of these have no recorded reason. Audit Item 40 requires one for
-          every request that was not served — exclusion from the KPI does not remove that
-          obligation, it depends on it.
-        </div>
+        <Notice tone="bad">
+          <b>{v.noReason} of these have no recorded reason.</b> Audit Item 40 requires one for every request that
+          was not served. Exclusion from the KPI does not remove that obligation; it depends on it.
+        </Notice>
       )}
 
-      <div className="overflow-x-auto custom-scrollbar">
-        <table className="w-full min-w-[720px] text-left text-xs">
+      <div className="custom-scrollbar overflow-x-auto">
+        <table className="av-table min-w-[720px]">
           <thead>
-            <tr className="border-b border-slate-200 text-[9px] uppercase tracking-[0.1em] text-slate-400">
-              <th className="pb-2 pr-3 font-bold">Event</th>
-              <th className="pb-2 pr-3 font-bold">Client</th>
-              <th className="pb-2 pr-3 font-bold">Event date</th>
-              <th className="pb-2 pr-3 font-bold">Outcome</th>
-              <th className="pb-2 pr-3 font-bold">Services</th>
-              <th className="pb-2 font-bold">Reason on record</th>
+            <tr>
+              <th>Event</th>
+              <th>Client</th>
+              <th>Event date</th>
+              <th>Outcome</th>
+              <th className="num">Services</th>
+              <th>Reason on record</th>
             </tr>
           </thead>
           <tbody>
@@ -7667,26 +8026,25 @@ function ScheduleVolatilityPanel({ events }: { events: AVEvent[] }) {
               .slice()
               .sort((a, b) => (b.eventDate?.getTime() ?? 0) - (a.eventDate?.getTime() ?? 0))
               .map((e) => (
-                <tr key={e.id} className="border-b border-slate-200 align-top last:border-0">
-                  <td className="py-3 pr-3">
-                    <p className="font-semibold text-slate-700">{e.title}</p>
-                    <p className="font-mono text-[10px] text-slate-400">{e.id}</p>
+                <tr key={e.id} className="align-top">
+                  <td>
+                    <p className="font-semibold text-[var(--ink)]">{e.title}</p>
+                    <p className="av-mono-s">{e.id}</p>
                   </td>
-                  <td className="py-3 pr-3 text-slate-500">{e.client || '—'}</td>
-                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-900">
-                    {fmtDate(e.eventDate)}
-                  </td>
-                  <td className="py-3 pr-3">
+                  <td>{e.client || '—'}</td>
+                  <td className="whitespace-nowrap">{fmtDate(e.eventDate)}</td>
+                  <td>
                     <FulfilChip f={fulfilment(e)} dense />
                   </td>
-                  <td className="py-3 pr-3 font-mono text-[10px] text-slate-900">
-                    {e.requested.length}
-                  </td>
-                  <td className="py-3">
-                    {e.reason.trim() ? (
-                      <span className="text-slate-600">{e.reason}</span>
+                  <td className="num">{e.requested.length}</td>
+                  <td>
+                    {hasRealReason(e.reason) ? (
+                      e.reason
                     ) : (
-                      <span className="font-bold text-red-600">No reason on record</span>
+                      <span className="av-state" data-t="bad">
+                        <i aria-hidden="true" />
+                        No reason on record
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -7781,38 +8139,33 @@ function ScheduleConflictPanel({
 
   return (
     <div className="space-y-5">
-      <div className="av-bento">
-        <div className="av-head">
-          <div className="av-fig" style={{ color: data.days.length ? 'var(--waiting)' : 'var(--served)' }}>
-            {data.days.length}
-          </div>
-          <p className="l">Double-booked days</p>
-          <p className="s">
-            Out of {data.daysWithWork} day{data.daysWithWork === 1 ? '' : 's'} with events
-          </p>
-        </div>
-        <div className="av-head">
-          <div className="av-fig">{data.affected}</div>
-          <p className="l">Events affected</p>
-          <p className="s">
-            Out of {data.scheduled} scheduled event{data.scheduled === 1 ? '' : 's'}
-          </p>
-        </div>
-        <div className="av-head">
-          <div className="av-fig" style={{ color: data.shortDays ? 'var(--refused)' : 'var(--served)' }}>
-            {data.shortDays}
-          </div>
-          <p className="l">Days short of staff</p>
-          <p className="s">Needed more than our {crewOnHand()} people</p>
-        </div>
-        <div className="av-head">
-          <div className="av-fig" style={{ color: data.notCommitted ? 'var(--waiting)' : undefined }}>
-            {data.notCommitted}
-          </div>
-          <p className="l">Services we could not commit to</p>
-          <p className="s">On the affected events</p>
-        </div>
-      </div>
+      <Ledger
+        items={[
+          {
+            k: 'Double-booked days',
+            v: data.days.length,
+            s: `Out of ${data.daysWithWork} day${data.daysWithWork === 1 ? '' : 's'} with events`,
+            tone: data.days.length ? 'warn' : 'ok',
+          },
+          {
+            k: 'Events affected',
+            v: data.affected,
+            s: `Out of ${data.scheduled} scheduled event${data.scheduled === 1 ? '' : 's'}`,
+          },
+          {
+            k: 'Days short of staff',
+            v: data.shortDays,
+            s: `Needed more than our ${crewOnHand()} people`,
+            tone: data.shortDays ? 'bad' : 'ok',
+          },
+          {
+            k: 'Services we could not commit to',
+            v: data.notCommitted,
+            s: 'On the affected events',
+            tone: data.notCommitted ? 'warn' : undefined,
+          },
+        ]}
+      />
 
       <div className="av-inset px-4 py-3">
         <p className="av-note">
@@ -7854,7 +8207,8 @@ function ScheduleConflictPanel({
                   </td>
                   <td className="num">
                     {d.short > 0 ? (
-                      <span style={{ color: 'var(--refused)', fontWeight: 600 }}>
+                      <span className="av-state" data-t="bad">
+                        <i aria-hidden="true" />
                         {d.short} {d.short === 1 ? 'person' : 'people'}
                       </span>
                     ) : (
@@ -9561,10 +9915,13 @@ function dedupeRequests(fromEvents: ServiceRequest[], register: ServiceRequest[]
 /* ------------------------------------------- REASONS FOR UNSERVED -- */
 
 /** Maliit na titik sa simula ng dahilan — maliban kung acronym (RSTW, DOST…). */
-function reasonPhrase(reason: string): string {
-  const r = String(reason || '').trim().replace(/[\s.]+$/, '');
+function reasonQuote(reason: string): string {
+  const r = String(reason || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[\s.]+$/, '');
   if (!r) return '';
-  return /^[A-Z][a-z]/.test(r) ? r.charAt(0).toLowerCase() + r.slice(1) : r;
+  return `“${r}${/[?!]$/.test(r) ? '' : '.'}”`;
 }
 
 /**
@@ -9594,25 +9951,23 @@ function assessorOf(ev: AVEvent): string {
 
 /** [Desisyon] due to [dahilan], as assessed by [SRS II / AV Team]. */
 function unservedStatement(ev: AVEvent): string {
-  const why = reasonPhrase(ev.reason) || 'a reason not yet recorded';
-  if (ev.approval === 'declined') {
-    return `Declined by the Division Chief due to ${why}, as assessed by ${assessorOf(ev)}.`;
-  }
-  if (ev.approval === 'cancelled') {
-    return `Cancelled by the requesting office due to ${why}, as recorded by ${assessorOf(ev)}.`;
-  }
-  if (ev.approval === 'rescheduled') {
-    return `Moved to another date by the requesting office due to ${why}, as recorded by ${assessorOf(ev)}.`;
-  }
+  // v7.4: ang dahilan ay SINISIPI nang eksakto sa pagkakasulat — dati'y idinudugtong
+  // sa "due to", kaya sablay ang basa kapag buong pangungusap ang nakasulat. Ang
+  // placeholder ng import ay hindi dahilan (tingnan ang hasRealReason).
+  const why = hasRealReason(ev.reason) ? `Reason on record: ${reasonQuote(ev.reason)}` : 'No reason is on record yet.';
+  const who = assessorOf(ev);
+  if (ev.approval === 'declined') return `Declined by the Division Chief. ${why} Assessed by ${who}.`;
+  if (ev.approval === 'cancelled') return `Cancelled by the requesting office. ${why} Recorded by ${who}.`;
+  if (ev.approval === 'rescheduled') return `Moved to another date by the requesting office. ${why} Recorded by ${who}.`;
   const gap = capacityGap(ev);
-  return `Partly served (${gap.join(', ')} not committed) due to ${why}, as assessed by ${assessorOf(ev)}.`;
+  return `Partly served: ${gap.join(', ')} not committed. ${why} Assessed by ${who}.`;
 }
 
 function formUnservedStatement(q: IntakeRequest): string {
-  const why = reasonPhrase(q.notes) || 'a reason not yet recorded';
+  const why = hasRealReason(q.notes) ? `Reason on record: ${reasonQuote(q.notes)}` : 'No reason is on record yet.';
   return /disapprov|declin/i.test(q.sheetStatus)
-    ? `Declined by the Division Chief due to ${why}, as assessed by the AV Team (SRS II).`
-    : `Cancelled by the requesting office due to ${why}, as recorded by the AV Team (SRS II).`;
+    ? `Declined by the Division Chief. ${why} Assessed by the AV Team (SRS II).`
+    : `Cancelled by the requesting office. ${why} Recorded by the AV Team (SRS II).`;
 }
 
 /** Ang sagot sa form bilang bagong event — pre-filled na ang EventModal. */
@@ -9905,10 +10260,11 @@ function IntakeSummary({
           <p className="av-stat-s">Tracked through approval and delivery</p>
         </div>
         <div>
-          <p className="av-stat-l">Not yet logged</p>
-          <p className="av-fig mt-2" style={{ color: waiting ? 'var(--waiting)' : undefined }}>
-            {waiting}
+          <p className="av-stat-l">
+            {waiting > 0 && <i className="av-led" data-t="warn" aria-hidden="true" />}
+            Not yet logged
           </p>
+          <p className="av-fig mt-2">{waiting}</p>
           <p className="av-stat-s">
             {waiting ? (
               <button
@@ -10642,6 +10998,26 @@ function isReplaced(ev: AVEvent): boolean {
 }
 
 /**
+ * v7.4: ang may tag na "pinalitan" o "doble" ay itinatago LANG kapag sarado na ito
+ * (kinansela, tinanggihan o inilipat) o nasa sheet pa ang record na pumalit dito.
+ * Dati, itinatago kahit Approved pa at wala na ang kapalit — nawawala ang buong
+ * request sa dashboard at sa bawat bilang (hal. Approved pa, may tag, pero nabura
+ * na sa sheet ang record na pumalit dito).
+ */
+function isOrphanedReplaced(ev: AVEvent, all: AVEvent[]): boolean {
+  if (!isReplaced(ev) || !APPROVAL_META[ev.approval].live) return false;
+  const marker = new RegExp(`Replaces triage record ${ev.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9-])`);
+  if (all.some((o) => o.id !== ev.id && marker.test(o.remarks))) return false;
+  const dup = /\[duplicate of ([^\]]+)\]/i.exec(ev.remarks);
+  if (dup && all.some((o) => o.id === dup[1].trim())) return false;
+  return true;
+}
+
+function visibleEvents(all: AVEvent[]): AVEvent[] {
+  return all.filter((ev) => !isReplaced(ev) || isOrphanedReplaced(ev, all));
+}
+
+/**
  * Isang hilera para sa importEvents — ang parehong daan ng "Import past
  * coverage". Ito ang tamang daan para sa mga request na naaprubahan sa
  * labas ng AV Nexus (lumang request form): pumapasok nang may status na.
@@ -10926,7 +11302,7 @@ function CrewBoard({
               Assign crew
             </button>
           )}
-          <button type="button" className="av-btn text-[12.5px]" onClick={() => onDeliver(ev)}>
+          <button type="button" className="av-btn-ghost text-[12.5px]" onClick={() => onDeliver(ev)}>
             Mark delivered
           </button>
         </>
@@ -10934,7 +11310,7 @@ function CrewBoard({
     }
     if (c.stage === 'done') {
       return (
-        <button type="button" className="av-btn text-[12.5px]" onClick={() => onArchive(ev)}>
+        <button type="button" className="av-btn-ghost text-[12.5px]" onClick={() => onArchive(ev)}>
           Mark DMC transferred
         </button>
       );
@@ -10984,11 +11360,11 @@ function CrewBoard({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <StatTile label="To do or ongoing" value={active} sub={noCrew ? `${noCrew} with no crew yet` : 'Every one has a crew'} accent="#2F5F82" bar={cards.length ? (active / cards.length) * 100 : 0} />
-        <StatTile label="In progress" value={count('progress')} sub="Work has started" accent="#B07A00" bar={cards.length ? (count('progress') / cards.length) * 100 : 0} />
-        <StatTile label="Delivered" value={count('done')} sub="Waiting for DMC transfer" accent="#1F8A5B" bar={cards.length ? (count('done') / cards.length) * 100 : 0} />
-        <StatTile label="Transferred to DMC" value={count('dmc')} sub="Now in the Archive" accent="#427AA1" bar={cards.length ? (count('dmc') / cards.length) * 100 : 0} />
-        <StatTile label="Overdue" value={overdue} sub="Past the SLA target" accent="#A30000" bar={active ? (overdue / active) * 100 : 0} />
+        <StatTile label="To do or ongoing" value={active} sub={noCrew ? `${noCrew} with no crew yet` : 'Every one has a crew'} tone={noCrew ? 'warn' : undefined} />
+        <StatTile label="In progress" value={count('progress')} sub="Work has started" />
+        <StatTile label="Delivered" value={count('done')} sub="Waiting for DMC transfer" tone={count('done') ? 'warn' : undefined} />
+        <StatTile label="Transferred to DMC" value={count('dmc')} sub="Now in the Archive" tone="ok" share={cards.length ? (count('dmc') / cards.length) * 100 : undefined} />
+        <StatTile label="Overdue" value={overdue} sub="Past the SLA target" tone={overdue ? 'bad' : undefined} />
       </div>
 
       <div className="custom-scrollbar overflow-x-auto pb-2">
@@ -11093,14 +11469,70 @@ function CrewBoard({
  * Mga record na hindi magkatugma ang sinasabi — para iisa ang lumalabas sa
  * production board, sa event card at sa compliance.
  */
+/** "yyyy-MM-dd HH:mm · action · who · key1, key2 (tala)" — kapareho ng basa ng backend. */
+function parseLogLine(line: string): { day: string; action: string; keys: string[] } {
+  const p = line.split(' · ');
+  return {
+    day: String(p[0] || '').slice(0, 10),
+    action: String(p[1] || '').trim(),
+    keys: p
+      .slice(3)
+      .join(' · ')
+      .replace(/\([^)]*\)/g, '')
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean),
+  };
+}
+
+/**
+ * v7.4: ang Date served ba ay ang araw na MINARKAHAN ang record, hindi ang araw
+ * na naihatid? Lahat ng ito ay dapat totoo:
+ *   1. Inangkat ang record (ang unang linya ng Action Log ay "imported"), at
+ *      tapos na ang event bago pa ito inangkat.
+ *   2. Ang Client delivery ay minarkahan sa mismong araw na nakasulat ngayon sa
+ *      Date served.
+ *   3. Lampas sa target ang petsang iyon, kaya late ang bilang nito.
+ * Hindi nito sinasabing mali ang petsa — sinasabi nitong kailangan itong tiyakin
+ * ng tao. Kaya walang awtomatikong binabago: listahan lang at dalawang pagpipilian.
+ */
+function servedOnMarkDay(ev: AVEvent): boolean {
+  if (!isAuthorised(ev) || !isDelivered(ev) || !ev.dateDelivered || !ev.history.length) return false;
+  const log = ev.history.map(parseLogLine);
+  if (log[0].action !== 'imported' || !/^\d{4}-\d{2}-\d{2}$/.test(log[0].day)) return false;
+  const end = ev.endDate || ev.eventDate;
+  if (!end || dayKey(end) >= log[0].day) return false;
+  const served = dayKey(ev.dateDelivered);
+  if (!log.some((x) => x.action !== 'imported' && x.day === served && x.keys.includes('delivery'))) return false;
+  const due = eventTarget(ev);
+  return !!due && served > dayKey(due);
+}
+
+/** Hindi naibigay (tinanggihan, kinansela, inilipat) pero walang nakasulat na tunay na dahilan. */
+function unservedNoReason(ev: AVEvent): boolean {
+  return (
+    (ev.approval === 'declined' || ev.approval === 'cancelled' || ev.approval === 'rescheduled') &&
+    !hasRealReason(ev.reason)
+  );
+}
+
+/** Coverage na "natanggap" matapos na ang event — nailagay ang araw ng pag-log, hindi ng pagtanggap. */
+function requestedAfterEvent(ev: AVEvent): boolean {
+  if (!ev.dateRequested || !ev.eventDate || !APPROVAL_META[ev.approval].live) return false;
+  if (streamOfServices(ev.requested) !== 'coverage') return false;
+  return dayKey(ev.dateRequested) > dayKey(ev.endDate || ev.eventDate);
+}
+
 /** Ilang record ang may hindi magkatugmang sinasabi — para sa to-do. */
 function dataCheckCount(events: AVEvent[]): number {
   const recentCut = new Date();
   recentCut.setDate(recentCut.getDate() - 30);
   return events.filter((ev) => {
     if (ev.approval === 'for-evaluation' && eventEnded(ev)) return true;
+    if (isOrphanedReplaced(ev, events) || unservedNoReason(ev) || requestedAfterEvent(ev)) return true;
     if (!isAuthorised(ev)) return false;
     if (ev.dateDelivered && !isDelivered(ev)) return true;
+    if (servedOnMarkDay(ev)) return true;
     const end = ev.endDate || ev.eventDate;
     return isDelivered(ev) && !ev.dateDelivered && !!end && end.getTime() >= recentCut.getTime();
   }).length;
@@ -11111,15 +11543,23 @@ function DataChecks({
   onMarkDone,
   onRecordPast,
   onOpen,
+  onClearServed,
+  canClear = false,
   defaultOpen = false,
+  embedded = false,
 }: {
   events: AVEvent[];
   onMarkDone: (ev: AVEvent) => void;
   onRecordPast: (ev: AVEvent) => void;
   onOpen: (ev: AVEvent) => void;
+  /** v7.4: burahin ang Date served na araw lang pala ng pagmamarka. Section lead lang. */
+  onClearServed?: (list: AVEvent[]) => void;
+  canClear?: boolean;
   defaultOpen?: boolean;
+  /** Nasa loob na ng to-do row na may sariling pamagat — huwag nang ulitin ang pamagat. */
+  embedded?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || embedded);
   const recentCut = new Date();
   recentCut.setDate(recentCut.getDate() - 30);
   const dateNoStep = events.filter((ev) => isAuthorised(ev) && !!ev.dateDelivered && !isDelivered(ev));
@@ -11134,16 +11574,24 @@ function DataChecks({
     );
   });
   const stuck = events.filter((ev) => ev.approval === 'for-evaluation' && eventEnded(ev));
-  const total = dateNoStep.length + stepNoDate.length + stuck.length;
+  const markDay = events.filter(servedOnMarkDay);
+  const orphaned = events.filter((ev) => isOrphanedReplaced(ev, events));
+  const noReason = events.filter(unservedNoReason);
+  const reqAfter = events.filter(requestedAfterEvent);
+  // Isang record, isang bilang — kapareho ng dataCheckCount, kahit nasa dalawang grupo.
+  const total = new Set(
+    [...dateNoStep, ...stepNoDate, ...stuck, ...markDay, ...orphaned, ...noReason, ...reqAfter].map((ev) => ev.id)
+  ).size;
   if (!total) return null;
+  const markDays = Array.from(new Set(markDay.map((ev) => (ev.dateDelivered ? fmtDate(ev.dateDelivered) : '')))).filter(Boolean);
 
-  const Row = ({ ev, children }: { ev: AVEvent; children?: React.ReactNode }) => (
+  const Row = ({ ev, meta, children }: { ev: AVEvent; meta?: string; children?: React.ReactNode }) => (
     <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1">
         <p className="truncate text-[14px] font-semibold text-[var(--ink)]">{ev.title || 'Untitled event'}</p>
         <p className="truncate text-[12.5px] text-[var(--ink-3)]">
           {ev.client || 'No client'} · {dateSpan(ev.eventDate, ev.endDate)}
-          {ev.dateDelivered ? ` · delivery date ${fmtDate(ev.dateDelivered)}` : ''}
+          {meta ? ` · ${meta}` : ev.dateDelivered ? ` · date served ${fmtDate(ev.dateDelivered)}` : ''}
         </p>
       </div>
       <div className="flex shrink-0 gap-2">
@@ -11161,12 +11609,14 @@ function DataChecks({
     list,
     action,
     bulk,
+    meta,
   }: {
     title: string;
     note: string;
     list: AVEvent[];
     action?: (ev: AVEvent) => React.ReactNode;
     bulk?: React.ReactNode;
+    meta?: (ev: AVEvent) => string;
   }) =>
     list.length ? (
       <div className="border-t border-[var(--rule-soft)] px-5 py-4">
@@ -11181,7 +11631,7 @@ function DataChecks({
         </div>
         <div className="mt-1 divide-y divide-[var(--rule-soft)]">
           {list.slice(0, 20).map((ev) => (
-            <Row key={ev.id} ev={ev}>
+            <Row key={ev.id} ev={ev} meta={meta?.(ev)}>
               {action?.(ev)}
             </Row>
           ))}
@@ -11192,7 +11642,8 @@ function DataChecks({
 
   return (
     <section>
-    <div className="av-card" style={{ borderColor: 'rgba(176,122,0,.35)' }}>
+    <div className={`av-card av-checks ${embedded ? 'is-embedded' : ''}`}>
+      {!embedded && (
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -11208,6 +11659,7 @@ function DataChecks({
         </span>
         <span className="av-btn-ghost shrink-0 text-[13px]">{open ? 'Hide' : 'Show'}</span>
       </button>
+      )}
       {open && (
         <>
           <Group
@@ -11245,6 +11697,53 @@ function DataChecks({
             title="Delivered, but no delivery date"
             note="Turnaround time cannot be measured without it. Open the event and add the date."
             list={stepNoDate}
+          />
+          <Group
+            title="The date served is the day the record was marked"
+            note={`These past events were imported after they happened, then marked as delivered${
+              markDays.length ? ` on ${markDays.join(' and ')}` : ''
+            }. That day was saved as the date served, so each one counts as late. Open the event and enter the day the output reached the client. If that day is not on record, clear the date: the record then reads “delivered, no date served” and is left out of the on-time rate.${
+              canClear ? '' : ' Only the section lead can change a completed record.'
+            }`}
+            list={markDay}
+            bulk={
+              canClear && onClearServed && markDay.length > 0 ? (
+                <button
+                  type="button"
+                  className="av-btn-ghost text-[13px]"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Clear the date served on ${markDay.length} record${markDay.length === 1 ? '' : 's'}?\n\n` +
+                          'Each one stays delivered, with no date served, and the change is written to its action log. ' +
+                          'You can still open a record afterwards and enter the real date.'
+                      )
+                    ) {
+                      onClearServed(markDay);
+                    }
+                  }}
+                >
+                  Clear the date on {markDay.length === 1 ? 'this record' : `all ${markDay.length}`}
+                </button>
+              ) : undefined
+            }
+          />
+          <Group
+            title="Marked as replaced, but still active"
+            note="The record that replaced it is no longer in the sheet, so this request is counted again. Open it and finish it, or cancel it with the reason."
+            list={orphaned}
+          />
+          <Group
+            title="Not served, with no reason written"
+            note="Audit Item 40 asks for the reason on every request that was declined, cancelled or moved. Open the event and write what happened."
+            list={noReason}
+            meta={(ev) => APPROVAL_META[ev.approval].label.toLowerCase()}
+          />
+          <Group
+            title="Date requested is after the event"
+            note="A coverage request cannot be received after the event it covers. Until the real date received is entered, it is counted in the wrong reporting period."
+            list={reqAfter}
+            meta={(ev) => `received ${fmtDate(ev.dateRequested)}`}
           />
         </>
       )}
@@ -11387,17 +11886,17 @@ function UpcomingConflicts({
 }: {
   events: AVEvent[];
   crewByEvent: Map<string, Assignment[]>;
-  onView: () => void;
+  onView?: () => void;
 }) {
   const days = useMemo(() => upcomingIssues(events, crewByEvent), [events, crewByEvent]);
   if (!days.length) return null;
   const hard = days.some((d) => d.clashes.length > 0 || d.short > 0);
   return (
-    <div className={`av-alert ${hard ? 'err' : 'info'} flex flex-wrap items-start justify-between gap-3`} role="status">
+    <div className="av-notice mb-3 flex flex-wrap items-start justify-between gap-3" data-t={hard ? 'bad' : 'warn'} role="status">
       <div className="min-w-0 flex-1">
         <p>
           <b>
-            ⚠ Schedule warning — {days.length} day{days.length === 1 ? '' : 's'} in the next 2 weeks need{days.length === 1 ? 's' : ''} attention.
+            Schedule warning: {days.length} day{days.length === 1 ? '' : 's'} in the next 2 weeks need{days.length === 1 ? 's' : ''} attention.
           </b>
         </p>
         <ul className="mt-1 space-y-0.5">
@@ -11410,9 +11909,11 @@ function UpcomingConflicts({
           {days.length > 4 && <li>…and {days.length - 4} more.</li>}
         </ul>
       </div>
-      <button type="button" className="av-btn-ghost shrink-0 text-[13px]" onClick={onView}>
-        Open deployment calendar
-      </button>
+      {onView && (
+        <button type="button" className="av-btn-ghost shrink-0 text-[13px]" onClick={onView}>
+          Open deployment calendar
+        </button>
+      )}
     </div>
   );
 }
@@ -11502,7 +12003,7 @@ function DeploymentCalendar({
     <div className="mt-1 flex flex-wrap gap-1">
       {d.clashes.length > 0 && (
         <span className="av-cal-flag red" title={`${d.clashes.join(', ')} booked on two events`}>
-          ⚠ {d.clashes.length === 1 ? d.clashes[0] : `${d.clashes.length} people`} ×2
+          {d.clashes.length === 1 ? d.clashes[0] : `${d.clashes.length} people`} ×2
         </span>
       )}
       {d.short > 0 && <span className="av-cal-flag red">Short {d.short}</span>}
@@ -11556,8 +12057,9 @@ function DeploymentCalendar({
       </div>
 
       {flagged.length > 0 ? (
-        <div className={`av-alert ${sum.clashes || sum.short ? 'err' : 'info'}`} role="status">
-          <b>⚠ {flagged.length} day{flagged.length === 1 ? '' : 's'} this month need{flagged.length === 1 ? 's' : ''} attention.</b>{' '}
+        <div className="av-flagline" data-t={sum.clashes || sum.short ? 'bad' : 'warn'} role="status">
+          <i aria-hidden="true" />
+          <b>{flagged.length} day{flagged.length === 1 ? '' : 's'} this month need{flagged.length === 1 ? 's' : ''} attention.</b>{' '}
           {sum.double} double-booked day{sum.double === 1 ? '' : 's'}
           {sum.clashes ? `, ${sum.clashes} time${sum.clashes === 1 ? '' : 's'} a person was booked on two events` : ''}
           {sum.short ? `, ${sum.short} day${sum.short === 1 ? '' : 's'} short of staff` : ''}
@@ -11644,7 +12146,7 @@ function DeploymentCalendar({
                         {ev.title}
                       </span>
                     ))}
-                    {d && dayHasIssue(d) && <span className="block text-[12.5px] text-[var(--refused)]">⚠ {issueText(d)}</span>}
+                    {d && dayHasIssue(d) && <span className="block text-[12.5px] text-[var(--refused)]"><WarnMark />{issueText(d)}</span>}
                   </span>
                 </button>
               ))}
@@ -11742,7 +12244,7 @@ function DeploymentCalendar({
               Close
             </button>
           </div>
-          {dayHasIssue(pickedLoad) && <p className="av-alert err mb-3">⚠ {issueText(pickedLoad)}</p>}
+          {dayHasIssue(pickedLoad) && <p className="av-alert err mb-3">{issueText(pickedLoad)}</p>}
           <div className="divide-y divide-[var(--rule-soft)]">
             {[...pickedLoad.events, ...(showTriage ? pickedLoad.tentative : [])].map((ev) => {
               const crew = activeCrew(crewByEvent, ev.id);
@@ -11860,8 +12362,11 @@ function NexusArchive({
     <div className="space-y-4">
       <div className="av-trio four">
         <div>
-          <p className="av-stat-l">Waiting for DMC transfer</p>
-          <p className="av-fig mt-2" style={{ color: waiting.length ? 'var(--waiting)' : undefined }}>{waiting.length}</p>
+          <p className="av-stat-l">
+            {waiting.length > 0 && <i className="av-led" data-t="warn" aria-hidden="true" />}
+            Waiting for DMC transfer
+          </p>
+          <p className="av-fig mt-2">{waiting.length}</p>
           <p className="av-stat-s">Delivered to the client, footage not yet handed over</p>
         </div>
         <div>
@@ -11870,15 +12375,19 @@ function NexusArchive({
           <p className="av-stat-s">Marked transferred in AV Nexus</p>
         </div>
         <div>
-          <p className="av-stat-l">Also in the DMC sheet</p>
-          <p className="av-fig mt-2" style={{ color: 'var(--served)' }}>{inSheet}</p>
+          <p className="av-stat-l">
+            {inSheet > 0 && <i className="av-led" data-t="ok" aria-hidden="true" />}
+            Also in the DMC sheet
+          </p>
+          <p className="av-fig mt-2">{inSheet}</p>
           <p className="av-stat-s">Matched by title and date</p>
         </div>
         <div>
-          <p className="av-stat-l">Not in the DMC sheet yet</p>
-          <p className="av-fig mt-2" style={{ color: archived.length - inSheet ? 'var(--refused)' : undefined }}>
-            {archived.length - inSheet}
+          <p className="av-stat-l">
+            {archived.length - inSheet > 0 && <i className="av-led" data-t="bad" aria-hidden="true" />}
+            Not in the DMC sheet yet
           </p>
+          <p className="av-fig mt-2">{archived.length - inSheet}</p>
           <p className="av-stat-s">Ask DMC to log these</p>
         </div>
       </div>
@@ -11899,7 +12408,7 @@ function NexusArchive({
                     </span>
                   </button>
                   {canEditEv(ev) ? (
-                    <button type="button" className="av-btn shrink-0 text-[12.5px]" onClick={() => onArchive(ev)}>
+                    <button type="button" className="av-btn-ghost shrink-0 text-[12.5px]" onClick={() => onArchive(ev)}>
                       Mark DMC transferred
                     </button>
                   ) : (
@@ -11962,11 +12471,15 @@ function NexusArchive({
                     <td>{ev.pipeline.csm === 'done' ? 'Given' : <span className="av-dim">Not yet</span>}</td>
                     <td>
                       {m ? (
-                        <span style={{ color: 'var(--served)', fontWeight: 600 }} title={m.details}>
-                          ✓ {fmtDate(m.dateObj, m.date)}
+                        <span className="av-state" data-t="ok" title={m.details}>
+                          <i aria-hidden="true" />
+                          {fmtDate(m.dateObj, m.date)}
                         </span>
                       ) : (
-                        <span style={{ color: 'var(--refused)' }}>Not yet</span>
+                        <span className="av-state" data-t="warn">
+                          <i aria-hidden="true" />
+                          Not yet
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -12688,6 +13201,11 @@ function AccomplishmentsView({
 
   return (
     <div className="av-acc">
+      <PrintHead
+        title="AV Services Accomplishment Report"
+        period={`January to ${MONTH_ABBR[upto - 1]} ${year}`}
+        asOf={now.toLocaleString('en-PH', { day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+      />
       <div className="av-sec-row no-print">
         <div>
           <h2 className="av-sec-title">Services delivered, {year}</h2>
@@ -12703,7 +13221,7 @@ function AccomplishmentsView({
           <button type="button" className="av-btn-ghost" onClick={exportYear}>
             Export (Excel layout)
           </button>
-          <button type="button" className="av-btn-ghost" onClick={() => window.print()}>
+          <button type="button" className="av-btn-ghost" onClick={printView}>
             Print
           </button>
         </div>
@@ -12828,7 +13346,8 @@ function AccomplishmentsView({
                         <b>{l.key}.</b> {l.label}
                         {warn > 0 && (
                           <span className="av-acc-warn no-print" title={`${warn} ticked without a matching service`}>
-                            ⚠ {warn}
+                            <WarnMark />
+                            {warn}
                           </span>
                         )}
                       </button>
@@ -12903,7 +13422,8 @@ function AccomplishmentsView({
                       <span className="o">{lineOrigin(r, pick.line)}</span>
                       {bad && (
                         <span className="w">
-                          ⚠ Ticked, but no {LINE_NEEDS[pick.line] || 'production service'} is in the delivered
+                          <WarnMark />
+                          Ticked, but no {LINE_NEEDS[pick.line] || 'production service'} is in the delivered
                           services.
                           {check ? ` Import note: ${check}.` : ''}
                         </span>
@@ -12969,7 +13489,7 @@ function AccomplishmentsView({
         </div>
       )}
 
-      <div className="av-card av-acc-table">
+      <div className="av-card av-acc-table avoid-break">
         <div className="av-acc-th">Requests and results</div>
         <div className="av-acc-scroll">
           <table>
@@ -13005,6 +13525,7 @@ function AccomplishmentsView({
           </table>
         </div>
       </div>
+      <PrintSign />
     </div>
   );
 }
@@ -13088,6 +13609,37 @@ function StageHud({ live }: { live: number }) {
     </p>
   );
 }
+
+/** v7.4: ang crew bilang maliliit na tally chip — para sa mga pahinang may slate at walang Stage. */
+function StageCrew({ stateOf }: { stateOf: (name: string) => TallyState }) {
+  return (
+    <div className="av-crew" aria-label="Crew status">
+      {STAGE_LINEUP.map((p) => {
+        const st = stateOf(p.name);
+        return (
+          <span key={p.name} className="av-crew-c" data-s={st} title={`${p.name} · ${LAMP_LABEL[st]}`}>
+            <span className="ph">
+              <img src={p.src} alt="" decoding="async" />
+            </span>
+            <i aria-hidden="true" />
+            <span className="sr-only">
+              {p.name}: {LAMP_LABEL[st]}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Mga pahina ng ulat: maikling slate, hindi ang buong Stage. */
+const SLATE_VIEWS: ViewKey[] = ['compliance', 'accomplishments', 'reports', 'pulse'];
+const SLATE_EYEBROW: Partial<Record<ViewKey, string>> = {
+  compliance: 'Assurance · AV Services Procedures Manual, PM-CRPD-AV-08-04 Rev 7',
+  accomplishments: 'Assurance · Monthly AV services report',
+  reports: 'Assurance · IPCR and SPMS attachments',
+  pulse: 'Operations · Digital Media Center',
+};
 
 /* ------------------------------------------------------------ APP SHELL -- */
 
@@ -13937,7 +14489,7 @@ function AppMain() {
           .reverse()
       );
       // Ang pila sa device ay ipinapatong sa `events` (overlayEvents), hindi dito.
-      setRawEvents(sheetEvents.filter((e) => !isReplaced(e)));
+      setRawEvents(visibleEvents(sheetEvents));
 
       setRequests(
         reqRows
@@ -14694,6 +15246,45 @@ function AppMain() {
     [toast, enqueue]
   );
 
+  /**
+   * v7.4: burahin ang Date served na araw lang pala ng pagmamarka (tingnan ang
+   * servedOnMarkDay). Nananatiling Done ang Client delivery — "naihatid, walang
+   * petsa" na lang ang record, kaya hindi na ito nabibilang na late at hindi rin
+   * ito nabibilang na on time. Sarado na ang karamihan sa mga ito, kaya `reopen`
+   * ang kasama: section lead lang ang tinatanggap ng backend, at nakatala ito sa
+   * Action Log ng bawat record.
+   */
+  const clearServedDate = useCallback(
+    (list: AVEvent[]) => {
+      if (!PROD_CONFIGURED) {
+        toast('Set PROD_SCRIPT_URL in App.tsx first.', 'err');
+        return;
+      }
+      const ok = list.filter((ev) => !isLocalId(ev.id) && !!ev.dateDelivered);
+      if (!ok.length) return;
+      enqueue(
+        ok.map((ev) =>
+          makeOp(
+            'updateEvent',
+            {
+              action: 'updateEvent',
+              id: ev.id,
+              patch: { dateDelivered: '', ...(serverClosed(ev) ? { reopen: true } : {}) },
+            },
+            `Clear the date served — “${ev.title || ev.id}”`,
+            ev.id,
+            {
+              event: { ...ev, dateDelivered: null },
+              doneText: ok.length === 1 ? `Date served cleared: ${ev.title || ev.id}` : '',
+            }
+          )
+        )
+      );
+      if (ok.length > 1) toast(`Clearing the date served on ${ok.length} records…`, 'info');
+    },
+    [toast, enqueue]
+  );
+
   /** Isang pipeline step lang — para sa DMC transfer at CSM form. */
   const setStep = useCallback(
     (ev: AVEvent, key: PipelineKey, label: string, doneText: string) => {
@@ -14909,10 +15500,20 @@ function AppMain() {
       if (mode === 'triage') return;
       const all = Array.from(new Set([q.ref, ...refs]));
       const status = PAST_STATUS[mode];
-      const reason =
-        mode === 'declined' || mode === 'cancelled'
-          ? q.notes || 'Recorded from the request form sheet'
-          : '';
+      /**
+       * v7.4: walang nakasulat na dahilan sa form sheet. Dati, "Recorded from the
+       * request form sheet" ang inilalagay bilang dahilan — pumapasa sa backend
+       * pero hindi iyon dahilan, at 'yon ang lumalabas sa Compliance (Item 40).
+       * Ngayon, binubuksan ang form para maisulat muna ang tunay na dahilan.
+       */
+      if ((mode === 'declined' || mode === 'cancelled') && !hasRealReason(q.notes)) {
+        const pre = intakePrefill(q, mode);
+        pre.remarks = withFormRefs(pre.remarks, all);
+        setEvModal({ open: true, editing: null, prefill: pre, intent: mode });
+        toast('Write the reason first. Audit Item 40 needs it on every request that was not served.', 'info');
+        return;
+      }
+      const reason = mode === 'declined' || mode === 'cancelled' ? q.notes : '';
       setBusyRefs((b) => [...b, ...all]);
       const ev = intakePrefill(q, mode);
       ev.remarks = withFormRefs(ev.remarks, all);
@@ -14936,7 +15537,7 @@ function AppMain() {
         res && res.created > 0 ? 120000 : 0
       );
     },
-    [importPast, addPending, holdRefs]
+    [importPast, addPending, holdRefs, toast]
   );
 
   /** Ang "Review first" ng sagot sa form na hindi para sa triage — mula sa modal. */
@@ -14953,8 +15554,12 @@ function AppMain() {
         ev.remarks = [ev.remarks, `Online request form ${marker}`].filter(Boolean).join(' · ');
       }
       const status = PAST_STATUS[intent];
-      const reason =
-        form.reason || (status === 'declined' || status === 'cancelled' ? 'Recorded from the request form sheet' : '');
+      // v7.4: walang pamalit na "dahilan". Ang tinanggihan o kinansela ay kailangan ng tunay na dahilan.
+      if ((status === 'declined' || status === 'cancelled') && !hasRealReason(form.reason || '')) {
+        toast('Write the reason first. Audit Item 40 needs it on every request that was not served.', 'err');
+        return;
+      }
+      const reason = form.reason || '';
       const letter = letterOf(form.requestLetter);
       setEvModal({ open: false, editing: null });
       if (ref) setBusyRefs((b) => [...b, ref]);
@@ -14980,7 +15585,7 @@ function AppMain() {
         );
       }
     },
-    [importPast, addPending, myName, holdRefs]
+    [importPast, addPending, myName, holdRefs, toast]
   );
 
   /* -------------------------------------------- v6: duplicates and links -- */
@@ -15846,6 +16451,9 @@ function AppMain() {
     };
   }, [isoP, csmP, formsState]);
 
+  /** v7.4: ang limang audit criteria — iisang kuwenta para sa readiness slate at sa checklist. */
+  const audit = useMemo(() => auditRows(isoP, kpi, evP), [isoP, kpi, evP]);
+
   const filteredRequests = useMemo(() => {
     const q = reqQueryD.trim().toLowerCase();
     return requests.filter((r) => {
@@ -16621,16 +17229,25 @@ function AppMain() {
         </header>
 
         {/* --------------------------------------------------------- HERO -- */}
+        {/* v7.4: ang Stage (crew lineup) ay sa Events at Production. Ang mga pahina ng
+            ulat — Compliance, Accomplishments, Reports, Archive — ay may maikling slate,
+            para nasa unang screen na ang laman. */}
         <section
           className={`av-band av-hero no-print ${
             view === 'portfolio' || view === 'gatepass' ? 'slim' : ''
-          }`}
+          } ${SLATE_VIEWS.includes(view) ? 'is-slate' : ''}`}
         >
-          {view !== 'portfolio' && view !== 'gatepass' && <StageLineup stateOf={tallyOf} />}
+          {view !== 'portfolio' && view !== 'gatepass' && !SLATE_VIEWS.includes(view) && (
+            <StageLineup stateOf={tallyOf} />
+          )}
           <div className="av-stage-scrim" aria-hidden="true" />
+          {SLATE_VIEWS.includes(view) && <StageCrew stateOf={tallyOf} />}
           <div key={view} className="av-stage-copy mx-auto flex max-w-[1400px] flex-wrap items-end justify-between gap-x-6 gap-y-4">
             <div className="min-w-0">
               <StageHud live={tally.filter((t) => t.state === 'live').length} />
+              {SLATE_VIEWS.includes(view) ? (
+                <p className="av-hero-k">{SLATE_EYEBROW[view] || ''}</p>
+              ) : (
               <p className="av-hero-k">
                 {greetingFor(new Date())}
                 {myName ? `, ${String(myName).split(' ')[0]}` : ''}
@@ -16638,6 +17255,7 @@ function AppMain() {
                   {new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric' })}
                 </span>
               </p>
+              )}
               <h1 className="av-hero-h">{VIEWS.find((v) => v.key === view)?.label}</h1>
               <p className="av-hero-p">{VIEWS.find((v) => v.key === view)?.hint}</p>
               {lastUpdated && (
@@ -16648,20 +17266,33 @@ function AppMain() {
                 </p>
               )}
             </div>
-            <div className="av-stage-cta flex flex-wrap gap-2">
-              <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
-                <Icon name="sheet" size={16} />
-                Pre-archival
-              </a>
-              <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
-                <Icon name="sheet" size={16} />
-                DMC sheet
-              </a>
+            <div className="av-stage-side">
+              <div className="av-stage-cta flex flex-wrap gap-2">
+                {view === 'compliance' && (
+                  <button type="button" className="av-hero-btn" onClick={printView}>
+                    <Icon name="print" size={16} />
+                    Print report
+                  </button>
+                )}
+                <a href={PRE_ARCHIVAL_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
+                  <Icon name="sheet" size={16} />
+                  Pre-archival
+                </a>
+                <a href={DMC_MONITORING_LINK} target="_blank" rel="noreferrer" className="av-hero-btn">
+                  <Icon name="sheet" size={16} />
+                  DMC sheet
+                </a>
+              </div>
             </div>
           </div>
 
+          {/* ------------------------------------- AUDIT READINESS (v7.4) -- */}
+          {view === 'compliance' && (prodReady !== 'missing' || events.length > 0) && (
+            <AuditStrip rows={audit} period={pRange.label} onJump={jumpTo} />
+          )}
+
           {/* -------------------------------------------------- KPI STRIP -- */}
-          {view !== 'portfolio' && view !== 'gatepass' && (
+          {view !== 'portfolio' && view !== 'gatepass' && !SLATE_VIEWS.includes(view) && (
             <div className="av-kpis no-print">
               <HeroStat
                 label="Awaiting action"
@@ -16702,7 +17333,12 @@ function AppMain() {
                 }
                 hex="#2F5F82"
                 icon="archive"
-                sub={`${stats.counts.transferred + stats.counts.archived} of ${stats.total} coverages`}
+                blank={!stats.total}
+                sub={
+                  stats.total
+                    ? `${stats.counts.transferred + stats.counts.archived} of ${stats.total} coverages`
+                    : 'No coverages in the DMC sheet yet'
+                }
                 onClick={() => setView('pulse')}
               />
               <HeroStat
@@ -16735,7 +17371,7 @@ function AppMain() {
           }`}
         >
         {/* ================================================ DASHBOARD ==== */}
-        <div className="no-print space-y-6">
+        <div className="av-dash no-print space-y-6">
 
           <main className="mx-auto max-w-[1400px] space-y-9">
             <NetBanner
@@ -16905,33 +17541,25 @@ function AppMain() {
             <section>
               <SectionHead title="Operations pulse" hint="Full-year figures from the DMC sheet." />
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <StatTile
-                  label="Total coverages"
-                  value={stats.total}
-                  sub="Operations on record"
-                  accent={CYAN}
-                  bar={100}
-                />
+                <StatTile label="Total coverages" value={stats.total} sub="Operations on record" />
                 <StatTile
                   label="DMC cleared"
                   value={stats.counts.transferred + stats.counts.archived}
                   sub="Transferred + archived"
-                  accent="#16a34a"
-                  bar={stats.total ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100 : 0}
+                  tone="ok"
+                  share={stats.total ? ((stats.counts.transferred + stats.counts.archived) / stats.total) * 100 : undefined}
                 />
                 <StatTile
                   label="Pending transfer"
                   value={stats.counts.pending}
                   sub="Awaiting upload"
-                  accent="#B07A00"
-                  bar={stats.total ? (stats.counts.pending / stats.total) * 100 : 0}
+                  tone={stats.counts.pending ? 'warn' : undefined}
+                  share={stats.total ? (stats.counts.pending / stats.total) * 100 : undefined}
                 />
                 <StatTile
                   label="This month"
                   value={stats.thisMonth}
                   sub={new Date().toLocaleDateString('en-PH', { month: 'long', year: 'numeric' })}
-                  accent="#A30000"
-                  bar={stats.total ? (stats.thisMonth / Math.max(1, stats.total)) * 100 : 0}
                 />
               </div>
 
@@ -17123,7 +17751,7 @@ function AppMain() {
 
                 <div className="mb-4 space-y-3 av-card p-4">
                   <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
-                    <span className="text-slate-400">⌕</span>
+                    <span className="flex shrink-0 text-[var(--ink-4)]"><Icon name="search" size={15} /></span>
                     <input
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
@@ -17425,9 +18053,17 @@ function AppMain() {
                       tone: 'warn',
                       icon: 'register',
                       title: `${n(checks, 'record')} need a quick fix`,
-                      sub: 'For example, a delivery date recorded but the delivery step not marked done.',
+                      sub: 'Dates, reasons and steps that do not agree. Each one changes a figure on the Compliance page.',
                       panel: (
-                        <DataChecks events={events} onMarkDone={markDone} onRecordPast={recordPast} onOpen={openEv} defaultOpen />
+                        <DataChecks
+                          events={events}
+                          onMarkDone={markDone}
+                          onRecordPast={recordPast}
+                          onOpen={openEv}
+                          onClearServed={clearServedDate}
+                          canClear={myRole === 'admin'}
+                          embedded
+                        />
                       ),
                     });
                   }
@@ -17528,9 +18164,7 @@ function AppMain() {
                             <p className="av-label" style={{ color: 'var(--triage)' }}>
                               AV evaluation queue · {triageQueue.length}
                             </p>
-                            <span className="font-mono text-[10px] text-purple-500">
-                              SRS II → Supervising SRS → Division Chief
-                            </span>
+                            <span className="av-mono-s">SRS II → Supervising SRS → Division Chief</span>
                           </div>
                           <div className="space-y-2">
                             {triageQueue.slice(0, 5).map((ev) => {
@@ -17567,7 +18201,8 @@ function AppMain() {
                                   </div>
                                   {clash.length > 0 && (
                                     <p className="mt-1.5 border-t border-purple-100 pt-1.5 text-[10px] leading-relaxed text-amber-700">
-                                      ⚠ {clash.length} other active event
+                                      <WarnMark />
+                                      {clash.length} other active event
                                       {clash.length === 1 ? '' : 's'} on {fmtDate(ev.eventDate)}:{' '}
                                       {clash.map((c) => c.title || c.id).join(', ')}
                                     </p>
@@ -17576,7 +18211,7 @@ function AppMain() {
                               );
                             })}
                           </div>
-                          <p className="mt-3 text-[10px] leading-relaxed text-purple-700">
+                          <p className="av-note av-dim mt-3">
                             Open each one, set the agreed volume, write the recommendation,
                             then move it to <b>{APPROVAL_META['for-endorsement'].label}</b>.
                             That emails the Supervising SRS — with your advice and a
@@ -17591,9 +18226,7 @@ function AppMain() {
                             <p className="av-label" style={{ color: 'var(--waiting)' }}>
                               Awaiting approver · {approvalQueue.length}
                             </p>
-                            <span className="font-mono text-[10px] text-slate-900">
-                              Supervising SRS → Division Chief
-                            </span>
+                            <span className="av-mono-s">Supervising SRS → Division Chief</span>
                           </div>
                           <div className="space-y-2">
                             {approvalQueue.slice(0, 5).map((ev) => (
@@ -17634,7 +18267,7 @@ function AppMain() {
 
                       <div ref={evListRef} className="mb-4 mt-4 scroll-mt-24 space-y-3 av-card p-4">
                         <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
-                          <span className="text-slate-400">⌕</span>
+                          <span className="flex shrink-0 text-[var(--ink-4)]"><Icon name="search" size={15} /></span>
                           <input
                             value={evQuery}
                             onChange={(e) => setEvQuery(e.target.value)}
@@ -17881,7 +18514,7 @@ function AppMain() {
                     <>
                       <div className="mb-4 space-y-3 av-card p-4">
                         <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2">
-                          <span className="text-slate-400">⌕</span>
+                          <span className="flex shrink-0 text-[var(--ink-4)]"><Icon name="search" size={15} /></span>
                           <input
                             value={reqQuery}
                             onChange={(e) => setReqQuery(e.target.value)}
@@ -17994,20 +18627,21 @@ function AppMain() {
 
             {view === 'compliance' && (prodReady !== 'missing' || events.length > 0) && (
               <>
-                <UpcomingConflicts
-                  events={events}
-                  crewByEvent={crewByEvent}
-                  onView={() => calRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                <PrintHead
+                  title="AV Services Audit Readiness Report"
+                  period={`${pRange.label} (${pLabel.span})`}
+                  asOf={pLabel.asOf}
                 />
-                <section>
-                  <div className="av-card flex flex-wrap items-center justify-between gap-4 px-5 py-4">
-                    <div className="min-w-0">
+                <section className="av-period">
+                  <div className="av-card flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-5 py-4">
+                    <div className="min-w-0 flex-[1_1_22rem]">
                       <p className="av-sec-h">Reporting period: {pRange.label}</p>
                       <p className="av-note av-dim mt-0.5">
-                        Covers <b className="text-[var(--ink)]">{pLabel.span}</b>. Data as of {pLabel.asOf}.
+                        Covers <b className="text-[var(--ink)]">{pLabel.span}</b>. Requests are counted in the
+                        period they were received. Data as of {pLabel.asOf}.
                       </p>
                     </div>
-                    <div className="av-seg" role="group" aria-label="Reporting period">
+                    <div className="av-seg no-print" role="group" aria-label="Reporting period">
                       {PERIOD_OPTIONS.map((o) => (
                         <button
                           key={o.key}
@@ -18022,8 +18656,16 @@ function AppMain() {
                   </div>
                 </section>
 
-                <section>
+                <SectionNav items={AUDIT_SECTIONS} />
+
+                {/* Naka-print lang: ang limang criteria sa itaas ng ulat, gaya ng readiness slate sa screen. */}
+                <div className="av-print-only">
+                  <ComplianceScorecard rows={audit} />
+                </div>
+
+                <section id="ev-targets" className="scroll-mt-36">
                   <SectionHead
+                    tag="PM 2.1 · PM 2.2"
                     title="How we did against our targets"
                     hint="The two official targets in the AV Services Procedures Manual (PM-CRPD-AV-08-04 Rev 7, section 2)."
                   />
@@ -18063,8 +18705,9 @@ function AppMain() {
                   </div>
                 </section>
 
-                <section>
+                <section id="ev-csm" className="scroll-mt-36">
                   <SectionHead
+                    tag="PM 2.2"
                     title="Client satisfaction (CSM report)"
                     hint="Live from the Client Satisfaction Measurement form, computed the same way as the quarterly CSM report."
                   />
@@ -18073,8 +18716,9 @@ function AppMain() {
                   </div>
                 </section>
 
-                <section>
+                <section id="ev-forms" className="scroll-mt-36">
                   <SectionHead
+                    tag="Item 40"
                     title="Requests from the online form"
                     hint="Every AV Request Form submission in this period, and whether it is already logged in AV Nexus."
                   />
@@ -18088,18 +18732,21 @@ function AppMain() {
                   </div>
                 </section>
 
-                <section ref={calRef} className="scroll-mt-24">
+                <section ref={calRef} id="ev-calendar" className="scroll-mt-36 no-print">
                   <SectionHead
+                    tag="Item 41"
                     title="Deployment calendar"
                     hint="Who is deployed, where and when. Red marks a person booked on two events the same day or a day the team is short; amber marks two events the same day or an approved event with no crew."
                   />
+                  <UpcomingConflicts events={events} crewByEvent={crewByEvent} />
                   <div className="av-card p-4 md:p-5">
                     <DeploymentCalendar events={events} crewByEvent={crewByEvent} onOpen={openEv} />
                   </div>
                 </section>
 
-                <section>
+                <section id="ev-conflicts" className="scroll-mt-36">
                   <SectionHead
+                    tag="Item 44"
                     title="Double-booked schedules"
                     hint="Days when two or more events happened at the same time, and whether the team was big enough to cover them."
                   />
@@ -18108,8 +18755,9 @@ function AppMain() {
                   </div>
                 </section>
 
-                <section>
+                <section id="ev-cancelled" className="scroll-mt-36">
                   <SectionHead
+                    tag="Item 40"
                     title="Cancelled and moved requests"
                     hint="Requests the requesting office cancelled or moved. They are not counted against our targets, but each one is listed with its reason."
                   />
@@ -18118,10 +18766,11 @@ function AppMain() {
                   </div>
                 </section>
 
-                <section>
+                <section id="ev-services" className="scroll-mt-36">
                   <SectionHead
+                    tag="Item 40 · Item 44"
                     title="Services requested vs. delivered"
-                    hint="Every service a client asked for compared with what we delivered, with the reason for anything not served (Audit Item 44)."
+                    hint="Every service a client asked for compared with what we delivered, with the reason for anything not served."
                   />
                   <div className="av-card p-5">
                     <ServiceGapPanel
@@ -18132,10 +18781,11 @@ function AppMain() {
                 </section>
 
                 {isoP.length > 0 && (
-                  <section>
+                  <section id="ev-demand" className="scroll-mt-36">
                     <SectionHead
+                      tag="Item 44"
                       title="Requests received vs. completed"
-                      hint="Month by month: how many requests came in and how many we completed. Each request is counted once (Audit Item 44)."
+                      hint="Month by month: how many requests came in and what became of each one. Each request is counted once, in the month it was received."
                     />
                     <div className="av-card p-5">
                       <DemandCapacityPanel requests={isoP} />
@@ -18143,10 +18793,11 @@ function AppMain() {
                   </section>
                 )}
 
-                <section>
+                <section id="ev-workload" className="scroll-mt-36">
                   <SectionHead
+                    tag="Item 41"
                     title="Team workload"
-                    hint="Who is doing how much, for events held in this period. Every role a person takes is counted (Audit Item 41)."
+                    hint="Who is doing how much, for events held in this period. Every role a person takes is counted."
                   />
                   <div className="av-card custom-scrollbar overflow-x-auto p-3">
                     <table className="av-table min-w-[900px]">
@@ -18171,19 +18822,16 @@ function AppMain() {
                                 const list = todayLoad?.people.get(r.name) || [];
                                 if (!list.length) return <span className="av-dim">—</span>;
                                 return (
-                                  <span style={{ color: list.length > 1 ? 'var(--refused)' : 'var(--signal-strong)', fontWeight: 600 }}>
-                                    {list.length > 1 ? '⚠ ' : ''}
+                                  <span className="av-deploy" data-clash={list.length > 1 ? '1' : '0'}>
+                                    {list.length > 1 && <i aria-hidden="true" />}
                                     {list.map((e) => e.title).join(' + ')}
+                                    {list.length > 1 && <em>Booked on {list.length} events today</em>}
                                   </span>
                                 );
                               })()}
                             </td>
                             <td className="num">
-                              {r.active > 0 ? (
-                                <span className="av-pill sm bg-blue-50 text-blue-700">{r.active}</span>
-                              ) : (
-                                <span className="av-dim">0</span>
-                              )}
+                              {r.active > 0 ? r.active : <span className="av-dim">0</span>}
                             </td>
                             <td className="num">{r.events}</td>
                             <td className="num font-semibold text-[var(--ink)]">{r.roleCount}</td>
@@ -18192,7 +18840,10 @@ function AppMain() {
                             </td>
                             <td className="num">
                               {r.clashDays > 0 ? (
-                                <span style={{ color: 'var(--waiting)', fontWeight: 600 }}>{r.clashDays}</span>
+                                <span className="av-state" data-t="warn">
+                                  <i aria-hidden="true" />
+                                  {r.clashDays}
+                                </span>
                               ) : (
                                 <span className="av-dim">0</span>
                               )}
@@ -18219,45 +18870,46 @@ function AppMain() {
                   </p>
                 </section>
 
-                <section>
+                <section id="ev-turnaround" className="scroll-mt-36">
                   <SectionHead
+                    tag="Item 41"
                     title="How fast we deliver"
-                    hint="Working days from receiving a request to delivering it, against the standard: 3 working days for coverage, 13 for production (Audit Item 41)."
+                    hint="Working days from the day work can start — the end of the event, or the day the request came in if that is later — to delivery, against the standard: 3 working days for coverage, 13 for production."
                   />
                   <div className="av-card p-5">
                     <SLAMonitor requests={isoP} />
                   </div>
                 </section>
 
-                <section>
+                <section id="ev-checklist" className="scroll-mt-36 av-screen-only">
                   <SectionHead
                     title="Audit checklist"
-                    hint="Each audit finding, with the live numbers that answer it."
+                    hint="Each audit finding, what it asks for, and the live numbers that answer it."
                   />
-                  <ComplianceScorecard requests={isoP} kpi={kpi} events={evP} />
+                  <ComplianceScorecard rows={audit} />
                 </section>
+                <PrintSign />
               </>
             )}
 
             {view === 'reports' && (
             <>
             {/* ------------------------------------ IPCR GENERATOR ------ */}
-            <section ref={ipcrRef} className="border-t border-slate-200 pt-10">
-              <div className="av-card p-6">
-                <div className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-                  <div>
-                    <h2 className="text-lg font-semibold tracking-tight text-slate-900">
-                      IPCR / MOV report generator
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      Select a name and year, then print or export for the IPCR/SPMS attachment.
+            <section ref={ipcrRef}>
+              <div className="av-card p-5 md:p-6">
+                <div className="av-gen-h">
+                  <div className="min-w-0">
+                    <h2 className="av-sec-title">IPCR and MOV report</h2>
+                    <p className="av-sec-sub">
+                      Pick a name and a year, then print the sheet or export it for the IPCR or SPMS attachment.
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="av-gen-ctl">
                     <select
                       value={selectedIPCRPersonnel}
                       onChange={(e) => setSelectedIPCRPersonnel(e.target.value)}
-                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="av-btn-ghost av-select"
+                      aria-label="Personnel"
                     >
                       {Object.keys(OFFICIAL).map((k) => (
                         <option key={k} value={k}>
@@ -18270,7 +18922,8 @@ function AppMain() {
                     <select
                       value={ipcrYear}
                       onChange={(e) => setIpcrYear(e.target.value)}
-                      className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="av-btn-ghost av-select"
+                      aria-label="Year"
                     >
                       <option value="ALL">All years</option>
                       {years.map((y) => (
@@ -18279,125 +18932,124 @@ function AppMain() {
                         </option>
                       ))}
                     </select>
-                    <button
-                      onClick={exportCSV}
-                      className="rounded-md border border-slate-200 px-3 py-2 text-[13px] text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
-                    >
+                    <button type="button" onClick={exportCSV} className="av-btn-ghost">
                       Export CSV
                     </button>
-                    <button
-                      onClick={printSheet}
-                      className="flex items-center gap-2 rounded-md border border-slate-200 px-4 py-2 text-[13px] font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800"
-                    >
-                      Print / Save as PDF
+                    <button type="button" onClick={printSheet} className="av-btn">
+                      Print or save as PDF
                     </button>
                   </div>
                 </div>
 
-                <div className="mb-4 flex flex-wrap items-center gap-4">
-                  <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-500">
+                <div className="av-gen-meta">
+                  <label>
                     <input
                       type="checkbox"
                       checked={ipcrIncludeLinks}
                       onChange={(e) => setIpcrIncludeLinks(e.target.checked)}
-                      className="accent-blue-600"
                     />
                     Include Drive and social links in the printout
                   </label>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-400">
-                    Control no. {controlNo}
-                  </span>
+                  <span className="av-mono-s">Control no. {controlNo}</span>
                 </div>
 
-                <div className="custom-scrollbar max-h-[420px] overflow-y-auto rounded-[16px] border border-[var(--rule)] bg-[var(--rule-soft)] p-5 font-mono text-sm">
-                  <p className="mb-3 border-b border-slate-200 pb-2 font-bold text-red-600">
-                    Preview — this is what the printed sheet will contain
+                <div className="av-sheet custom-scrollbar">
+                  <p className="av-sheet-k">Preview of the printed sheet</p>
+                  <p className="av-sheet-t">{OFFICIAL[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel}</p>
+                  <p className="av-sheet-s">
+                    {OFFICIAL[selectedIPCRPersonnel]?.designation
+                      ? `${OFFICIAL[selectedIPCRPersonnel]?.designation} · `
+                      : ''}
+                    {ipcrYear === 'ALL' ? 'All available records' : `CY ${ipcrYear}`}
                   </p>
-                  <div className="space-y-1 text-slate-600">
-                    <p className="text-base font-bold uppercase text-slate-900">
-                      {OFFICIAL[selectedIPCRPersonnel]?.fullName || selectedIPCRPersonnel} — TOTAL:{' '}
-                      {ipcrRecords.length}{' '}
-                      {selectedIPCRPersonnel === SUPERVISOR_KEY ? 'VERIFIED / CHECKED' : 'COVERAGES CATERED'}
-                    </p>
-                    <p className="text-slate-400">
-                      --------------------------------------------------
-                    </p>
-                    {ipcrRecords.map((cov, idx) => (
-                      <p key={idx} className="whitespace-pre-wrap leading-relaxed">
-                        <span className="font-bold text-red-600">{idx + 1}.</span> [
-                        {fmtDate(cov.dateObj, cov.date)}] — {cov.details}{' '}
-                        <span className="text-slate-400">[{cov.status.toUpperCase()}]</span>
+
+                  <p className="av-sheet-part">
+                    Part A · {selectedIPCRPersonnel === SUPERVISOR_KEY ? 'Verified or checked' : 'Field coverage and DMC transfer'}
+                    <span>{ipcrRecords.length}</span>
+                  </p>
+                  {ipcrRecords.length > 0 ? (
+                    <ol>
+                      {ipcrRecords.map((cov, idx) => (
+                        <li key={idx}>
+                          <span className="d">{fmtDate(cov.dateObj, cov.date)}</span>
+                          <span className="x">
+                            {cov.details} <span className="m">· {cov.status}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="none">No field coverage for the selected period.</p>
+                  )}
+
+                  {ipcrOutputs.length > 0 && (
+                    <>
+                      <p className="av-sheet-part">
+                        Part B · Video production outputs
+                        <span>{ipcrOutputs.length}</span>
                       </p>
-                    ))}
-                    {ipcrRecords.length === 0 && (
-                      <p className="italic text-slate-400">No field coverage for the selected period.</p>
-                    )}
-
-                    {ipcrRoles.length > 0 && (
-                      <>
-                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
-                          PART D — ROLES PERFORMED: {ipcrRoles.reduce((a, x) => a + x.roles.length, 0)}
-                        </p>
-                        <p className="text-slate-400">
-                          --------------------------------------------------
-                        </p>
-                        {ipcrRoles.map((a, idx) => (
-                          <p key={a.id} className="whitespace-pre-wrap leading-relaxed">
-                            <span className="font-bold text-blue-600">{idx + 1}.</span> [
-                            {fmtDate(a.dateCompleted || a.dateAssigned)}] — {a.eventTitle || a.eventId}{' '}
-                            <span className="text-slate-400">[{a.roles.join(', ') || '—'}]</span>
-                          </p>
+                      <ol>
+                        {ipcrOutputs.map((o) => (
+                          <li key={o.id}>
+                            <span className="d">{fmtDate(o.delivered || o.target || o.assigned)}</span>
+                            <span className="x">
+                              {o.title}{' '}
+                              <span className="m">
+                                · {o.type}
+                                {o.seconds ? ` · ${fmtRuntime(o.seconds)}` : ''} · {o.role} · {STAGE_META[o.stage].label}
+                              </span>
+                            </span>
+                          </li>
                         ))}
-                      </>
-                    )}
+                      </ol>
+                    </>
+                  )}
 
-                    {ipcrRequests.length > 0 && (
-                      <>
-                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
-                          PART C — SERVICE REQUESTS HANDLED: {ipcrRequests.length}
-                        </p>
-                        <p className="text-slate-400">
-                          --------------------------------------------------
-                        </p>
-                        {ipcrRequests.map((r, idx) => {
+                  {ipcrRequests.length > 0 && (
+                    <>
+                      <p className="av-sheet-part">
+                        Part C · Service requests handled
+                        <span>{ipcrRequests.length}</span>
+                      </p>
+                      <ol>
+                        {ipcrRequests.map((r) => {
                           const tat = actualTAT(r);
                           return (
-                            <p key={r.id} className="whitespace-pre-wrap leading-relaxed">
-                              <span className="font-bold text-green-600">{idx + 1}.</span> [
-                              {fmtDate(r.dateDelivered || r.dateRequested)}] — {r.title}{' '}
-                              <span className="text-slate-400">
-                                [{STREAM_META[r.stream].short} ·{' '}
-                                {REQ_META[r.status].label.toUpperCase()}
-                                {tat !== null ? ` · ${tat} WD` : ''}
-                                {r.csm ? ` · CSM ${r.csm}` : ''}]
+                            <li key={r.id}>
+                              <span className="d">{fmtDate(r.dateDelivered || r.dateRequested)}</span>
+                              <span className="x">
+                                {r.title}{' '}
+                                <span className="m">
+                                  · {STREAM_META[r.stream].label} · {REQ_META[r.status].label}
+                                  {tat !== null ? ` · ${tat} working day${tat === 1 ? '' : 's'}` : ''}
+                                  {r.csm ? ` · CSM ${r.csm}` : ''}
+                                </span>
                               </span>
-                            </p>
+                            </li>
                           );
                         })}
-                      </>
-                    )}
+                      </ol>
+                    </>
+                  )}
 
-                    {ipcrOutputs.length > 0 && (
-                      <>
-                        <p className="mt-4 text-base font-bold uppercase text-slate-900">
-                          PART B — VIDEO PRODUCTION OUTPUTS: {ipcrOutputs.length}
-                        </p>
-                        <p className="text-slate-400">
-                          --------------------------------------------------
-                        </p>
-                        {ipcrOutputs.map((o, idx) => (
-                          <p key={o.id} className="whitespace-pre-wrap leading-relaxed">
-                            <span className="font-bold text-blue-600">{idx + 1}.</span> [
-                            {fmtDate(o.delivered || o.target || o.assigned)}] — {o.title}{' '}
-                            <span className="text-slate-400">
-                              [{o.type}{o.seconds ? ` · ${fmtRuntime(o.seconds)}` : ''} · {o.role} ·{' '}
-                              {STAGE_META[o.stage].label.toUpperCase()}]
+                  {ipcrRoles.length > 0 && (
+                    <>
+                      <p className="av-sheet-part">
+                        Part D · Roles performed per event
+                        <span>{ipcrRoles.reduce((a, x) => a + x.roles.length, 0)}</span>
+                      </p>
+                      <ol>
+                        {ipcrRoles.map((a) => (
+                          <li key={a.id}>
+                            <span className="d">{fmtDate(a.dateCompleted || a.dateAssigned)}</span>
+                            <span className="x">
+                              {a.eventTitle || a.eventId} <span className="m">· {a.roles.join(', ') || 'No role recorded'}</span>
                             </span>
-                          </p>
+                          </li>
                         ))}
-                      </>
-                    )}
-                  </div>
+                      </ol>
+                    </>
+                  )}
                 </div>
               </div>
             </section>
@@ -18515,7 +19167,7 @@ function AppMain() {
 
           {ipcrOutputs.length > 0 && (
             <>
-              <p className="mb-1 mt-8 text-sm font-bold uppercase">
+              <p className="keep-next mb-1 mt-8 text-sm font-bold uppercase">
                 Part B — Video production outputs (non-DMC)
               </p>
               <table className="w-full border-collapse border border-black text-left">
@@ -18603,7 +19255,7 @@ function AppMain() {
 
           {ipcrRequests.length > 0 && (
             <>
-              <p className="mb-1 mt-8 text-sm font-bold uppercase">
+              <p className="keep-next mb-1 mt-8 text-sm font-bold uppercase">
                 Part C — Service requests handled (Request Register)
               </p>
               <table className="w-full border-collapse border border-black text-left">
@@ -18664,7 +19316,7 @@ function AppMain() {
 
           {ipcrRoles.length > 0 && (
             <>
-              <p className="mb-1 mt-8 text-sm font-bold uppercase">
+              <p className="keep-next mb-1 mt-8 text-sm font-bold uppercase">
                 Part D — Roles performed per event
               </p>
               <table className="w-full border-collapse border border-black text-left">
@@ -19344,6 +19996,7 @@ body { background: var(--paper); color: var(--ink); }
   html, body { background: white !important; color: black !important; font-family: 'Times New Roman', Times, serif !important; }
   thead { display: table-header-group; }
   tr, .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+  .keep-next { break-after: avoid; page-break-after: avoid; }
   @page { size: A4; margin: 18mm 14mm; }
 }
 
@@ -20443,4 +21096,403 @@ html[data-theme='dark'] .av-band.av-hero { box-shadow: inset 0 0 0 1px rgba(255,
   .av-page main[class~="max-w-[1400px]"] > * { animation: none; }
 }
 @media print { .av-band.av-hero { display: none; } }
+/* =====================================================================
+   v7.4 · EVIDENCE — exact, calm, accountable. Last in the string.
+   The crew Stage stays on Events and Production. Report pages open on a
+   compact slate; Compliance carries the five audit criteria on it.
+   One metric style (the ledger), state as a dot and a word, and every
+   report page prints as a report.
+   ===================================================================== */
+:root {
+  --ok: #0E7A4F; --warn: #9A6400; --bad: #B42318; --edge-warn: #D99A00;
+  --lamp-ok: #32D583;
+  --ch-1: #427AA1; --ch-2: #A9C3D8; --ch-3: #B42318; --ch-4: #CDD1D7;
+}
+html[data-theme='dark'] {
+  --ok: #5FD19B; --warn: #FFD166; --bad: #F08A8A; --edge-warn: #FFBF1F;
+  --ch-1: #6FA6CB; --ch-2: rgba(111,166,203,.38); --ch-3: #F08A8A; --ch-4: #3A3F47;
+}
+
+/* ---- Numerals are ink. State is a dot and a word. ------------------------ */
+.av-page .av-fig, .av-page .av-fig-sm { color: var(--ink) !important; }
+.av-fig.font-mono, .av-fig-sm.font-mono { font-family: var(--font-ui); }
+.av-led, .av-ledger .k i, .av-state i {
+  flex: none; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4);
+}
+.av-led[data-t='ok'], .av-ledger .k i[data-t='ok'], .av-state[data-t='ok'] i { background: var(--ok); }
+.av-led[data-t='warn'], .av-ledger .k i[data-t='warn'], .av-state[data-t='warn'] i { background: var(--edge-warn); }
+.av-led[data-t='bad'], .av-ledger .k i[data-t='bad'], .av-state[data-t='bad'] i { background: var(--bad); }
+.av-led { margin-right: 7px; transform: translateY(-1px); }
+.av-state { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500; white-space: nowrap; color: var(--ink-3); }
+.av-state[data-t='ok'] { color: var(--ok); }
+.av-state[data-t='warn'] { color: var(--warn); }
+.av-state[data-t='bad'] { color: var(--bad); }
+
+/* ---- The ledger: one metric style --------------------------------------- */
+.av-ledger, .av-trio {
+  display: grid; gap: 1px; overflow: hidden; grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--rule); border-radius: 14px; background: var(--rule-soft);
+}
+@media (min-width: 900px) { .av-ledger { grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); } }
+.av-ledger-c, .av-trio > * { min-width: 0; padding: 16px 18px 18px; background: var(--card); }
+@media (max-width: 899px) { .av-ledger-c:last-child:nth-child(odd) { grid-column: span 2; } }
+.av-ledger .k, .av-stat-l { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--ink-3); }
+.av-stat-l .av-led { margin-right: 0; }
+.av-ledger .v, .av-trio .av-fig { margin-top: 8px; font-size: 30px; font-weight: 500; line-height: 1.05; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.av-ledger .s, .av-stat-s { margin-top: 6px; font-size: 12.5px; line-height: 1.45; color: var(--ink-3); }
+
+/* ---- Notices: a card with a state edge, not a filled banner ---------------- */
+.av-notice {
+  padding: 11px 14px 11px 17px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card);
+  box-shadow: inset 3px 0 0 var(--ink-4); font-size: 13.5px; line-height: 1.55; color: var(--ink-2);
+}
+.av-notice[data-t='ok'] { box-shadow: inset 3px 0 0 var(--ok); }
+.av-notice[data-t='warn'] { box-shadow: inset 3px 0 0 var(--edge-warn); }
+.av-notice[data-t='bad'] { box-shadow: inset 3px 0 0 var(--bad); }
+.av-notice b { font-weight: 600; color: var(--ink); }
+.av-notice ul { color: var(--ink-2); }
+.av-notice > .av-btn-ghost { align-self: center; }
+.av-alert, .av-alert.info, .av-alert.err {
+  padding: 11px 14px 11px 17px; border: 1px solid var(--rule); border-radius: 12px; background: var(--card);
+  box-shadow: inset 3px 0 0 var(--ink-4); font-size: 13.5px; line-height: 1.55; color: var(--ink-2);
+}
+.av-alert.info { box-shadow: inset 3px 0 0 var(--signal); }
+.av-alert.err { box-shadow: inset 3px 0 0 var(--bad); }
+.av-alert b { font-weight: 600; color: var(--ink); }
+.av-warn-i { display: inline-block; flex: none; margin-right: 5px; vertical-align: -2px; }
+.av-flagline { margin-bottom: 12px; font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
+.av-flagline i { display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--edge-warn); transform: translateY(-1px); }
+.av-flagline[data-t='bad'] i { background: var(--bad); }
+.av-flagline b { font-weight: 600; color: var(--ink); }
+.av-btn-ghost.av-select, html[data-theme='dark'] .av-btn-ghost.av-select { padding-right: 36px; background-position: right 13px center; }
+.av-card.av-checks { border-color: var(--rule); box-shadow: inset 3px 0 0 var(--edge-warn); }
+.av-checks.is-embedded > div:first-child { border-top: 0; }
+.av-kpi .l { display: flex; align-items: center; }
+.av-kpi .v small { margin-left: 8px; font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--ink-3); }
+.av-stat[data-tone] .v { color: var(--ink); }
+.av-stat[data-tone] .l { display: flex; align-items: center; gap: 8px; }
+.av-stat[data-tone] .l::before { content: ''; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); }
+.av-stat[data-tone='served'] .l::before { background: var(--ok); }
+.av-stat[data-tone='waiting'] .l::before { background: var(--edge-warn); }
+.av-stat[data-tone='refused'] .l::before { background: var(--bad); }
+.av-deploy { font-weight: 500; color: var(--ink); }
+.av-deploy i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; background: var(--bad); transform: translateY(-1px); }
+.av-deploy em { display: block; margin-top: 1px; font-size: 12px; font-style: normal; font-weight: 500; color: var(--bad); }
+.av-empty { padding: 28px 16px; border: 1px dashed var(--rule-strong); border-radius: 14px; text-align: center; }
+.av-empty .t { font-size: 14px; font-weight: 500; color: var(--ink-2); }
+.av-empty .s { margin-top: 3px; font-size: 13px; color: var(--ink-3); }
+.av-mono-s { font-family: var(--font-mono); font-size: 11px; letter-spacing: .02em; color: var(--ink-3); }
+
+/* ---- Section tag and section nav ------------------------------------------ */
+.av-tag {
+  display: inline-flex; align-items: center; height: 22px; margin-bottom: 9px; padding: 0 8px;
+  border: 1px solid var(--rule); border-radius: 6px; background: var(--card);
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
+}
+.av-secnav {
+  position: sticky; top: 64px; z-index: 20; display: flex; gap: 2px; margin: 0 -8px 30px; padding: 9px 8px;
+  overflow-x: auto; scrollbar-width: none;
+  background: rgba(242,243,245,.86); border-bottom: 1px solid var(--rule-soft);
+  backdrop-filter: saturate(1.3) blur(14px); -webkit-backdrop-filter: saturate(1.3) blur(14px);
+}
+html[data-theme='dark'] .av-secnav { background: rgba(8,9,10,.82); }
+.av-secnav::-webkit-scrollbar { display: none; }
+.av-secnav button {
+  flex: none; padding: 7px 12px; border-radius: 999px; white-space: nowrap;
+  font-size: 13px; font-weight: 500; color: var(--ink-3);
+  transition: color .15s var(--ease-state), background-color .15s var(--ease-state);
+}
+.av-secnav button:hover { color: var(--ink); background: var(--rule-soft); }
+.av-secnav button[data-on='1'] { color: var(--ink); background: var(--card); box-shadow: 0 0 0 1px var(--rule), var(--lift); }
+.av-secnav button:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+
+.av-period { margin-bottom: 12px; }
+.av-period .av-seg { flex-wrap: nowrap; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.av-period .av-seg::-webkit-scrollbar { display: none; }
+
+/* ---- The slate: a compact stage for report pages ------------------------- */
+.av-stage-side { display: flex; flex-direction: column; align-items: flex-end; gap: 16px; min-width: 0; }
+.av-band.av-hero.is-slate { padding: 26px 40px 0; }
+.av-band.is-slate > .av-stage-scrim { display: none; }
+.av-band.is-slate > .av-stage-copy { padding-bottom: 28px; }
+.av-band.is-slate .av-stage-hud { margin-bottom: 14px; }
+.av-band.is-slate .av-hero-k { font-size: 14px; color: var(--stage-45); }
+.av-band.is-slate .av-hero-h { margin-top: 6px; font-size: clamp(40px, 2.2vw + 20px, 56px); line-height: 1; letter-spacing: -0.04em; text-shadow: none; }
+.av-band.is-slate .av-hero-p { margin-top: 10px; font-size: 15.5px; max-width: 38rem; }
+.av-band.is-slate .av-stage-copy [class~="text-white/80"] { margin-top: 10px; }
+.av-crew { display: flex; align-items: center; animation: avFadeUp .6s .12s var(--ease-out) both; }
+.av-band.is-slate > .av-crew { position: absolute; top: 21px; right: 40px; z-index: 3; }
+.av-crew-c { position: relative; flex: none; width: 34px; height: 34px; margin-left: 7px; border-radius: 50%; }
+.av-crew-c:first-child { margin-left: 0; }
+.av-crew-c .ph { position: absolute; inset: 0; overflow: hidden; border-radius: 50%; background: #17181B; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+.av-crew-c .ph img { position: absolute; left: -47%; top: -12%; width: 194%; max-width: none; height: auto; }
+.av-crew-c i { position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%; background: #62666D; box-shadow: 0 0 0 2px var(--stage); }
+.av-crew-c[data-s='live'] i { background: var(--lamp-live); }
+.av-crew-c[data-s='progress'] i { background: var(--lamp-post); }
+
+/* The five audit criteria, ruled along the base of the slate. */
+.av-audit {
+  position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--stage-line);
+}
+.av-audit > * + * { border-left: 1px solid var(--stage-line); }
+.av-audit > :nth-child(4) { border-left: 0; padding-left: 0; }
+.av-audit > :nth-child(n+4) { border-top: 1px solid var(--stage-line); }
+@media (min-width: 1440px) {
+  .av-audit { grid-template-columns: minmax(0, .96fr) repeat(5, minmax(0, 1fr)); }
+  .av-audit > :nth-child(4) { border-left: 1px solid var(--stage-line); padding-left: 18px; }
+  .av-audit > :nth-child(n+4) { border-top: 0; }
+}
+.av-audit-total, .av-audit-cell {
+  display: flex; flex-direction: column; align-items: flex-start; min-width: 0; padding: 18px 18px 22px;
+  text-align: left; color: var(--stage-fg);
+}
+.av-audit-total { padding-left: 0; animation: avFadeUp .5s .14s var(--ease-out) both; }
+.av-audit-cell {
+  cursor: pointer; transition: background-color .2s var(--ease-state);
+  animation: avFadeUp .5s var(--ease-out) both; animation-delay: calc(.18s + var(--i, 0) * 50ms);
+}
+.av-audit-cell:hover { background: rgba(255,255,255,.04); }
+.av-audit-cell:focus-visible { outline: 2px solid rgba(255,255,255,.6); outline-offset: -2px; }
+.av-audit .top { display: flex; width: 100%; min-height: 22px; align-items: center; justify-content: space-between; gap: 8px; }
+.av-audit .code { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; color: var(--stage-45); }
+.av-audit .nb { white-space: nowrap; }
+.av-audit-total .code { display: flex; min-height: 22px; align-items: center; }
+.av-audit .lamp {
+  display: inline-flex; flex: none; align-items: center; gap: 6px; height: 22px; padding: 0 8px 0 7px; border-radius: 999px;
+  background: rgba(255,255,255,.07); color: var(--stage-60);
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+}
+.av-audit .lamp i { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--lamp-off); }
+.av-audit-cell[data-s='met'] .lamp { background: rgba(50,213,131,.12); color: #86E5B5; }
+.av-audit-cell[data-s='met'] .lamp i { background: var(--lamp-ok); box-shadow: 0 0 10px rgba(50,213,131,.7); }
+.av-audit-cell[data-s='partial'] .lamp { background: rgba(255,191,31,.13); color: #FFD166; }
+.av-audit-cell[data-s='partial'] .lamp i { background: var(--lamp-post); box-shadow: 0 0 10px rgba(255,191,31,.6); }
+.av-audit .fig { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 7px; margin-top: 14px; font-size: 34px; font-weight: 400; line-height: 1.05; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.av-audit .fig small { font-size: 13.5px; font-weight: 400; line-height: 1.3; letter-spacing: 0; color: var(--stage-60); }
+/* Ang unit ay laging nasa sariling linya, para pantay ang limang cell kahit mahaba ang isa ("with a reason"). */
+.av-audit-cell .fig small { flex-basis: 100%; margin-top: 3px; }
+.av-audit .t { margin-top: 9px; font-size: 13px; font-weight: 500; line-height: 1.35; color: var(--stage-80); }
+.av-audit .line { margin-top: 4px; font-size: 12.5px; line-height: 1.45; color: var(--stage-45); }
+.av-audit-total .fig { margin-top: 10px; font-size: 56px; line-height: .95; letter-spacing: -0.045em; }
+.av-audit-total .fig { column-gap: 2px; }
+.av-audit-total .fig small { font-size: 26px; line-height: 1; letter-spacing: -0.02em; color: var(--stage-45); }
+.av-audit-total[data-all='1'] .t::before {
+  content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%;
+  background: var(--lamp-ok); box-shadow: 0 0 10px rgba(50,213,131,.7); transform: translateY(-1px);
+}
+
+/* ---- Checklist ----------------------------------------------------------- */
+.av-check { overflow: hidden; }
+.av-check-h {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px;
+  padding: 18px 22px; border-bottom: 1px solid var(--rule); background: var(--surface-2);
+}
+.av-check-h .t { font-size: 15.5px; font-weight: 600; letter-spacing: -0.012em; color: var(--ink); }
+.av-check-h .s { margin-top: 2px; font-size: 12.5px; color: var(--ink-3); }
+.av-check-h .n { display: flex; align-items: baseline; font-size: 34px; font-weight: 500; line-height: 1; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.av-check-h .n span { font-size: 20px; letter-spacing: -0.02em; color: var(--ink-4); }
+.av-check-h .n small { margin-left: 10px; font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.av-check-r { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr) auto; gap: 6px 22px; padding: 18px 22px; border-top: 1px solid var(--rule-soft); }
+.av-check-h + .av-check-r { border-top: 0; }
+.av-check-r .code { margin-bottom: 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.av-check-r .t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+.av-check-r .a { margin-top: 2px; font-size: 13px; color: var(--ink-3); }
+.av-check-r .e { margin-top: 8px; max-width: 62rem; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+.av-check-r .f { text-align: right; font-size: 26px; font-weight: 500; line-height: 1.1; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
+.av-check-r .f small { display: block; margin-top: 3px; font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--ink-3); }
+
+/* ---- Turnaround, charts, bars, rows ---------------------------------------- */
+.av-tat { padding: 18px 20px; border: 1px solid var(--rule); border-radius: 14px; background: var(--card); }
+.av-tat .hd { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.av-tat .nm { font-size: 14px; font-weight: 600; color: var(--ink); }
+.av-tat .std { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; color: var(--ink-3); }
+.av-tat .row { display: flex; align-items: flex-end; gap: 14px; margin-top: 14px; }
+.av-tat .fig { font-size: 44px; font-weight: 500; line-height: .95; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.av-tat .cap { padding-bottom: 2px; font-size: 13.5px; line-height: 1.4; color: var(--ink-2); }
+.av-tat .cap span { display: block; font-size: 12.5px; color: var(--ink-3); }
+.av-tat .bar { height: 6px; margin-top: 16px; overflow: hidden; border-radius: 999px; background: var(--track); }
+.av-tat .bar > div { height: 100%; border-radius: 999px; background: var(--ink); transition: width .9s var(--ease-out); }
+.av-tat .bar > div[data-over='1'] { background: var(--bad); }
+.av-tat .ft { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
+.av-tat .ft [data-over='1'] { font-weight: 600; color: var(--bad); }
+.av-tat .ft .pc { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); }
+.av-tat .wait { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule-soft); font-size: 12.5px; line-height: 1.5; color: var(--ink-3); }
+.av-tat .wait b { font-weight: 600; color: var(--ink-2); }
+.av-chart .grid { stroke: var(--rule-soft); stroke-width: 1; }
+.av-chart .tick { fill: var(--ink-3); font-family: var(--font-ui); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.av-chart .val { fill: var(--ink-2); font-family: var(--font-ui); font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.av-cols {
+  position: relative; display: grid; grid-template-columns: repeat(var(--n, 12), minmax(0, 1fr));
+  min-width: 520px; padding: 24px 0 0 36px;
+}
+.av-cols .ax { position: absolute; left: 36px; right: 0; top: 24px; height: 176px; pointer-events: none; }
+.av-cols .ax span { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--rule-soft); }
+.av-cols .ax span::before {
+  content: attr(data-v); position: absolute; left: -36px; top: -8px; width: 28px; text-align: right;
+  font-size: 11.5px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--ink-3);
+}
+.av-cols .col { position: relative; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.av-cols .plot { display: flex; align-items: flex-end; justify-content: center; width: 100%; height: 176px; }
+.av-cols .stack { position: relative; display: flex; flex-direction: column-reverse; gap: 1px; width: min(44px, 56%); }
+.av-cols .stack i { display: block; flex-basis: 0; min-height: 2px; border-radius: 2px; }
+.av-cols .stack i:last-of-type { border-radius: 4px 4px 2px 2px; }
+.av-cols .val {
+  position: absolute; left: 50%; bottom: 100%; margin-bottom: 5px; transform: translateX(-50%);
+  font-size: 12px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; color: var(--ink-2);
+}
+.av-cols .lab { margin-top: 10px; font-size: 11.5px; white-space: nowrap; color: var(--ink-3); }
+.av-key { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); }
+.av-key i { width: 10px; height: 10px; flex: none; border-radius: 3px; }
+.av-bars { display: grid; gap: 11px; }
+.av-bars-r { display: grid; grid-template-columns: minmax(0, 17rem) minmax(0, 1fr) minmax(8.5rem, auto); align-items: center; gap: 6px 16px; }
+.av-bars .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.av-bars .tk { display: block; min-width: 0; }
+.av-bars .tk > span { display: flex; height: 8px; overflow: hidden; border-radius: 999px; background: var(--track); }
+.av-bars .tk i { display: block; height: 100%; background: var(--ch-1); }
+.av-bars .tk i[data-miss] { background: var(--bad); }
+.av-bars .ct { text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-3); }
+.av-bars .ct b { font-weight: 600; color: var(--bad); }
+.av-rows { overflow: hidden; border: 1px solid var(--rule-soft); border-radius: 12px; background: var(--card); }
+.av-rows-r { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--rule-soft); }
+.av-rows-r:first-child { border-top: 0; }
+.av-rows-r .t { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.av-rows-r .s { margin-top: 1px; font-size: 12px; color: var(--ink-3); }
+.av-rows-r .n { font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-2); }
+
+/* ---- Report generator (Reports) ------------------------------------------- */
+.av-gen-h { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 20px; }
+.av-gen-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.av-gen-ctl .av-btn, .av-gen-ctl .av-btn-ghost { height: 40px; padding-top: 0; padding-bottom: 0; }
+.av-gen-ctl select { max-width: 100%; }
+.av-gen-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 18px 0 14px; font-size: 13px; color: var(--ink-3); }
+.av-gen-meta label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--ink-2); }
+.av-gen-meta input { width: 16px; height: 16px; accent-color: var(--signal-strong); }
+.av-sheet { max-height: 460px; overflow-y: auto; padding: 22px 24px; border: 1px solid var(--rule); border-radius: 14px; background: var(--surface-2); }
+.av-sheet-k { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.av-sheet-t { margin-top: 8px; font-size: 18px; font-weight: 600; letter-spacing: -0.015em; color: var(--ink); }
+.av-sheet-s { margin-top: 2px; font-size: 13px; color: var(--ink-3); }
+.av-sheet-part { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 13px; font-weight: 600; color: var(--ink); }
+.av-sheet-part span { margin-left: 8px; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.av-sheet ol { margin: 8px 0 0; padding: 0; list-style: none; counter-reset: row; }
+.av-sheet li { display: grid; grid-template-columns: 2.2rem 6.6rem minmax(0, 1fr); gap: 0 10px; padding: 7px 0; border-top: 1px solid var(--rule-soft); font-size: 13.5px; line-height: 1.5; color: var(--ink-2); counter-increment: row; }
+.av-sheet li:first-child { border-top: 0; }
+.av-sheet li::before { content: counter(row); font-variant-numeric: tabular-nums; color: var(--ink-4); }
+.av-sheet li .d { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-3); }
+.av-sheet li .m { color: var(--ink-3); }
+.av-sheet .none { margin-top: 10px; font-size: 13.5px; color: var(--ink-3); }
+
+/* ---- Responsive ------------------------------------------------------------ */
+@media (max-width: 1023px) {
+  .av-band.av-hero.is-slate { padding: 24px 24px 0; }
+  .av-band.is-slate > .av-crew { top: 19px; right: 24px; }
+  .av-band.is-slate > .av-stage-copy { margin-top: 0; }
+  .av-band.is-slate .av-hero-h { font-size: 44px; }
+  .av-stage-side { align-items: flex-start; }
+}
+@media (max-width: 759px) {
+  .av-audit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .av-audit > :nth-child(n) { padding: 16px 0 18px 16px; border-left: 1px solid var(--stage-line); border-top: 0; }
+  .av-audit > :nth-child(odd) { padding-left: 0; padding-right: 14px; border-left: 0; }
+  .av-audit > :nth-child(n+3) { border-top: 1px solid var(--stage-line); }
+  .av-rows-r { flex-wrap: wrap; }
+  .av-rows-r > :first-child { flex: 1 1 100%; }
+  .av-audit .fig { font-size: 28px; }
+  .av-audit-total .fig { font-size: 44px; }
+  .av-check-r { grid-template-columns: minmax(0, 1fr) auto; }
+  .av-check-r .c { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+  .av-check-r .code { margin: 0; }
+  .av-bars-r { grid-template-columns: minmax(0, 1fr) auto; }
+  .av-bars .tk { grid-column: 1 / -1; grid-row: 2; }
+  .av-sheet { padding: 16px; }
+  .av-sheet li { grid-template-columns: 1.6rem minmax(0, 1fr); }
+  .av-sheet li .d { grid-column: 2; }
+  .av-sheet li .x { grid-column: 2; }
+}
+@media (max-width: 639px) {
+  .av-band.av-hero.is-slate { padding: 20px 20px 0; }
+  .av-band.is-slate > .av-crew { top: 18px; right: 20px; }
+  .av-band.is-slate .av-crew-c { width: 28px; height: 28px; margin-left: 4px; }
+  .av-band.is-slate .av-crew-c i { width: 9px; height: 9px; }
+  .av-band.is-slate .av-stage-hud .dt { display: none; }
+  .av-band.is-slate .av-hero-h { font-size: 36px; }
+  .av-band.is-slate > .av-stage-copy { padding-bottom: 22px; }
+  .av-secnav { top: 56px; margin: 0 -4px 24px; padding: 8px 4px; }
+  .av-tat .fig { font-size: 38px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .av-crew, .av-audit-total, .av-audit-cell { animation: none; }
+  .av-tat .bar > div { transition: none; }
+}
+
+/* ---- Print: the open report page, not the IPCR sheet ------------------------ */
+.av-print-head, .av-print-sign, .av-print-only { display: none; }
+@media print {
+  html[data-print='view'], html[data-print='view'] body { font-family: var(--font-ui) !important; font-size: 11.5px; }
+  html[data-print='view'] {
+    --ink: #0B0C0E; --ink-2: #2E3238; --ink-3: #4D535B; --ink-4: #7A8089;
+    --paper: #FFFFFF; --card: #FFFFFF; --surface-2: #F6F7F9; --rule: #C9CDD3; --rule-soft: #DFE2E6; --rule-strong: #B4B9C0;
+    --track: #E4E7EB; --ok: #0E7A4F; --warn: #8A5A00; --bad: #B42318; --edge-warn: #C98C00;
+    --ch-1: #427AA1; --ch-2: #A9C3D8; --ch-3: #B42318; --ch-4: #CDD1D7;
+  }
+  html[data-print='view'] .av-dash.no-print { display: block !important; }
+  html[data-print='view'] .print-only { display: none !important; }
+  html[data-print='view'] .av-print-head { display: block; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1.5px solid #0B0C0E; text-align: center; }
+  html[data-print='view'] .av-print-head .rp { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+  html[data-print='view'] .av-print-head .ag { margin-top: 1px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  html[data-print='view'] .av-print-head .in { font-size: 10.5px; }
+  html[data-print='view'] .av-print-head h1 { margin-top: 12px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+  html[data-print='view'] .av-print-head .meta { margin-top: 4px; font-size: 10.5px; color: #4D535B; }
+  html[data-print='view'] .av-print-sign { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 44px; }
+  html[data-print='view'] .av-print-sign .ln { display: block; height: 44px; border-bottom: 1px solid #0B0C0E; }
+  html[data-print='view'] .av-print-sign .k { margin-top: 6px; font-size: 11px; font-weight: 600; }
+  html[data-print='view'] .av-print-sign .s { font-size: 10px; color: #4D535B; }
+  html[data-print='view'] .av-print-only { display: block; }
+  html[data-print='view'] .av-screen-only { display: none !important; }
+  html[data-print='view'] .av-page main > * { animation: none !important; margin-top: 0 !important; margin-bottom: 16px !important; }
+  html[data-print='view'] .av-page > div, html[data-print='view'] .av-page main { padding: 0 !important; max-width: none !important; }
+  /* Ang card ay puwedeng maputol sa pagitan ng pahina; ang pamagat ay sumasama sa laman nito,
+     at ang bawat hilera, tile at tala ay buo. */
+  html[data-print='view'] .av-card, html[data-print='view'] .av-stat { box-shadow: none !important; break-inside: auto; }
+  html[data-print='view'] .av-sechead, html[data-print='view'] .av-acc-th, html[data-print='view'] .av-check-h { break-after: avoid; break-inside: avoid; }
+  html[data-print='view'] .av-ledger, html[data-print='view'] .av-trio, html[data-print='view'] .av-tat,
+  html[data-print='view'] .av-check-r, html[data-print='view'] .av-rows-r, html[data-print='view'] .av-notice,
+  html[data-print='view'] .av-inset, html[data-print='view'] .av-bars-r, html[data-print='view'] .av-cols,
+  html[data-print='view'] .av-gauge, html[data-print='view'] .av-stat, html[data-print='view'] .av-acc-chart,
+  html[data-print='view'] tr { break-inside: avoid; }
+  html[data-print='view'] .avoid-break { break-inside: avoid; }
+  html[data-print='view'] .av-ledger-c { grid-column: auto !important; }
+  html[data-print='view'] .av-h2, html[data-print='view'] .av-sec-title { font-size: 15px; break-after: avoid; }
+  html[data-print='view'] table { width: 100% !important; min-width: 0 !important; }
+  html[data-print='view'] th, html[data-print='view'] td { padding: 5px 6px !important; white-space: normal !important; }
+  html[data-print='view'] .av-acc-table th:first-child, html[data-print='view'] .av-acc-table td:first-child { position: static; min-width: 0; }
+  html[data-print='view'] .av-acc-table th, html[data-print='view'] .av-acc-table td { font-size: 10px; }
+  html[data-print='view'] .av-acc-scroll, html[data-print='view'] .av-acc-chart { overflow: visible !important; }
+  html[data-print='view'] .av-acc-chart svg, html[data-print='view'] .av-cols { min-width: 0 !important; }
+  html[data-print='view'] .av-acc-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  html[data-print='view'] .av-stat { padding: 10px 12px; }
+  html[data-print='view'] .av-stat .v { font-size: 22px; }
+  html[data-print='view'] .av-stat .l, html[data-print='view'] .av-stat .s { font-size: 10.5px; }
+  html[data-print='view'] .av-acc { gap: 14px; page: av-wide; }
+  html[data-print='view'] .av-bars .nm { white-space: normal; }
+  html[data-print='view'] .av-page footer { display: none; }
+  html[data-print='view'] .av-sec-p, html[data-print='view'] .av-sec-sub { font-size: 10.5px; }
+  html[data-print='view'] .av-tag { height: 18px; margin-bottom: 5px; font-size: 8.5px; }
+  html[data-print='view'] .av-ledger, html[data-print='view'] .av-trio { grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); }
+  html[data-print='view'] .av-ledger .v, html[data-print='view'] .av-trio .av-fig { font-size: 20px; }
+  html[data-print='view'] .av-ledger-c, html[data-print='view'] .av-trio > * { padding: 10px 12px; }
+  html[data-print='view'] .av-table { font-size: 10.5px; }
+  html[data-print='view'] .av-table td, html[data-print='view'] .av-table th { padding: 6px 8px; }
+  html[data-print='view'] .av-note, html[data-print='view'] .av-notice, html[data-print='view'] .av-check-r .e { font-size: 10.5px; }
+  html[data-print='view'] .av-check-r { padding: 12px 14px; grid-template-columns: 5.5rem minmax(0, 1fr) auto; }
+  html[data-print='view'] .av-check-r .f { font-size: 18px; }
+  html[data-print='view'] .av-check-h { padding: 12px 14px; }
+  html[data-print='view'] .custom-scrollbar { overflow: visible !important; }
+  html[data-print='view'] .av-table, html[data-print='view'] .av-chart { min-width: 0 !important; }
+  html[data-print='view'] [class*='lg:grid-cols-2'], html[data-print='view'] [class*='md:grid-cols-2'] { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  html[data-print='view'] .av-gauge svg { width: 150px; height: auto; }
+  html[data-print='view'] * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Ang buwanang talaan (12 buwan + kabuuan) ay pahiga; ang iba ay patayo. */
+  @page av-wide { size: A4 landscape; margin: 13mm 12mm; }
+}
 `;
